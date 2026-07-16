@@ -1,0 +1,55 @@
+-- Run this in Supabase SQL Editor (or psql against the connection string).
+create extension if not exists pgcrypto;
+
+create table if not exists users_exposure_academy (
+  id uuid primary key default gen_random_uuid(),
+  username text unique not null,
+  password_hash text not null,
+  display_name text not null,
+  is_admin boolean not null default false,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists sessions_exposure_academy (
+  token text primary key,
+  user_id uuid not null references users_exposure_academy(id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists videos_exposure_academy (
+  id uuid primary key default gen_random_uuid(),
+  youtube_id text not null,
+  title text not null,
+  level text not null check (level in ('PRESEED','SEED','SERIES_A')),
+  position int not null default 0,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists watch_progress_exposure_academy (
+  user_id uuid not null references users_exposure_academy(id) on delete cascade,
+  video_id uuid not null references videos_exposure_academy(id) on delete cascade,
+  seconds_watched real not null default 0,   -- accumulated watch time (rewatch counts)
+  max_position real not null default 0,      -- furthest point reached, seconds
+  duration real not null default 0,          -- video length, seconds (from player)
+  updated_at timestamptz not null default now(),
+  primary key (user_id, video_id)
+);
+
+create table if not exists tasks_exposure_academy (
+  id uuid primary key default gen_random_uuid(),
+  title text not null,
+  description text not null,
+  level text not null check (level in ('PRESEED','SEED','SERIES_A')),
+  created_at timestamptz not null default now()
+);
+
+create table if not exists submissions_exposure_academy (
+  id uuid primary key default gen_random_uuid(),
+  task_id uuid not null references tasks_exposure_academy(id) on delete cascade,
+  user_id uuid not null references users_exposure_academy(id) on delete cascade,
+  repo_url text not null,
+  status text not null default 'pending' check (status in ('pending','reviewing','passed','failed')),
+  feedback text,
+  demo_video_url text,
+  created_at timestamptz not null default now()
+);
