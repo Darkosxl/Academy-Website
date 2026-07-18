@@ -100,7 +100,8 @@ body:not(.portal) .btn-dark {
   transition:all 200ms;
 }
 body:not(.portal) .btn-dark:hover { background:var(--blue); }
-body:not(.portal) .btn-dark.big { width:100%; padding:14px; }
+body:not(.portal) .btn-dark.big { padding:14px 32px; }
+.loginbox .btn-dark.big { width:100%; }
 
 .hero { text-align:center; padding:110px 20px; position:relative; }
 .hero::before {
