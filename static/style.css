@@ -234,6 +234,67 @@ table.mini { margin-top:16px; }
 form.inline { display:flex; gap:6px; align-items:center; }
 form.inline input, form.inline select { margin-top:0; width:auto; }
 
+/* ---- sidebar icons ---- */
+.sidebar .ico { width:20px; height:20px; flex-shrink:0; }
+.sidebar a span, .sidebar .linklike span { min-width:0; }
+
+/* ============================================================================
+   DARK MEMBER PORTAL  (logged-in shell — matches Exposure's admin/portal)
+   Scoped to <body class="portal">; public landing/login stay light.
+   ============================================================================ */
+.portal {
+  --d-bg:#000000; --d-panel:#09090b; --d-card:#18181b;
+  --d-border:#27272a; --d-border-soft:#18181b;
+  --d-text:#d4d4d8; --d-text-strong:#fafafa; --d-muted:#a1a1aa; --d-subtle:#71717a;
+  background:var(--d-bg); color:var(--d-text);
+}
+.portal h1, .portal h2, .portal h3, .portal h4,
+.portal .pagetitle, .portal .vtitle { color:var(--d-text-strong); }
+.portal .muted, .portal .meta { color:var(--d-muted); }
+
+/* topbar */
+.portal .topbar { background:rgba(9,9,11,0.90); border-bottom-color:var(--d-border-soft); }
+.portal .logo-word { color:#fff; }
+.portal .logo-tag { color:var(--d-subtle); }
+
+/* sidebar rail */
+.portal .sidebar { background:var(--d-panel); border-right:1px solid var(--d-border-soft); }
+.portal .sidebar a, .portal .sidebar .linklike { color:var(--d-text); }
+.portal .sidebar a:hover, .portal .sidebar .linklike:hover { background:#18181b; color:#fff; }
+.portal .sidebar a.active { background:rgba(3,57,166,0.20); color:#60A5FA; }
+.portal .sidebar hr { border-top-color:var(--d-border-soft); }
+.portal .sidebar .head, .portal .playlist .head { color:var(--d-subtle); }
+
+/* cards / panels */
+.portal .panel, .portal .taskcard { background:var(--d-card); border-color:var(--d-border); box-shadow:none; }
+.portal .taskcard:hover { border-color:#3f3f46; box-shadow:none; }
+
+/* inputs */
+.portal label { color:var(--d-muted); }
+.portal input, .portal select, .portal textarea {
+  background:var(--d-card); border-color:var(--d-border); color:var(--d-text-strong); box-shadow:none;
+}
+.portal input::placeholder, .portal textarea::placeholder { color:var(--d-subtle); }
+.portal input:focus, .portal select:focus, .portal textarea:focus {
+  border-color:var(--brand-blue); box-shadow:0 0 0 3px rgba(3,57,166,0.25);
+}
+
+/* tables */
+.portal table { background:var(--d-card); }
+.portal th, .portal td { border-bottom-color:var(--d-border); }
+.portal th { color:var(--d-subtle); }
+.portal td { color:var(--d-text); }
+
+/* chips */
+.portal .chip { background:var(--d-card); border-color:var(--d-border); color:var(--d-text); box-shadow:none; }
+.portal .chip:hover { border-color:var(--brand-blue); color:#60A5FA; }
+.portal .chip.active { background:var(--brand-blue); color:#fff; border-color:var(--brand-blue); }
+
+/* playlist + feedback */
+.portal .plitem:hover { background:#18181b; }
+.portal .plitem.current { background:rgba(3,57,166,0.20); color:#60A5FA; }
+.portal .feedback { background:#0f0f11; border-color:var(--d-border); color:var(--d-text); }
+
 /* ---- responsive ---- */
 @media (max-width:760px) {
   .layout { flex-direction:column; }

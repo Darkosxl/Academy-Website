@@ -13,33 +13,51 @@ pub fn level_name(l: &str) -> &'static str {
     LEVELS.iter().find(|(k, _)| *k == l).map(|(_, v)| *v).unwrap_or("?")
 }
 
+// Heroicons v2 (outline, 24x24, 1.5 stroke) — sized/colored via CSS (currentColor).
+fn ico(path: &str) -> String {
+    format!(r##"<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="{path}"/></svg>"##)
+}
+const P_HOME: &str = "m2.25 12 8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25";
+const P_BOARD: &str = "M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 0 0 2.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 0 0-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75 2.25 2.25 0 0 0-.1-.664m-5.8 0A2.251 2.251 0 0 1 13.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25Z";
+const P_HARNESS: &str = "M8.25 3v1.5M4.5 8.25H3m18 0h-1.5M4.5 12H3m18 0h-1.5m-15 3.75H3m18 0h-1.5M8.25 19.5V21M12 3v1.5m0 15V21m3.75-18v1.5m0 15V21m-9-1.5h10.5a2.25 2.25 0 0 0 2.25-2.25V6.75a2.25 2.25 0 0 0-2.25-2.25H6.75A2.25 2.25 0 0 0 4.5 6.75v10.5a2.25 2.25 0 0 0 2.25 2.25Zm.75-12h9v9h-9v-9Z";
+const P_MONOPOLY: &str = "M14.25 6.087c0-.355.186-.676.401-.959.221-.29.349-.634.349-1.003 0-1.036-1.007-1.875-2.25-1.875s-2.25.84-2.25 1.875c0 .369.128.713.349 1.003.215.283.401.604.401.959v0a.64.64 0 0 1-.657.643 48.39 48.39 0 0 1-4.163-.3c.186 1.613.293 3.25.315 4.907a.656.656 0 0 1-.658.663v0c-.355 0-.676-.186-.959-.401a1.647 1.647 0 0 0-1.003-.349c-1.036 0-1.875 1.007-1.875 2.25s.84 2.25 1.875 2.25c.369 0 .713-.128 1.003-.349.283-.215.604-.401.959-.401v0c.31 0 .555.26.532.57a48.039 48.039 0 0 1-.642 5.056c1.518.19 3.058.309 4.616.354a.64.64 0 0 0 .657-.643v0c0-.355-.186-.676-.401-.959a1.647 1.647 0 0 1-.349-1.003c0-1.035 1.008-1.875 2.25-1.875 1.243 0 2.25.84 2.25 1.875 0 .369-.128.713-.349 1.003-.215.283-.4.604-.4.959v0c0 .333.277.599.61.58a48.1 48.1 0 0 0 5.427-.63 48.05 48.05 0 0 0 .582-4.717.532.532 0 0 0-.533-.57v0c-.355 0-.676.186-.959.401-.29.221-.634.349-1.003.349-1.035 0-1.875-1.007-1.875-2.25s.84-2.25 1.875-2.25c.37 0 .713.128 1.003.349.283.215.604.401.96.401v0a.656.656 0 0 0 .658-.663 48.422 48.422 0 0 0-.37-5.36c-1.676.24-3.37.404-5.082.484a.638.638 0 0 1-.667-.643v0Z";
+const P_ADMIN: &str = "M11.42 15.17 17.25 21A2.652 2.652 0 0 0 21 17.25l-5.877-5.877M11.42 15.17l2.496-3.03c.317-.384.74-.626 1.208-.766M11.42 15.17l-4.655 5.653a2.548 2.548 0 1 1-3.586-3.586l6.837-5.63m5.108-.233c.55-.164 1.163-.188 1.743-.14a4.5 4.5 0 0 0 4.486-6.336l-3.276 3.277a3.004 3.004 0 0 1-2.25-2.25l3.276-3.276a4.5 4.5 0 0 0-6.336 4.486c.091 1.076-.071 2.264-.904 2.95l-.102.085m-1.745 1.437L5.909 7.5H4.5L2.25 3.75l1.5-1.5L7.5 4.5v1.409l4.26 4.26m-1.745 1.437 1.745-1.437m6.615 8.206L15.75 15.75M4.867 19.125h.008v.008h-.008v-.008Z";
+const P_LOGOUT: &str = "M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15M12 9l-3 3m0 0 3 3m-3-3h12.75";
+
+fn nav_link(href: &str, page: &str, key: &str, icon: &str, label: &str) -> String {
+    let active = if page == key { "active" } else { "" };
+    format!(r#"<a href="{href}" class="{active}">{icon}<span>{label}</span></a>"#)
+}
+
 fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> String {
     let sidebar = match user {
         None => String::new(),
         Some(u) => {
             let admin_link = if u.is_admin {
-                r##"<a href="/admin" class="ADMIN_ACTIVE">🛠 Yönetici paneli</a>"##.replace("ADMIN_ACTIVE", if active == "admin" { "active" } else { "" })
+                nav_link("/admin", active, "admin", &ico(P_ADMIN), "Yönetici paneli")
             } else {
                 String::new()
             };
             format!(
                 r##"<aside class="sidebar">
-  <a href="/app" class="{home}">🏠 Ana Sayfa</a>
-  <a href="/board" class="{board}">🗂 Görev Panosu</a>
+  {home}
+  {board}
   <hr>
-  <a href="/agentic-harness" class="{harness}">🤖 Agentic Harness (1. Hafta)</a>
-  <a href="/ai-monopoly" class="{monopoly}">🎲 AI Monopoly (2. Hafta)</a>
+  {harness}
+  {monopoly}
   <hr>
   {admin_link}
-  <form method="post" action="/logout"><button class="linklike">🚪 Oturumu kapat</button></form>
+  <form method="post" action="/logout"><button class="linklike">{logout_ico}<span>Oturumu kapat</span></button></form>
 </aside>"##,
-                home = if active == "home" { "active" } else { "" },
-                board = if active == "board" { "active" } else { "" },
-                harness = if active == "agentic-harness" { "active" } else { "" },
-                monopoly = if active == "ai-monopoly" { "active" } else { "" },
+                home = nav_link("/app", active, "home", &ico(P_HOME), "Ana Sayfa"),
+                board = nav_link("/board", active, "board", &ico(P_BOARD), "Görev Panosu"),
+                harness = nav_link("/agentic-harness", active, "agentic-harness", &ico(P_HARNESS), "Agentic Harness (1. Hafta)"),
+                monopoly = nav_link("/ai-monopoly", active, "ai-monopoly", &ico(P_MONOPOLY), "AI Monopoly (2. Hafta)"),
+                logout_ico = ico(P_LOGOUT),
             )
         }
     };
+    let body_class = if user.is_some() { "portal" } else { "" };
     let avatar = user
         .map(|u| format!(r#"<div class="avatar" title="{}">{}</div>"#, esc(&u.display_name), esc(&u.display_name.chars().next().unwrap_or('?').to_string())))
         .unwrap_or_else(|| r##"<a class="btn-dark" href="/login">Oturum aç</a>"##.into());
@@ -54,7 +72,7 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/style.css">
 </head>
-<body>
+<body class="{body_class}">
 <header class="topbar">
   <a class="logo" href="/">
     <svg class="logo-mark" width="24" height="24" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
