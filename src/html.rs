@@ -93,6 +93,7 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title} — Exposure Academy</title>
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/style.css?v=4">
