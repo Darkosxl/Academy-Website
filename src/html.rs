@@ -95,7 +95,7 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
 <title>{title} — Exposure Academy</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/style.css?v=3">
 </head>
 <body class="{body_class}">
 {shell}
