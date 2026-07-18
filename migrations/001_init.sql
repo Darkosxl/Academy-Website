@@ -3,12 +3,40 @@ create extension if not exists pgcrypto;
 
 create table if not exists users_exposure_academy (
   id uuid primary key default gen_random_uuid(),
-  username text unique not null,
-  password_hash text not null,
+  email text unique not null,
   display_name text not null,
   is_admin boolean not null default false,
   created_at timestamptz not null default now()
 );
+
+-- migrating existing deployments off username/password to email-based magic-link auth
+alter table users_exposure_academy add column if not exists email text;
+delete from users_exposure_academy where email is null; -- pre-launch, no real student data to preserve
+alter table users_exposure_academy drop column if exists username;
+alter table users_exposure_academy drop column if exists password_hash;
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'users_exposure_academy_email_key') then
+    alter table users_exposure_academy add constraint users_exposure_academy_email_key unique (email);
+  end if;
+end $$;
+alter table users_exposure_academy alter column email set not null;
+
+create table if not exists magic_links_exposure_academy (
+  token text primary key,
+  email text not null,
+  expires_at timestamptz not null,
+  used_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists app_settings_exposure_academy (
+  key text primary key,
+  value text not null,
+  updated_at timestamptz not null default now()
+);
+insert into app_settings_exposure_academy (key, value)
+  values ('invite_code', encode(gen_random_bytes(6), 'hex'))
+  on conflict (key) do nothing;
 
 create table if not exists sessions_exposure_academy (
   token text primary key,

@@ -27,19 +27,16 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
   <a href="/app" class="{home}">🏠 Ana Sayfa</a>
   <a href="/board" class="{board}">🗂 Görev Panosu</a>
   <hr>
-  <p class="head">Seviyeler</p>
-  <a href="/app?level=PRESEED" class="{pre}">PRESEED</a>
-  <a href="/app?level=SEED" class="{seed}">SEED</a>
-  <a href="/app?level=SERIES_A" class="{sa}">SERIES A</a>
+  <a href="/agentic-harness" class="{harness}">🤖 Agentic Harness (1. Hafta)</a>
+  <a href="/ai-monopoly" class="{monopoly}">🎲 AI Monopoly (2. Hafta)</a>
   <hr>
   {admin_link}
   <form method="post" action="/logout"><button class="linklike">🚪 Oturumu kapat</button></form>
 </aside>"##,
                 home = if active == "home" { "active" } else { "" },
                 board = if active == "board" { "active" } else { "" },
-                pre = if active == "PRESEED" { "active" } else { "" },
-                seed = if active == "SEED" { "active" } else { "" },
-                sa = if active == "SERIES_A" { "active" } else { "" },
+                harness = if active == "agentic-harness" { "active" } else { "" },
+                monopoly = if active == "ai-monopoly" { "active" } else { "" },
             )
         }
     };
@@ -83,18 +80,52 @@ pub fn landing() -> String {
 </section>"##)
 }
 
-pub fn login(error: bool) -> String {
-    let err = if error { r#"<p class="error">Yanlış kullanıcı adı veya şifre</p>"# } else { "" };
+pub fn login(msg: Option<&str>) -> String {
+    let notice = msg.map(|m| format!(r#"<p class="notice">{}</p>"#, esc(m))).unwrap_or_default();
     layout("Oturum aç", None, "", &format!(r##"
 <div class="loginbox">
   <h1>Oturum aç</h1>
-  {err}
+  {notice}
   <form method="post" action="/login">
-    <label>Kullanıcı adı<input name="username" required autofocus></label>
-    <label>Şifre<input name="password" type="password" required></label>
-    <button class="btn-dark big">Oturum aç →</button>
+    <label>E-posta<input name="email" type="email" required autofocus></label>
+    <button class="btn-dark big">Giriş bağlantısı gönder →</button>
+  </form>
+  <p class="muted">Hesabın yok mu? <a href="/join">Davet koduyla katıl</a></p>
+</div>"##))
+}
+
+pub fn join(error: Option<&str>) -> String {
+    let err = error.map(|e| format!(r#"<p class="error">{}</p>"#, esc(e))).unwrap_or_default();
+    layout("Katıl", None, "", &format!(r##"
+<div class="loginbox">
+  <h1>Davet koduyla katıl</h1>
+  {err}
+  <form method="post" action="/join">
+    <label>E-posta<input name="email" type="email" required autofocus></label>
+    <label>Davet kodu<input name="code" required></label>
+    <button class="btn-dark big">Katıl →</button>
   </form>
 </div>"##))
+}
+
+pub fn join_success() -> String {
+    layout("Katıl", None, "", r##"
+<div class="loginbox">
+  <h1>Hesabın hazır</h1>
+  <p>Giriş yapmak için <a href="/login">oturum aç sayfasından</a> e-postana bir giriş bağlantısı iste.</p>
+</div>"##)
+}
+
+pub fn agentic_harness(user: &User) -> String {
+    layout("Agentic Harness", Some(user), "agentic-harness", r##"
+<h1>Agentic Harness — 1. Hafta</h1>
+<p class="muted">Yakında burada.</p>"##)
+}
+
+pub fn ai_monopoly(user: &User) -> String {
+    layout("AI Monopoly", Some(user), "ai-monopoly", r##"
+<h1>AI Monopoly — 2. Hafta</h1>
+<p class="muted">Yakında burada.</p>"##)
 }
 
 pub fn video_grid(user: &User, videos: &[VideoWithProgress], level: Option<&str>) -> String {
@@ -209,7 +240,7 @@ pub fn board(user: &User, tasks: &[Task], subs: &[SubmissionView]) -> String {
         r##"<h1 class="pagetitle">Görev Panosu</h1><p class="muted">Projenizi gönderin — GitHub deposu bağlantısı yeterli.</p><div class="tasks">{task_cards}</div>"##))
 }
 
-pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[Video], tasks: &[Task]) -> String {
+pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[Video], tasks: &[Task], invite_code: &str) -> String {
     let level_opts: String = LEVELS.iter().map(|(k, v)| format!(r#"<option value="{k}">{v}</option>"#)).collect();
     let stat_rows: String = stats.iter().map(|s| {
         let pct = if s.duration > 0.0 { (s.max_position / s.duration * 100.0).min(100.0) } else { 0.0 };
@@ -272,10 +303,18 @@ pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[
 <section class="panel">
   <h2>Öğrenci ekle</h2>
   <form method="post" action="/admin/user">
-    <label>Kullanıcı adı<input name="username" required></label>
+    <label>E-posta<input name="email" type="email" required></label>
     <label>İsim<input name="display_name" required></label>
-    <label>Şifre<input name="password" required></label>
     <button class="btn-dark">Kaydet</button>
+  </form>
+</section>
+
+<section class="panel">
+  <h2>Davet kodu</h2>
+  <p class="muted">Öğrenciler bu kodu <a href="/join">/join</a> sayfasında e-postalarıyla girerek kendi hesaplarını açar.</p>
+  <input value="{invite_code}" readonly>
+  <form method="post" action="/admin/invite">
+    <button class="btn-dark">Kodu yenile</button>
   </form>
 </section>
 </div>

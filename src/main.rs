@@ -8,7 +8,6 @@ use axum::{
     response::{Html, IntoResponse, Redirect, Response},
     routing::{get, post},
 };
-use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier, password_hash::SaltString};
 use rand::RngCore;
 use serde::Deserialize;
 use sqlx::PgPool;
@@ -20,6 +19,10 @@ use model::*;
 struct App {
     pool: PgPool,
     worker_token: String,
+    http: reqwest::Client,
+    resend_key: String,
+    mail_from: String,
+    base_url: String,
 }
 
 #[tokio::main]
@@ -33,17 +36,29 @@ async fn main() {
     // idempotent schema + seed admin
     sqlx::raw_sql(include_str!("../migrations/001_init.sql")).execute(&pool).await.expect("migration failed");
     seed_admin(&pool).await;
+    seed_invite_code(&pool).await;
+    // opportunistic cleanup of stale magic links, no scheduler needed
+    let _ = sqlx::query("delete from magic_links_exposure_academy where expires_at < now() - interval '1 day'")
+        .execute(&pool).await;
 
     let app = App {
         pool,
         worker_token: std::env::var("WORKER_TOKEN").unwrap_or_default(),
+        http: reqwest::Client::new(),
+        resend_key: std::env::var("RESEND_API_KEY").expect("RESEND_API_KEY missing (.env)"),
+        mail_from: std::env::var("MAIL_FROM").expect("MAIL_FROM missing (.env)"),
+        base_url: std::env::var("APP_BASE_URL").expect("APP_BASE_URL missing (.env)"),
     };
 
     let router = Router::new()
         .route("/", get(landing))
         .route("/login", get(login_page).post(login_post))
+        .route("/magic/{token}", get(magic_consume))
+        .route("/join", get(join_page).post(join_post))
         .route("/logout", post(logout))
         .route("/app", get(video_grid))
+        .route("/agentic-harness", get(agentic_harness))
+        .route("/ai-monopoly", get(ai_monopoly))
         .route("/watch/{id}", get(watch))
         .route("/api/progress", post(progress))
         .route("/board", get(board))
@@ -53,6 +68,7 @@ async fn main() {
         .route("/admin/task", post(admin_task))
         .route("/admin/user", post(admin_user))
         .route("/admin/review", post(admin_review))
+        .route("/admin/invite", post(admin_rotate_invite))
         .route("/api/worker/pending", get(worker_pending))
         .route("/api/worker/result", post(worker_result))
         .nest_service("/static", tower_http::services::ServeDir::new("static"))
@@ -65,23 +81,51 @@ async fn main() {
 }
 
 async fn seed_admin(pool: &PgPool) {
-    let (Ok(u), Ok(p)) = (std::env::var("ADMIN_USERNAME"), std::env::var("ADMIN_PASSWORD")) else { return };
-    let exists: Option<(Uuid,)> = sqlx::query_as("select id from users_exposure_academy where username = $1")
-        .bind(&u).fetch_optional(pool).await.unwrap();
-    if exists.is_none() {
-        sqlx::query("insert into users_exposure_academy (username, password_hash, display_name, is_admin) values ($1,$2,$3,true)")
-            .bind(&u).bind(hash_pw(&p)).bind(&u).execute(pool).await.unwrap();
-        println!("admin '{u}' created");
+    let Ok(email) = std::env::var("ADMIN_EMAIL") else { return };
+    let email = email.trim().to_lowercase();
+    let exists: Option<(Uuid,)> = sqlx::query_as("select id from users_exposure_academy where email = $1")
+        .bind(&email).fetch_optional(pool).await.unwrap();
+    match exists {
+        None => {
+            sqlx::query("insert into users_exposure_academy (email, display_name, is_admin) values ($1,$2,true)")
+                .bind(&email).bind(&email).execute(pool).await.unwrap();
+            println!("admin '{email}' seeded");
+        }
+        Some(_) => {
+            sqlx::query("update users_exposure_academy set is_admin = true where email = $1")
+                .bind(&email).execute(pool).await.unwrap();
+        }
     }
 }
 
-fn hash_pw(pw: &str) -> String {
-    let salt = SaltString::generate(&mut rand::rngs::OsRng);
-    Argon2::default().hash_password(pw.as_bytes(), &salt).unwrap().to_string()
+async fn seed_invite_code(pool: &PgPool) {
+    let Ok(code) = std::env::var("INVITE_CODE") else { return };
+    sqlx::query(
+        "insert into app_settings_exposure_academy (key, value, updated_at) values ('invite_code', $1, now())
+         on conflict (key) do update set value = $1, updated_at = now()")
+        .bind(code.trim()).execute(pool).await.unwrap();
 }
 
-fn verify_pw(pw: &str, hash: &str) -> bool {
-    PasswordHash::new(hash).map(|h| Argon2::default().verify_password(pw.as_bytes(), &h).is_ok()).unwrap_or(false)
+fn random_token() -> String {
+    let mut buf = [0u8; 32];
+    rand::rngs::OsRng.fill_bytes(&mut buf);
+    buf.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+async fn send_magic_link_email(app: &App, to: &str, link: &str) {
+    let body = serde_json::json!({
+        "from": app.mail_from,
+        "to": [to],
+        "subject": "Giriş bağlantınız",
+        "html": format!(r#"<p><a href="{link}">Giriş yap</a> (15 dakika geçerli)</p>"#),
+    });
+    if let Err(e) = app.http.post("https://api.resend.com/emails")
+        .bearer_auth(&app.resend_key)
+        .json(&body)
+        .send().await
+    {
+        eprintln!("resend send failed: {e}");
+    }
 }
 
 // ---- session helpers ----
@@ -118,28 +162,76 @@ async fn landing() -> Html<String> {
 }
 
 async fn login_page() -> Html<String> {
-    Html(html::login(false))
+    Html(html::login(None))
 }
 
 #[derive(Deserialize)]
-struct LoginForm { username: String, password: String }
+struct LoginForm { email: String }
+
+const CHECK_EMAIL_MSG: &str = "Eğer bu e-posta kayıtlıysa, giriş bağlantısı gönderildi.";
 
 async fn login_post(State(app): State<App>, Form(f): Form<LoginForm>) -> Response {
-    let row: Option<(Uuid, String)> = sqlx::query_as("select id, password_hash from users_exposure_academy where username = $1")
-        .bind(&f.username).fetch_optional(&app.pool).await.unwrap();
-    let Some((uid, hash)) = row else { return Html(html::login(true)).into_response() };
-    if !verify_pw(&f.password, &hash) {
-        return Html(html::login(true)).into_response();
+    let email = f.email.trim().to_lowercase();
+    let allowed: Option<(Uuid,)> = sqlx::query_as("select id from users_exposure_academy where email = $1")
+        .bind(&email).fetch_optional(&app.pool).await.unwrap();
+    if allowed.is_some() {
+        let recent: Option<(i32,)> = sqlx::query_as(
+            "select 1 from magic_links_exposure_academy where email = $1 and used_at is null and created_at > now() - interval '60 seconds'")
+            .bind(&email).fetch_optional(&app.pool).await.unwrap();
+        if recent.is_none() {
+            let token = random_token();
+            sqlx::query("insert into magic_links_exposure_academy (token, email, expires_at) values ($1,$2, now() + interval '15 minutes')")
+                .bind(&token).bind(&email).execute(&app.pool).await.unwrap();
+            let link = format!("{}/magic/{}", app.base_url, token);
+            send_magic_link_email(&app, &email, &link).await;
+        }
     }
-    let mut buf = [0u8; 32];
-    rand::rngs::OsRng.fill_bytes(&mut buf);
-    let token: String = buf.iter().map(|b| format!("{b:02x}")).collect();
+    // same response whether or not the email is registered — avoids account enumeration
+    Html(html::login(Some(CHECK_EMAIL_MSG))).into_response()
+}
+
+async fn magic_consume(State(app): State<App>, Path(token): Path<String>) -> Response {
+    let row: Option<(String,)> = sqlx::query_as(
+        "update magic_links_exposure_academy set used_at = now()
+         where token = $1 and used_at is null and expires_at > now()
+         returning email")
+        .bind(&token).fetch_optional(&app.pool).await.unwrap();
+    let Some((email,)) = row else {
+        return Html(html::login(Some("Bağlantı geçersiz ya da süresi dolmuş, yeniden deneyin."))).into_response();
+    };
+    let user_id: Option<(Uuid,)> = sqlx::query_as("select id from users_exposure_academy where email = $1")
+        .bind(&email).fetch_optional(&app.pool).await.unwrap();
+    let Some((uid,)) = user_id else {
+        return Html(html::login(Some("Hesap bulunamadı."))).into_response();
+    };
+    let session_token = random_token();
     sqlx::query("insert into sessions_exposure_academy (token, user_id) values ($1,$2)")
-        .bind(&token).bind(uid).execute(&app.pool).await.unwrap();
+        .bind(&session_token).bind(uid).execute(&app.pool).await.unwrap();
     (
-        [(header::SET_COOKIE, format!("session={token}; HttpOnly; Path=/; Max-Age=31536000; SameSite=Lax"))],
+        [(header::SET_COOKIE, format!("session={session_token}; HttpOnly; Path=/; Max-Age=31536000; SameSite=Lax"))],
         Redirect::to("/app"),
     ).into_response()
+}
+
+async fn join_page() -> Html<String> {
+    Html(html::join(None))
+}
+
+#[derive(Deserialize)]
+struct JoinForm { email: String, code: String }
+
+async fn join_post(State(app): State<App>, Form(f): Form<JoinForm>) -> Response {
+    let email = f.email.trim().to_lowercase();
+    let current: Option<(String,)> = sqlx::query_as(
+        "select value from app_settings_exposure_academy where key = 'invite_code'")
+        .fetch_optional(&app.pool).await.unwrap();
+    let matches = current.map(|(v,)| v == f.code.trim()).unwrap_or(false);
+    if !matches {
+        return Html(html::join(Some("Davet kodu geçersiz."))).into_response();
+    }
+    sqlx::query("insert into users_exposure_academy (email, display_name) values ($1,$2) on conflict (email) do nothing")
+        .bind(&email).bind(&email).execute(&app.pool).await.unwrap();
+    Html(html::join_success()).into_response()
 }
 
 async fn logout(State(app): State<App>, headers: HeaderMap) -> Response {
@@ -154,6 +246,16 @@ async fn logout(State(app): State<App>, headers: HeaderMap) -> Response {
 
 #[derive(Deserialize)]
 struct LevelQ { level: Option<String> }
+
+async fn agentic_harness(State(app): State<App>, headers: HeaderMap) -> Result<Html<String>, Response> {
+    let user = require(current_user(&app, &headers).await)?;
+    Ok(Html(html::agentic_harness(&user)))
+}
+
+async fn ai_monopoly(State(app): State<App>, headers: HeaderMap) -> Result<Html<String>, Response> {
+    let user = require(current_user(&app, &headers).await)?;
+    Ok(Html(html::ai_monopoly(&user)))
+}
 
 async fn video_grid(State(app): State<App>, headers: HeaderMap, Query(q): Query<LevelQ>) -> Result<Html<String>, Response> {
     let user = require(current_user(&app, &headers).await)?;
@@ -255,7 +357,9 @@ async fn admin_page(State(app): State<App>, headers: HeaderMap) -> Result<Html<S
         .fetch_all(&app.pool).await.unwrap();
     let tasks = sqlx::query_as::<_, Task>("select id, title, description, level from tasks_exposure_academy order by created_at desc")
         .fetch_all(&app.pool).await.unwrap();
-    Ok(Html(html::admin(&user, &stats, &subs, &videos, &tasks)))
+    let invite_code: String = sqlx::query_scalar("select value from app_settings_exposure_academy where key = 'invite_code'")
+        .fetch_optional(&app.pool).await.unwrap().unwrap_or_default();
+    Ok(Html(html::admin(&user, &stats, &subs, &videos, &tasks, &invite_code)))
 }
 
 fn parse_youtube_id(input: &str) -> String {
@@ -293,13 +397,24 @@ async fn admin_task(State(app): State<App>, headers: HeaderMap, Form(f): Form<Ta
 }
 
 #[derive(Deserialize)]
-struct UserForm { username: String, display_name: String, password: String }
+struct UserForm { email: String, display_name: String }
 
 async fn admin_user(State(app): State<App>, headers: HeaderMap, Form(f): Form<UserForm>) -> Result<Redirect, Response> {
     require_admin(current_user(&app, &headers).await)?;
-    sqlx::query("insert into users_exposure_academy (username, password_hash, display_name) values ($1,$2,$3)")
-        .bind(&f.username).bind(hash_pw(&f.password)).bind(&f.display_name)
+    let email = f.email.trim().to_lowercase();
+    sqlx::query("insert into users_exposure_academy (email, display_name) values ($1,$2) on conflict (email) do nothing")
+        .bind(&email).bind(&f.display_name)
         .execute(&app.pool).await.map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
+    Ok(Redirect::to("/admin"))
+}
+
+async fn admin_rotate_invite(State(app): State<App>, headers: HeaderMap) -> Result<Redirect, Response> {
+    require_admin(current_user(&app, &headers).await)?;
+    let new_code = &random_token()[..8];
+    sqlx::query(
+        "insert into app_settings_exposure_academy (key, value, updated_at) values ('invite_code', $1, now())
+         on conflict (key) do update set value = $1, updated_at = now()")
+        .bind(new_code).execute(&app.pool).await.unwrap();
     Ok(Redirect::to("/admin"))
 }
 
