@@ -30,37 +30,62 @@ fn nav_link(href: &str, page: &str, key: &str, icon: &str, label: &str) -> Strin
 }
 
 fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> String {
-    let sidebar = match user {
-        None => String::new(),
+    let shell = match user {
         Some(u) => {
-            let admin_link = if u.is_admin {
-                nav_link("/admin", active, "admin", &ico(P_ADMIN), "Yönetici paneli")
+            let admin_block = if u.is_admin {
+                format!(
+                    r#"<div class="sb-head">Yönetim</div>{}"#,
+                    nav_link("/admin", active, "admin", &ico(P_ADMIN), "Yönetici paneli")
+                )
             } else {
                 String::new()
             };
             format!(
                 r##"<aside class="sidebar">
-  {home}
-  {board}
-  <hr>
-  {harness}
-  {monopoly}
-  <hr>
-  {admin_link}
-  <form method="post" action="/logout"><button class="linklike">{logout_ico}<span>Oturumu kapat</span></button></form>
-</aside>"##,
+  <div class="sb-brand">
+    <a href="/app"><img class="sb-logo" src="/static/exposure-logo.svg" alt="Exposure"></a>
+    <span class="portal-pill">AI Academy</span>
+  </div>
+  <nav class="sb-nav">
+    {home}
+    {board}
+    <div class="sb-head">Haftalar</div>
+    {harness}
+    {monopoly}
+    {admin_block}
+  </nav>
+  <div class="sb-footer">
+    <div class="sb-user">
+      <span class="avatar-fb">{initial}</span>
+      <span class="sb-name">{name}</span>
+      <form method="post" action="/logout"><button class="sb-logout" title="Oturumu kapat">{logout_ico}</button></form>
+    </div>
+  </div>
+</aside>
+<main class="portal-main"><div class="portal-inner">
+{content}
+</div></main>"##,
                 home = nav_link("/app", active, "home", &ico(P_HOME), "Ana Sayfa"),
                 board = nav_link("/board", active, "board", &ico(P_BOARD), "Görev Panosu"),
                 harness = nav_link("/agentic-harness", active, "agentic-harness", &ico(P_HARNESS), "Agentic Harness (1. Hafta)"),
                 monopoly = nav_link("/ai-monopoly", active, "ai-monopoly", &ico(P_MONOPOLY), "AI Monopoly (2. Hafta)"),
+                admin_block = admin_block,
+                initial = esc(&u.display_name.chars().next().unwrap_or('?').to_string()),
+                name = esc(&u.display_name),
                 logout_ico = ico(P_LOGOUT),
             )
         }
+        None => format!(
+            r##"<header class="topbar">
+  <a class="logo" href="/"><img class="topbar-logo" src="/static/exposure-logo-black.svg" alt="Exposure"><span class="logo-tag">AI Academy</span></a>
+  <a class="btn-dark" href="/login">Oturum aç</a>
+</header>
+<main class="public-main">
+{content}
+</main>"##
+        ),
     };
     let body_class = if user.is_some() { "portal" } else { "" };
-    let avatar = user
-        .map(|u| format!(r#"<div class="avatar" title="{}">{}</div>"#, esc(&u.display_name), esc(&u.display_name.chars().next().unwrap_or('?').to_string())))
-        .unwrap_or_else(|| r##"<a class="btn-dark" href="/login">Oturum aç</a>"##.into());
     format!(
         r##"<!DOCTYPE html>
 <html lang="tr">
@@ -73,24 +98,7 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body class="{body_class}">
-<header class="topbar">
-  <a class="logo" href="/">
-    <svg class="logo-mark" width="24" height="24" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-      <defs><linearGradient id="expMark" x1="0" y1="0" x2="40" y2="40" gradientUnits="userSpaceOnUse">
-        <stop offset="0" stop-color="#0339A6"/><stop offset="0.52" stop-color="#7C3AED"/><stop offset="1" stop-color="#E8763C"/>
-      </linearGradient></defs>
-      <path d="M38.804 36.493c.936 1.25-1.061 3.247-2.311 2.311-13.57-10.147-20.37-10.147-33.94 0-1.25.936-3.247-1.061-2.312-2.311 10.148-13.57 10.148-20.37 0-33.94-.935-1.25 1.062-3.247 2.312-2.311 13.57 10.147 20.37 10.147 33.94 0 1.25-.936 3.247 1.061 2.311 2.311-10.147 13.57-10.147 20.37 0 33.94Z" fill="url(#expMark)"/>
-    </svg>
-    <span class="logo-word">exposure</span><span class="logo-tag">AI ACADEMY</span>
-  </a>
-  {avatar}
-</header>
-<div class="layout">
-{sidebar}
-<main class="content">
-{content}
-</main>
-</div>
+{shell}
 </body>
 </html>"##,
         title = esc(title),
@@ -110,36 +118,46 @@ pub fn landing() -> String {
 pub fn login(msg: Option<&str>) -> String {
     let notice = msg.map(|m| format!(r#"<p class="notice">{}</p>"#, esc(m))).unwrap_or_default();
     layout("Oturum aç", None, "", &format!(r##"
-<div class="loginbox">
-  <h1>Oturum aç</h1>
-  {notice}
-  <form method="post" action="/login">
-    <label>E-posta<input name="email" type="email" required autofocus></label>
-    <button class="btn-dark big">Giriş bağlantısı gönder →</button>
-  </form>
-  <p class="muted">Hesabın yok mu? <a href="/join">Davet koduyla katıl</a></p>
+<div class="auth-wrap">
+  <div class="auth-dots"></div><div class="auth-glow"></div>
+  <div class="loginbox">
+    <h1>Oturum aç</h1>
+    <p class="auth-sub">Sana bir giriş bağlantısı gönderelim.</p>
+    {notice}
+    <form method="post" action="/login">
+      <label>E-posta<input name="email" type="email" required autofocus></label>
+      <button class="btn-dark big">Giriş bağlantısı gönder →</button>
+    </form>
+    <p class="muted">Hesabın yok mu? <a href="/join">Davet koduyla katıl</a></p>
+  </div>
 </div>"##))
 }
 
 pub fn join(error: Option<&str>) -> String {
     let err = error.map(|e| format!(r#"<p class="error">{}</p>"#, esc(e))).unwrap_or_default();
     layout("Katıl", None, "", &format!(r##"
-<div class="loginbox">
-  <h1>Davet koduyla katıl</h1>
-  {err}
-  <form method="post" action="/join">
-    <label>E-posta<input name="email" type="email" required autofocus></label>
-    <label>Davet kodu<input name="code" required></label>
-    <button class="btn-dark big">Katıl →</button>
-  </form>
+<div class="auth-wrap">
+  <div class="auth-dots"></div><div class="auth-glow"></div>
+  <div class="loginbox">
+    <h1>Davet koduyla katıl</h1>
+    {err}
+    <form method="post" action="/join">
+      <label>E-posta<input name="email" type="email" required autofocus></label>
+      <label>Davet kodu<input name="code" required></label>
+      <button class="btn-dark big">Katıl →</button>
+    </form>
+  </div>
 </div>"##))
 }
 
 pub fn join_success() -> String {
     layout("Katıl", None, "", r##"
-<div class="loginbox">
-  <h1>Hesabın hazır</h1>
-  <p>Giriş yapmak için <a href="/login">oturum aç sayfasından</a> e-postana bir giriş bağlantısı iste.</p>
+<div class="auth-wrap">
+  <div class="auth-dots"></div><div class="auth-glow"></div>
+  <div class="loginbox">
+    <h1>Hesabın hazır</h1>
+    <p class="auth-sub">Giriş yapmak için <a href="/login">oturum aç sayfasından</a> e-postana bir giriş bağlantısı iste.</p>
+  </div>
 </div>"##)
 }
 
