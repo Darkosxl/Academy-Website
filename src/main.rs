@@ -113,11 +113,47 @@ fn random_token() -> String {
 }
 
 async fn send_magic_link_email(app: &App, to: &str, link: &str) {
+    // Ensure a display name so clients don't show the bare address as sender.
+    let from = if app.mail_from.contains('<') {
+        app.mail_from.clone()
+    } else {
+        format!("Exposure Academy <{}>", app.mail_from)
+    };
+    // Email-client-safe HTML: table layout, inline styles, no external assets.
+    let html = format!(
+        r##"<!DOCTYPE html>
+<html lang="tr">
+<body style="margin:0;padding:0;background-color:#FFFCF6;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#FFFCF6;padding:40px 16px;">
+<tr><td align="center">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:440px;">
+    <tr><td style="padding:0 4px 20px 4px;">
+      <span style="font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;font-size:22px;font-weight:800;letter-spacing:-0.5px;color:#0D0D0D;">exposure</span>
+      <span style="font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;font-size:9px;font-weight:700;letter-spacing:3px;color:#a1a1aa;text-transform:uppercase;">&nbsp;AI ACADEMY</span>
+    </td></tr>
+    <tr><td style="background-color:#ffffff;border:1px solid #e8e4da;border-radius:16px;padding:36px 32px;">
+      <p style="margin:0 0 6px 0;font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;font-size:22px;font-weight:800;letter-spacing:-0.5px;color:#0D0D0D;">Oturum aç</p>
+      <p style="margin:0 0 26px 0;font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;font-size:14px;line-height:1.6;color:#71717a;">Exposure Academy hesabına giriş yapmak için aşağıdaki butona tıkla.</p>
+      <table role="presentation" cellpadding="0" cellspacing="0" width="100%"><tr><td align="center">
+        <a href="{link}" style="display:block;background-color:#0339A6;color:#ffffff;font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;font-size:14px;font-weight:700;letter-spacing:1px;text-transform:uppercase;text-decoration:none;padding:14px 24px;border-radius:12px;text-align:center;">Oturum a&ccedil; &rarr;</a>
+      </td></tr></table>
+      <p style="margin:26px 0 0 0;font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;font-size:12px;line-height:1.6;color:#a1a1aa;">Bu bağlantı <strong style="color:#71717a;">15 dakika</strong> geçerlidir ve yalnızca bir kez kullanılabilir.</p>
+      <p style="margin:8px 0 0 0;font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;font-size:12px;line-height:1.6;color:#a1a1aa;">Buton çalışmıyorsa bu bağlantıyı tarayıcına yapıştır:<br><a href="{link}" style="color:#0339A6;word-break:break-all;">{link}</a></p>
+    </td></tr>
+    <tr><td style="padding:20px 4px 0 4px;">
+      <p style="margin:0;font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;font-size:11px;line-height:1.6;color:#a1a1aa;">Bu e-postayı sen istemediysen görmezden gelebilirsin — hesabında hiçbir işlem yapılmaz.<br>&copy; Exposure Academy</p>
+    </td></tr>
+  </table>
+</td></tr>
+</table>
+</body>
+</html>"##
+    );
     let body = serde_json::json!({
-        "from": app.mail_from,
+        "from": from,
         "to": [to],
-        "subject": "Giriş bağlantınız",
-        "html": format!(r#"<p><a href="{link}">Giriş yap</a> (15 dakika geçerli)</p>"#),
+        "subject": "Exposure Academy giriş bağlantın",
+        "html": html,
     });
     if let Err(e) = app.http.post("https://api.resend.com/emails")
         .bearer_auth(&app.resend_key)
