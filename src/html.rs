@@ -50,12 +50,21 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title} — Exposure Academy</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800;900&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 <header class="topbar">
-  <a class="logo" href="/">exposure<span>AI ACADEMY</span></a>
+  <a class="logo" href="/">
+    <svg class="logo-mark" width="24" height="24" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <defs><linearGradient id="expMark" x1="0" y1="0" x2="40" y2="40" gradientUnits="userSpaceOnUse">
+        <stop offset="0" stop-color="#0339A6"/><stop offset="0.52" stop-color="#7C3AED"/><stop offset="1" stop-color="#E8763C"/>
+      </linearGradient></defs>
+      <path d="M38.804 36.493c.936 1.25-1.061 3.247-2.311 2.311-13.57-10.147-20.37-10.147-33.94 0-1.25.936-3.247-1.061-2.312-2.311 10.148-13.57 10.148-20.37 0-33.94-.935-1.25 1.062-3.247 2.312-2.311 13.57 10.147 20.37 10.147 33.94 0 1.25-.936 3.247 1.061 2.311 2.311-10.147 13.57-10.147 20.37 0 33.94Z" fill="url(#expMark)"/>
+    </svg>
+    <span class="logo-word">exposure</span><span class="logo-tag">AI ACADEMY</span>
+  </a>
   {avatar}
 </header>
 <div class="layout">
