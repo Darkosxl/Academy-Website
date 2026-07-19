@@ -182,6 +182,18 @@ async fn current_user(app: &App, headers: &HeaderMap) -> Option<User> {
         .bind(token).fetch_optional(&app.pool).await.ok()?
 }
 
+/// insert a 30-day session row and build the matching Set-Cookie + redirect to /app
+async fn issue_session(app: &App, uid: Uuid) -> Response {
+    let session_token = random_token();
+    sqlx::query("insert into sessions_exposure_academy (token, user_id, expires_at) values ($1,$2, now() + interval '30 days')")
+        .bind(&session_token).bind(uid).execute(&app.pool).await.unwrap();
+    (
+        // 2592000s = 30 days, matches the row's expires_at; the DB check is the one that counts
+        [(header::SET_COOKIE, format!("session={session_token}; HttpOnly; Secure; Path=/; Max-Age=2592000; SameSite=Lax"))],
+        Redirect::to("/app"),
+    ).into_response()
+}
+
 fn require(user: Option<User>) -> Result<User, Response> {
     user.ok_or_else(|| Redirect::to("/login").into_response())
 }
@@ -196,12 +208,19 @@ fn require_admin(user: Option<User>) -> Result<User, Response> {
 
 // ---- pages ----
 
-async fn landing() -> Html<String> {
-    Html(html::landing())
+async fn landing(State(app): State<App>, headers: HeaderMap) -> Response {
+    // valid session cookie -> straight to the portal, skip the marketing page
+    if current_user(&app, &headers).await.is_some() {
+        return Redirect::to("/app").into_response();
+    }
+    Html(html::landing()).into_response()
 }
 
-async fn login_page() -> Html<String> {
-    Html(html::login(None))
+async fn login_page(State(app): State<App>, headers: HeaderMap) -> Response {
+    if current_user(&app, &headers).await.is_some() {
+        return Redirect::to("/app").into_response();
+    }
+    Html(html::login(None)).into_response()
 }
 
 #[derive(Deserialize)]
@@ -243,14 +262,7 @@ async fn magic_consume(State(app): State<App>, Path(token): Path<String>) -> Res
     let Some((uid,)) = user_id else {
         return Html(html::login(Some("Hesap bulunamadı."))).into_response();
     };
-    let session_token = random_token();
-    sqlx::query("insert into sessions_exposure_academy (token, user_id, expires_at) values ($1,$2, now() + interval '30 days')")
-        .bind(&session_token).bind(uid).execute(&app.pool).await.unwrap();
-    (
-        // 2592000s = 30 days, matches the row's expires_at; the DB check is the one that counts
-        [(header::SET_COOKIE, format!("session={session_token}; HttpOnly; Secure; Path=/; Max-Age=2592000; SameSite=Lax"))],
-        Redirect::to("/app"),
-    ).into_response()
+    issue_session(&app, uid).await
 }
 
 async fn join_page() -> Html<String> {
@@ -269,9 +281,13 @@ async fn join_post(State(app): State<App>, Form(f): Form<JoinForm>) -> Response 
     if !matches {
         return Html(html::join(Some("Davet kodu geçersiz."))).into_response();
     }
-    sqlx::query("insert into users_exposure_academy (email, display_name) values ($1,$2) on conflict (email) do nothing")
-        .bind(&email).bind(&email).execute(&app.pool).await.unwrap();
-    Html(html::join_success()).into_response()
+    // upsert so re-joining with a valid code logs an existing kid straight back in
+    let (uid,): (Uuid,) = sqlx::query_as(
+        "insert into users_exposure_academy (email, display_name) values ($1,$2)
+         on conflict (email) do update set email = excluded.email
+         returning id")
+        .bind(&email).bind(&email).fetch_one(&app.pool).await.unwrap();
+    issue_session(&app, uid).await
 }
 
 async fn logout(State(app): State<App>, headers: HeaderMap) -> Response {

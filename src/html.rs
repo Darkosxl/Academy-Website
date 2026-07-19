@@ -155,16 +155,6 @@ pub fn join(error: Option<&str>) -> String {
 </div>"##))
 }
 
-pub fn join_success() -> String {
-    layout("Katıl", None, "", r##"
-<div class="auth-wrap">
-  <div class="auth-dots"></div><div class="auth-glow"></div>
-  <div class="loginbox">
-    <h1>Hesabın hazır</h1>
-    <p class="auth-sub">Giriş yapmak için <a href="/login">oturum aç sayfasından</a> e-postana bir giriş bağlantısı iste.</p>
-  </div>
-</div>"##)
-}
 
 pub fn agentic_harness(user: &User) -> String {
     layout("Agentic Harness", Some(user), "agentic-harness", r##"
