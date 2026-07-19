@@ -189,15 +189,21 @@ const DEMOS: [(&str, &str, &str); 7] = [
     ("package-manager-demo.html", "Paket Yöneticisi Nedir?", "Paket yöneticileri ne işe yarar"),
 ];
 
-pub fn demos(user: &User) -> String {
+pub fn demos(user: &User, lang: &str) -> String {
+    // lang is validated to "tr" | "en" by the handler; files live in static/demos/{lang}/
     let cards: String = DEMOS.iter().map(|(file, title, desc)| format!(
-        r##"<a class="panel demo-card" href="/static/demos/{file}" target="_blank" rel="noopener">
+        r##"<a class="panel demo-card" href="/static/demos/{lang}/{file}" target="_blank" rel="noopener">
   <h3>{title}</h3>
   <p class="meta">{desc}</p>
 </a>"##)).collect();
+    let chips: String = [("tr", "Türkçe"), ("en", "English")].iter().map(|(k, label)| {
+        let active = if lang == *k { "active" } else { "" };
+        format!(r#"<a class="chip {active}" href="/demos?lang={k}">{label}</a>"#)
+    }).collect();
     let content = format!(
         r##"<h1 class="pagetitle">Video Demoları</h1>
 <p class="muted">Derslerde kullanılan interaktif demolar. Yeni sekmede açılır.</p>
+<div class="chips">{chips}</div>
 <div class="admingrid">{cards}</div>"##);
     layout("Video Demoları", Some(user), "demos", &content)
 }

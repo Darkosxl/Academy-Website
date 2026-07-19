@@ -297,9 +297,13 @@ async fn ai_monopoly(State(app): State<App>, headers: HeaderMap) -> Result<Html<
     Ok(Html(html::ai_monopoly(&user)))
 }
 
-async fn demos(State(app): State<App>, headers: HeaderMap) -> Result<Html<String>, Response> {
+#[derive(Deserialize)]
+struct LangQ { lang: Option<String> }
+
+async fn demos(State(app): State<App>, headers: HeaderMap, Query(q): Query<LangQ>) -> Result<Html<String>, Response> {
     let user = require(current_user(&app, &headers).await)?;
-    Ok(Html(html::demos(&user)))
+    let lang = if q.lang.as_deref() == Some("en") { "en" } else { "tr" };
+    Ok(Html(html::demos(&user, lang)))
 }
 
 async fn video_grid(State(app): State<App>, headers: HeaderMap, Query(q): Query<LevelQ>) -> Result<Html<String>, Response> {
