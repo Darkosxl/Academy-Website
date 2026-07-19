@@ -37,8 +37,10 @@ async fn main() {
     sqlx::raw_sql(include_str!("../migrations/001_init.sql")).execute(&pool).await.expect("migration failed");
     seed_admin(&pool).await;
     seed_invite_code(&pool).await;
-    // opportunistic cleanup of stale magic links, no scheduler needed
+    // opportunistic cleanup of stale magic links and sessions, no scheduler needed
     let _ = sqlx::query("delete from magic_links_exposure_academy where expires_at < now() - interval '1 day'")
+        .execute(&pool).await;
+    let _ = sqlx::query("delete from sessions_exposure_academy where expires_at < now()")
         .execute(&pool).await;
 
     let app = App {
@@ -175,7 +177,7 @@ fn cookie_token(headers: &HeaderMap) -> Option<String> {
 async fn current_user(app: &App, headers: &HeaderMap) -> Option<User> {
     let token = cookie_token(headers)?;
     sqlx::query_as::<_, User>(
-        "select u.id, u.display_name, u.is_admin from sessions_exposure_academy s join users_exposure_academy u on u.id = s.user_id where s.token = $1")
+        "select u.id, u.display_name, u.is_admin from sessions_exposure_academy s join users_exposure_academy u on u.id = s.user_id where s.token = $1 and s.expires_at > now()")
         .bind(token).fetch_optional(&app.pool).await.ok()?
 }
 
@@ -241,10 +243,11 @@ async fn magic_consume(State(app): State<App>, Path(token): Path<String>) -> Res
         return Html(html::login(Some("Hesap bulunamadı."))).into_response();
     };
     let session_token = random_token();
-    sqlx::query("insert into sessions_exposure_academy (token, user_id) values ($1,$2)")
+    sqlx::query("insert into sessions_exposure_academy (token, user_id, expires_at) values ($1,$2, now() + interval '30 days')")
         .bind(&session_token).bind(uid).execute(&app.pool).await.unwrap();
     (
-        [(header::SET_COOKIE, format!("session={session_token}; HttpOnly; Path=/; Max-Age=31536000; SameSite=Lax"))],
+        // 2592000s = 30 days, matches the row's expires_at; the DB check is the one that counts
+        [(header::SET_COOKIE, format!("session={session_token}; HttpOnly; Secure; Path=/; Max-Age=2592000; SameSite=Lax"))],
         Redirect::to("/app"),
     ).into_response()
 }
@@ -275,7 +278,7 @@ async fn logout(State(app): State<App>, headers: HeaderMap) -> Response {
         let _ = sqlx::query("delete from sessions_exposure_academy where token = $1").bind(t).execute(&app.pool).await;
     }
     (
-        [(header::SET_COOKIE, "session=; Path=/; Max-Age=0".to_string())],
+        [(header::SET_COOKIE, "session=; HttpOnly; Secure; Path=/; Max-Age=0; SameSite=Lax".to_string())],
         Redirect::to("/"),
     ).into_response()
 }

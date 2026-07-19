@@ -44,6 +44,10 @@ create table if not exists sessions_exposure_academy (
   created_at timestamptz not null default now()
 );
 
+-- fixed 30-day sessions; default backfills pre-existing rows instead of logging everyone out
+alter table sessions_exposure_academy
+  add column if not exists expires_at timestamptz not null default now() + interval '30 days';
+
 create table if not exists videos_exposure_academy (
   id uuid primary key default gen_random_uuid(),
   youtube_id text not null,
