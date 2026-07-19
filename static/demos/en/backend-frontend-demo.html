@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Frontend vs Backend — Visual Demo</title>
+<style>
+  :root{
+    --bg:#0f1117; --panel:#171a23; --border:#2a2e3a; --text:#e8e9ee;
+    --muted:#8b8fa3; --good:#3ecf8e; --bad:#ef5b5b; --accent:#6c8cff; --accent2:#f5a623;
+    --fe:#6c8cff; --be:#3ecf8e;
+  }
+  *{box-sizing:border-box}
+  body{margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; background:var(--bg); color:var(--text); line-height:1.5}
+  header{padding:24px 20px 0; text-align:center}
+  h1{margin:0 0 4px; font-size:1.6rem}
+  header p{color:var(--muted); margin:0 0 20px}
+
+  nav{display:flex; gap:8px; justify-content:center; flex-wrap:wrap; padding:0 20px 20px; border-bottom:1px solid var(--border)}
+  nav button{background:var(--panel); color:var(--text); border:1px solid var(--border); padding:10px 18px; border-radius:8px; cursor:pointer; font-size:0.95rem}
+  nav button.active{background:var(--accent); border-color:var(--accent); color:#fff}
+
+  main{max-width:1060px; margin:0 auto; padding:28px 20px 60px}
+  .page{display:none}
+  .page.active{display:block}
+  .card{background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:20px}
+  code{background:#0d0f16; padding:2px 6px; border-radius:4px; font-size:0.85em}
+  .lede{color:var(--muted); margin-top:0}
+
+  /* ============ PAGE 1: THE SPLIT ============ */
+  .split{display:grid; grid-template-columns:1fr 1fr; gap:0; border:1px solid var(--border); border-radius:12px; overflow:hidden; min-height:420px}
+  @media(max-width:760px){.split{grid-template-columns:1fr}}
+  .split-fe{background:linear-gradient(160deg,#f4f6ff,#dfe6ff); color:#1a1d29; padding:24px; position:relative}
+  .split-be{background:#0a0c10; color:#9be8c5; padding:24px; font-family:ui-monospace,Menlo,Consolas,monospace; font-size:0.8rem; position:relative; overflow:hidden}
+  .zone-tag{position:absolute; top:10px; right:12px; font-size:0.65rem; font-weight:700; letter-spacing:.1em; text-transform:uppercase; opacity:.6}
+  .split-fe .zone-tag{color:#3b4ba0}
+  .split-be .zone-tag{color:#2c7a55}
+
+  .mini-app{background:#fff; border-radius:14px; box-shadow:0 8px 30px rgba(30,40,90,.18); padding:20px; max-width:300px; margin:24px auto 0}
+  .mini-app h4{margin:0 0 4px; color:#1a1d29}
+  .mini-app p{margin:0 0 14px; font-size:0.8rem; color:#7a7f92}
+  .mini-app input{width:100%; padding:10px 12px; border:1px solid #d5d9ea; border-radius:8px; margin-bottom:10px; font-family:inherit; font-size:0.9rem}
+  .mini-app button{width:100%; padding:11px; border:none; border-radius:8px; background:var(--fe); color:#fff; font-weight:700; font-size:0.95rem; cursor:pointer; transition:transform .12s}
+  .mini-app button:active{transform:scale(.97)}
+  .like-row{display:flex; gap:10px; margin-top:14px; justify-content:center}
+  .like-btn{background:none; border:1px solid #d5d9ea; border-radius:99px; padding:6px 14px; cursor:pointer; font-size:1rem; transition:transform .15s}
+  .like-btn.liked{transform:scale(1.2); border-color:#ef5b5b; background:#ffecec}
+
+  .be-log{white-space:pre-wrap; line-height:1.7}
+  .be-log .dim{color:#3e5a4c}
+  .be-log .warn{color:var(--accent2)}
+  .split-be .cursor{display:inline-block; width:8px; height:14px; background:#9be8c5; animation:blink 1s steps(1) infinite; vertical-align:middle}
+  @keyframes blink{50%{opacity:0}}
+
+  /* ============ PAGE 2: FOLLOW A CLICK ============ */
+  .journey{position:relative; display:grid; grid-template-columns:1fr 1fr 1fr; gap:20px; margin-top:16px}
+  @media(max-width:760px){.journey{grid-template-columns:1fr}}
+  .station{border:2px solid var(--border); border-radius:12px; padding:16px; background:var(--panel); transition:border-color .3s, box-shadow .3s; min-height:230px}
+  .station.lit{border-color:var(--accent2); box-shadow:0 0 24px rgba(245,166,35,.25)}
+  .station h4{margin:0 0 10px; display:flex; align-items:center; gap:8px; font-size:0.95rem}
+  .station .payload{font-family:ui-monospace,Menlo,Consolas,monospace; font-size:0.72rem; background:#0d0f16; border-radius:8px; padding:10px; white-space:pre-wrap; color:#9cdcfe; min-height:110px; opacity:.25; transition:opacity .3s}
+  .station.lit .payload{opacity:1}
+
+  .browser-frame{background:#fff; border-radius:10px; overflow:hidden; color:#1a1d29}
+  .browser-bar{background:#e8eaf2; padding:6px 10px; font-size:0.7rem; color:#7a7f92; display:flex; gap:6px; align-items:center}
+  .dot{width:9px; height:9px; border-radius:50%}
+  .browser-body{padding:16px; text-align:center}
+  .browser-body input{width:100%; padding:8px; border:1px solid #d5d9ea; border-radius:6px; margin-bottom:8px; font-size:0.8rem}
+  #loginBtn{width:100%; padding:10px; border:none; border-radius:8px; background:var(--fe); color:#fff; font-weight:700; cursor:pointer}
+  #loginBtn:disabled{opacity:.55; cursor:wait}
+  #loginResult{min-height:1.4em; font-size:0.8rem; margin-top:8px; font-weight:600}
+
+  #packet{position:absolute; width:16px; height:16px; border-radius:50%; background:var(--accent2); box-shadow:0 0 14px var(--accent2); z-index:5; opacity:0; transition:left .7s ease-in-out, top .7s ease-in-out, opacity .3s; pointer-events:none}
+  .journey-status{margin-top:14px; padding:12px; background:#0d0f16; border-radius:8px; font-size:0.85rem; color:var(--muted); min-height:1.4em}
+  .replay-row{display:flex; justify-content:center; margin-top:12px}
+  .btn-replay{background:var(--accent2); color:#1a1200; border:none; padding:10px 22px; border-radius:8px; font-weight:700; cursor:pointer}
+
+  /* ============ PAGE 3: WHO DOES WHAT ============ */
+  .chip-pool{display:flex; gap:10px; flex-wrap:wrap; justify-content:center; min-height:52px; padding:10px; border:1px dashed var(--border); border-radius:10px; margin-bottom:18px}
+  .chip{padding:9px 16px; border-radius:99px; background:#252a38; border:1px solid var(--border); cursor:pointer; font-size:0.85rem; user-select:none; transition:transform .15s, opacity .3s}
+  .chip:hover{transform:translateY(-2px)}
+  .chip.shake{animation:shake .4s}
+  @keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}
+  .buckets{display:grid; grid-template-columns:1fr 1fr; gap:16px}
+  @media(max-width:700px){.buckets{grid-template-columns:1fr}}
+  .bucket{border:2px solid var(--border); border-radius:12px; padding:16px; min-height:190px; transition:border-color .2s, background .2s}
+  .bucket.armed{cursor:pointer}
+  .bucket.armed:hover{background:#1b2030}
+  .bucket-fe.armed:hover{border-color:var(--fe)}
+  .bucket-be.armed:hover{border-color:var(--be)}
+  .bucket h4{margin:0 0 10px}
+  .bucket-fe h4{color:var(--fe)} .bucket-be h4{color:var(--be)}
+  .bucket .chip{cursor:default; margin:4px 4px 0 0; display:inline-block}
+  .bucket .chip.placed-ok{border-color:var(--good); background:rgba(62,207,142,.12)}
+  .verdict{margin-top:16px; padding:12px; background:#0d0f16; border-radius:8px; font-size:0.85rem; min-height:1.4em; color:var(--muted)}
+  .verdict.ok{color:var(--good)} .verdict.err{color:var(--bad)}
+  #selectedChipLabel{color:var(--accent2); font-weight:600}
+
+  /* ============ PAGE 4: KILL A HALF ============ */
+  .kill-toggles{display:flex; gap:20px; justify-content:center; margin-bottom:18px; flex-wrap:wrap}
+  .toggle{display:flex; align-items:center; gap:10px; font-size:0.9rem}
+  .toggle input{appearance:none; width:46px; height:26px; border-radius:99px; background:#2a2e3a; position:relative; cursor:pointer; transition:background .2s; outline:none}
+  .toggle input:checked{background:var(--bad)}
+  .toggle input::after{content:''; position:absolute; top:3px; left:3px; width:20px; height:20px; border-radius:50%; background:#fff; transition:left .2s}
+  .toggle input:checked::after{left:23px}
+
+  .kill-stage{border:1px solid var(--border); border-radius:12px; overflow:hidden}
+  .kill-app{background:#fff; color:#1a1d29; padding:28px; min-height:280px; text-align:center; transition:all .3s}
+  .kill-app h4{margin:0 0 4px; font-size:1.2rem}
+  .kill-app .sub{color:#7a7f92; font-size:0.85rem; margin:0 0 18px}
+  .product{display:inline-block; background:#f4f6ff; border-radius:12px; padding:16px 22px; margin:6px}
+  .product .emoji{font-size:2rem}
+  .product .price{font-weight:700; margin-top:4px}
+  .kill-app button.buy{margin-top:16px; padding:12px 28px; border:none; border-radius:8px; background:var(--fe); color:#fff; font-weight:700; cursor:pointer; font-size:0.95rem}
+  #killStatus{margin-top:12px; min-height:1.4em; font-size:0.85rem; font-weight:600}
+
+  .kill-app.no-fe{background:#0a0c10; color:#9be8c5; font-family:ui-monospace,Menlo,Consolas,monospace; text-align:left; font-size:0.8rem; white-space:pre-wrap}
+  .spinner{display:inline-block; width:14px; height:14px; border:2px solid #d5d9ea; border-top-color:var(--fe); border-radius:50%; animation:spin .8s linear infinite; vertical-align:middle}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  footer{text-align:center; color:var(--muted); font-size:0.8rem; padding:20px}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Frontend vs Backend</h1>
+  <p>One is what you see. One is what you never see. Poke both.</p>
+</header>
+
+<nav>
+  <button data-page="split" class="active">1. The Split</button>
+  <button data-page="click">2. Follow a Click</button>
+  <button data-page="sort">3. Who Does What</button>
+  <button data-page="kill">4. Kill a Half</button>
+</nav>
+
+<main>
+
+  <!-- PAGE 1: THE SPLIT -->
+  <section class="page active" id="split">
+    <div class="split">
+      <div class="split-fe">
+        <span class="zone-tag">Frontend · runs in YOUR browser</span>
+        <div class="mini-app">
+          <h4>Chirper</h4>
+          <p>Colors, buttons, layout — touch it.</p>
+          <input type="text" placeholder="What's happening?" id="chirpInput">
+          <button id="chirpBtn">Chirp</button>
+          <div class="like-row">
+            <button class="like-btn">❤️ <span>12</span></button>
+            <button class="like-btn">🔁 <span>4</span></button>
+            <button class="like-btn">⭐ <span>7</span></button>
+          </div>
+        </div>
+      </div>
+      <div class="split-be">
+        <span class="zone-tag">Backend · runs on a server far away</span>
+        <div class="be-log" id="beLog"></div><span class="cursor"></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- PAGE 2: FOLLOW A CLICK -->
+  <section class="page" id="click">
+    <p class="lede">Click <strong>Log in</strong> and watch the orange packet make the round trip.</p>
+    <div class="journey" id="journeyWrap">
+      <div id="packet"></div>
+      <div class="station" id="stBrowser">
+        <h4>🖥️ Browser <small style="color:var(--fe)">(frontend)</small></h4>
+        <div class="browser-frame">
+          <div class="browser-bar">
+            <span class="dot" style="background:#ef5b5b"></span><span class="dot" style="background:#f5a623"></span><span class="dot" style="background:#3ecf8e"></span>
+            &nbsp;chirper.app/login
+          </div>
+          <div class="browser-body">
+            <input type="text" value="priya@chirper.app" readonly>
+            <input type="password" value="secret123" readonly>
+            <button id="loginBtn">Log in</button>
+            <div id="loginResult"></div>
+          </div>
+        </div>
+      </div>
+      <div class="station" id="stServer">
+        <h4>⚙️ Server <small style="color:var(--be)">(backend)</small></h4>
+        <div class="payload" id="plServer">waiting for a request…</div>
+      </div>
+      <div class="station" id="stDb">
+        <h4>🗄️ Database <small style="color:var(--be)">(backend)</small></h4>
+        <div class="payload" id="plDb">idle</div>
+      </div>
+    </div>
+    <div class="journey-status" id="journeyStatus">Idle. The frontend is just sitting there looking pretty.</div>
+    <div class="replay-row"><button class="btn-replay" id="replayBtn" style="display:none">↺ Replay journey</button></div>
+  </section>
+
+  <!-- PAGE 3: WHO DOES WHAT -->
+  <section class="page" id="sort">
+    <p class="lede">Pick a task chip, then click the side you think owns it. <span id="selectedChipLabel"></span></p>
+    <div class="chip-pool" id="chipPool"></div>
+    <div class="buckets">
+      <div class="bucket bucket-fe" id="bucketFe"><h4>🎨 Frontend</h4></div>
+      <div class="bucket bucket-be" id="bucketBe"><h4>⚙️ Backend</h4></div>
+    </div>
+    <div class="verdict" id="sortVerdict">6 tasks to sort.</div>
+  </section>
+
+  <!-- PAGE 4: KILL A HALF -->
+  <section class="page" id="kill">
+    <p class="lede">A tiny shop. Flip a switch and watch what dies.</p>
+    <div class="kill-toggles">
+      <label class="toggle"><input type="checkbox" id="killFe"> Kill the <strong style="color:var(--fe)">&nbsp;frontend</strong></label>
+      <label class="toggle"><input type="checkbox" id="killBe"> Kill the <strong style="color:var(--be)">&nbsp;backend</strong></label>
+    </div>
+    <div class="kill-stage">
+      <div class="kill-app" id="killApp"></div>
+    </div>
+  </section>
+
+</main>
+
+<footer>Interactive demo · no frameworks, no build step</footer>
+
+<script>
+  // ---------- nav ----------
+  document.querySelectorAll('nav button').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      document.querySelectorAll('nav button').forEach(b=>b.classList.remove('active'));
+      document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById(btn.dataset.page).classList.add('active');
+    });
+  });
+
+  // ---------- PAGE 1: split ----------
+  const beLog = document.getElementById('beLog');
+  const bootLines = [
+    '$ node server.js',
+    '<span class="dim">[boot]</span> connecting to postgres… ok',
+    '<span class="dim">[boot]</span> listening on :443',
+    '<span class="dim">[idle]</span> waiting for requests…',
+  ];
+  let bootIdx = 0;
+  (function typeBoot(){
+    if(bootIdx < bootLines.length){
+      beLog.innerHTML += bootLines[bootIdx++] + '\n';
+      setTimeout(typeBoot, 450);
+    }
+  })();
+
+  function logBe(html){
+    beLog.innerHTML += html + '\n';
+    const box = beLog.parentElement;
+    box.scrollTop = box.scrollHeight;
+    // keep log from growing forever
+    const lines = beLog.innerHTML.split('\n');
+    if(lines.length > 18) beLog.innerHTML = lines.slice(-18).join('\n');
+  }
+
+  document.getElementById('chirpBtn').addEventListener('click', ()=>{
+    const val = document.getElementById('chirpInput').value.trim() || '(empty chirp)';
+    const safe = val.replace(/[<>&]/g, '');
+    logBe(`<span class="dim">[req]</span> POST /chirps  body={"text":"${safe.slice(0,24)}"}`);
+    setTimeout(()=>logBe(`<span class="dim">[sql]</span> INSERT INTO chirps … <span class="warn">3ms</span>`), 350);
+    setTimeout(()=>logBe(`<span class="dim">[res]</span> 201 Created`), 700);
+    document.getElementById('chirpInput').value = '';
+  });
+
+  document.querySelectorAll('.like-btn').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      btn.classList.toggle('liked');
+      const span = btn.querySelector('span');
+      const liked = btn.classList.contains('liked');
+      span.textContent = +span.textContent + (liked ? 1 : -1);
+      logBe(`<span class="dim">[req]</span> ${liked?'POST':'DELETE'} /likes  → 200 OK`);
+    });
+  });
+
+  // ---------- PAGE 2: follow a click ----------
+  const packet = document.getElementById('packet');
+  const stations = {
+    browser: document.getElementById('stBrowser'),
+    server: document.getElementById('stServer'),
+    db: document.getElementById('stDb'),
+  };
+  const plServer = document.getElementById('plServer');
+  const plDb = document.getElementById('plDb');
+  const journeyStatus = document.getElementById('journeyStatus');
+  const loginBtn = document.getElementById('loginBtn');
+  const loginResult = document.getElementById('loginResult');
+  const replayBtn = document.getElementById('replayBtn');
+  const journeyWrap = document.getElementById('journeyWrap');
+
+  function movePacketTo(el){
+    const wrap = journeyWrap.getBoundingClientRect();
+    const box = el.getBoundingClientRect();
+    packet.style.left = (box.left - wrap.left + box.width/2 - 8) + 'px';
+    packet.style.top = (box.top - wrap.top - 8) + 'px';
+  }
+
+  function light(name){
+    Object.values(stations).forEach(s=>s.classList.remove('lit'));
+    if(name) stations[name].classList.add('lit');
+  }
+
+  const steps = [
+    {t:0,    fn(){ light('browser'); packet.style.opacity='1'; movePacketTo(stations.browser);
+                   journeyStatus.textContent='1/6 — Frontend grabs the form values and builds an HTTP request.'; }},
+    {t:900,  fn(){ light('server'); movePacketTo(stations.server);
+                   plServer.textContent='POST /api/login\n{\n  "email": "priya@chirper.app",\n  "password": "secret123"\n}';
+                   journeyStatus.textContent='2/6 — Request travels over the internet to the server.'; }},
+    {t:1900, fn(){ journeyStatus.textContent='3/6 — Backend validates the input and asks the database.';
+                   plDb.textContent='SELECT id, password_hash\nFROM users\nWHERE email =\n  \'priya@chirper.app\';'; }},
+    {t:2500, fn(){ light('db'); movePacketTo(stations.db);
+                   journeyStatus.textContent='4/6 — Database finds the row, returns it to the server.'; }},
+    {t:3600, fn(){ light('server'); movePacketTo(stations.server);
+                   plServer.textContent='hash matches ✓\n\nHTTP 200 OK\n{\n  "token": "eyJhbGciOi…",\n  "name": "Priya"\n}';
+                   journeyStatus.textContent='5/6 — Password hash matches. Backend sends back a token.'; }},
+    {t:4700, fn(){ light('browser'); movePacketTo(stations.browser);
+                   journeyStatus.textContent='6/6 — Frontend receives the response and updates the page. You never saw steps 2–5.'; }},
+    {t:5400, fn(){ packet.style.opacity='0'; light(null);
+                   loginResult.textContent='✓ Welcome back, Priya'; loginResult.style.color='var(--good)';
+                   loginBtn.disabled=false; loginBtn.textContent='Log in';
+                   replayBtn.style.display='inline-block'; }},
+  ];
+
+  function runJourney(){
+    loginBtn.disabled = true;
+    loginBtn.textContent = '…';
+    loginResult.textContent = '';
+    plServer.textContent = 'waiting for a request…';
+    plDb.textContent = 'idle';
+    replayBtn.style.display = 'none';
+    steps.forEach(s=>setTimeout(s.fn, s.t));
+  }
+  loginBtn.addEventListener('click', runJourney);
+  replayBtn.addEventListener('click', runJourney);
+
+  // ---------- PAGE 3: who does what ----------
+  const TASKS = [
+    {label:'Round the button corners', side:'fe', why:'Pure looks — CSS in the browser.'},
+    {label:'Verify the password is correct', side:'be', why:'Never trust the browser — secrets and checks live on the server.'},
+    {label:'Animate the dropdown menu', side:'fe', why:'Motion and interactivity happen where the pixels are.'},
+    {label:'Save the order to the database', side:'be', why:'The database is the backend\'s house.'},
+    {label:'Send the receipt email', side:'be', why:'Emails go out from the server, not your browser tab.'},
+    {label:'Show a red error toast', side:'fe', why:'Displaying anything is frontend work.'},
+  ];
+  const chipPool = document.getElementById('chipPool');
+  const sortVerdict = document.getElementById('sortVerdict');
+  const selectedChipLabel = document.getElementById('selectedChipLabel');
+  let selectedChip = null;
+  let remaining = TASKS.length;
+
+  TASKS.forEach((task,i)=>{
+    const chip = document.createElement('span');
+    chip.className = 'chip';
+    chip.textContent = task.label;
+    chip.dataset.idx = i;
+    chip.addEventListener('click', ()=>{
+      document.querySelectorAll('#chipPool .chip').forEach(c=>c.style.borderColor='');
+      selectedChip = chip;
+      chip.style.borderColor = 'var(--accent2)';
+      selectedChipLabel.textContent = `Selected: "${task.label}" — now click a side.`;
+      document.querySelectorAll('.bucket').forEach(b=>b.classList.add('armed'));
+    });
+    chipPool.appendChild(chip);
+  });
+
+  function bucketClick(side, bucketEl){
+    if(!selectedChip) return;
+    const task = TASKS[+selectedChip.dataset.idx];
+    if(task.side === side){
+      selectedChip.classList.add('placed-ok');
+      selectedChip.style.borderColor='';
+      bucketEl.appendChild(selectedChip);
+      const done = selectedChip;
+      done.replaceWith(done); // drop pool listener context; chip stays inert visually
+      sortVerdict.textContent = `✓ Correct — ${task.why}`;
+      sortVerdict.className = 'verdict ok';
+      remaining--;
+      if(remaining === 0){
+        sortVerdict.textContent = '✓ All 6 sorted. You now think like an architect.';
+      }
+    } else {
+      selectedChip.classList.remove('shake');
+      void selectedChip.offsetWidth; // restart animation
+      selectedChip.classList.add('shake');
+      sortVerdict.textContent = `✗ Nope — ${task.why}`;
+      sortVerdict.className = 'verdict err';
+    }
+    selectedChip = null;
+    selectedChipLabel.textContent = '';
+    document.querySelectorAll('.bucket').forEach(b=>b.classList.remove('armed'));
+  }
+  document.getElementById('bucketFe').addEventListener('click', e=>bucketClick('fe', e.currentTarget));
+  document.getElementById('bucketBe').addEventListener('click', e=>bucketClick('be', e.currentTarget));
+
+  // ---------- PAGE 4: kill a half ----------
+  const killApp = document.getElementById('killApp');
+  const killFe = document.getElementById('killFe');
+  const killBe = document.getElementById('killBe');
+
+  const SHOP_JSON = `GET /api/products  →  200 OK
+
+[
+  {"id": 1, "name": "Espresso", "price": 3.00, "emoji": "☕"},
+  {"id": 2, "name": "Croissant", "price": 4.50, "emoji": "🥐"},
+  {"id": 3, "name": "Matcha", "price": 5.00, "emoji": "🍵"}
+]
+
+This is all the backend ever sends: raw data.
+The frontend was the one making it look like a shop.`;
+
+  const SHOP_DEAD = `GET /api/products  →  ✗ ERR_CONNECTION_REFUSED
+
+(nothing. no data, no pretty page. both halves are dead.)`;
+
+  function renderShop(){
+    const feDead = killFe.checked, beDead = killBe.checked;
+    killApp.classList.toggle('no-fe', feDead);
+
+    if(feDead){
+      killApp.textContent = beDead ? SHOP_DEAD : SHOP_JSON;
+      return;
+    }
+
+    killApp.innerHTML = `
+      <h4>☕ Beanery</h4>
+      <p class="sub">${beDead ? 'Loading products…' : 'Fresh from the backend, styled by the frontend'}</p>
+      ${beDead
+        ? '<div style="padding:30px"><span class="spinner"></span> &nbsp;<span style="color:#7a7f92;font-size:0.85rem">waiting for a server that will never answer…</span></div>'
+        : `<div class="product"><div class="emoji">☕</div><div>Espresso</div><div class="price">$3.00</div></div>
+           <div class="product"><div class="emoji">🥐</div><div>Croissant</div><div class="price">$4.50</div></div>
+           <div class="product"><div class="emoji">🍵</div><div>Matcha</div><div class="price">$5.00</div></div>`
+      }
+      <br><button class="buy" id="buyBtn">Buy Espresso</button>
+      <div id="killStatus"></div>`;
+
+    document.getElementById('buyBtn').addEventListener('click', ()=>{
+      const st = document.getElementById('killStatus');
+      if(beDead){
+        st.innerHTML = '<span class="spinner"></span> &nbsp;processing…';
+        setTimeout(()=>{
+          st.innerHTML = '<span style="color:var(--bad)">✗ Request failed — the pretty button worked, but nobody answered.</span>';
+        }, 1800);
+      } else {
+        st.innerHTML = '<span class="spinner"></span> &nbsp;processing…';
+        setTimeout(()=>{
+          st.innerHTML = '<span style="color:var(--good)">✓ Order #4821 confirmed — backend stored it, frontend told you.</span>';
+        }, 700);
+      }
+    });
+  }
+  killFe.addEventListener('change', renderShop);
+  killBe.addEventListener('change', renderShop);
+  renderShop();
+</script>
+
+</body>
+</html>

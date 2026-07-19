@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Veritabanı Nedir? — Görsel Tanıtım</title>
+<style>
+  :root{
+    --bg:#0f1117; --panel:#171a23; --border:#2a2e3a; --text:#e8e9ee;
+    --muted:#8b8fa3; --good:#3ecf8e; --bad:#ef5b5b; --accent:#6c8cff; --accent2:#f5a623;
+  }
+  *{box-sizing:border-box}
+  body{margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; background:var(--bg); color:var(--text); line-height:1.5}
+  header{padding:24px 20px 0; text-align:center}
+  h1{margin:0 0 4px; font-size:1.6rem}
+  header p{color:var(--muted); margin:0 0 20px}
+
+  nav{display:flex; gap:8px; justify-content:center; flex-wrap:wrap; padding:0 20px 20px; border-bottom:1px solid var(--border)}
+  nav button{background:var(--panel); color:var(--text); border:1px solid var(--border); padding:10px 18px; border-radius:8px; cursor:pointer; font-size:0.95rem}
+  nav button.active{background:var(--accent); border-color:var(--accent); color:#fff}
+
+  main{max-width:1000px; margin:0 auto; padding:28px 20px 60px}
+  .page{display:none}
+  .page.active{display:block}
+
+  .card{background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:20px}
+  code{background:#0d0f16; padding:2px 6px; border-radius:4px; font-size:0.85em}
+
+  /* --- table anatomy --- */
+  table{border-collapse:collapse; width:100%; margin-top:12px}
+  th, td{border:1px solid var(--border); padding:10px 12px; text-align:left; font-size:0.9rem}
+  th{background:#1e2230; cursor:help; position:relative}
+  th:hover{background:var(--accent)}
+  tr:hover td{background:#1b1f2c}
+  .pk{color:var(--accent2); font-weight:700}
+  .labelrow td{border:none; padding:2px 12px; font-size:0.75rem; color:var(--muted)}
+  .anatomy-note{margin-top:14px; padding:12px; background:#0d0f16; border-radius:8px; font-size:0.9rem; color:var(--muted); min-height:1.4em}
+
+  /* --- CRUD sandbox --- */
+  .crud-toolbar{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px}
+  .crud-toolbar input{flex:1; min-width:120px; background:#0d0f16; color:var(--text); border:1px solid var(--border); border-radius:8px; padding:8px 10px}
+  .crud-toolbar button{padding:8px 16px; border-radius:8px; border:none; cursor:pointer; font-weight:600}
+  .btn-add{background:var(--good); color:#03150d}
+  .btn-del{background:var(--bad); color:#fff}
+  .row-del{cursor:pointer; color:var(--bad); font-weight:700; text-align:center}
+  .empty-msg{color:var(--muted); font-size:0.85rem; padding:10px}
+
+  /* --- relationships --- */
+  .rel-wrap{display:flex; gap:24px; align-items:flex-start; flex-wrap:wrap; justify-content:center; margin-top:16px}
+  .rel-wrap table{width:auto; min-width:220px}
+  .fk{color:var(--accent); font-weight:700}
+  .rel-highlight{outline:2px solid var(--accent2); background:rgba(245,166,35,.15) !important}
+
+  /* --- SQL playground --- */
+  .pg-note{display:flex; gap:10px; align-items:flex-start; background:#0d0f16; border:1px solid var(--border); border-radius:8px; padding:12px 14px; margin-bottom:16px; font-size:0.85rem; color:var(--muted)}
+  .pg-elephant{font-size:1.4rem}
+  .query-list{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px}
+  .query-list button{background:var(--panel); color:var(--text); border:1px solid var(--border); padding:8px 14px; border-radius:8px; cursor:pointer; font-size:0.85rem}
+  .query-list button.active{background:var(--accent2); border-color:var(--accent2); color:#1a1200}
+  pre.sql{background:#0d0f16; border:1px solid var(--border); border-radius:8px; padding:14px; overflow-x:auto; font-size:0.88rem; color:#9cdcfe; margin:0 0 14px}
+  .sql-kw{color:#c586c0}
+  .sql-str{color:#ce9178}
+  .run-row{display:flex; justify-content:flex-end; margin-bottom:14px}
+  .btn-run{background:var(--good); color:#03150d; border:none; padding:10px 20px; border-radius:8px; font-weight:700; cursor:pointer}
+  .result-label{font-size:0.75rem; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); margin:0 0 6px}
+  .row-count{color:var(--good); font-size:0.8rem; margin-top:8px}
+
+  footer{text-align:center; color:var(--muted); font-size:0.8rem; padding:20px}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Veritabanı Nedir?</h1>
+  <p>Sihir değil — sadece sorgulayabileceğiniz düzenli tablolar. Etrafı tıklayın.</p>
+</header>
+
+<nav>
+  <button data-page="intro" class="active">1. Giriş</button>
+  <button data-page="anatomy">2. Bir Tablonun Yapısı</button>
+  <button data-page="crud">3. CRUD Deneme Ortamı</button>
+  <button data-page="relations">4. İlişkiler</button>
+  <button data-page="sql">5. SQL ve Postgres</button>
+</nav>
+
+<main>
+
+  <!-- PAGE 1 -->
+  <section class="page active" id="intro">
+    <div class="card" style="max-width:640px;margin:0 auto">
+      <h3 style="margin-top:0">Veritabanı, tabloların oluşturduğu bir ızgaradır</h3>
+      <p>En basit haliyle, bir veritabanı bir dizi <strong>tab</strong>lodan oluşur — her biri katı kurallara sahip bir elektronik tablo gibidir:</p>
+      <ul style="color:var(--muted)">
+        <li>Her <strong>sütun,</strong> tek bir tür bilgiyi (ad, fiyat, tarih) içerir.</li>
+        <li>Her <strong>satır</strong> bir kayıttır (bir kullanıcı, bir sipariş).</li>
+        <li>Genellikle bir sütun <strong>birincil </strong>anahtardır — o satır için benzersiz bir kimliktir.</li>
+        <li>Tablolar, başka bir tablodaki bir satırı işaret eden bir kimlik olan <strong>yabancı anahtarlar</strong> aracılığıyla birbirine bağlanır.</li>
+      </ul>
+      <p style="color:var(--muted)">Sonraki sayfalarda, bir tablonun sütunlarını inceleyebilir, satırları kendiniz ekleyip silebilir ve birbirine bağlı iki tabloyu görebilirsiniz.</p>
+    </div>
+  </section>
+
+  <!-- PAGE 2: anatomy -->
+  <section class="page" id="anatomy">
+    <div class="card">
+      <h3 style="margin-top:0">Sütun başlıklarının üzerine fareyi getirin</h3>
+      <table id="anatomyTable">
+        <thead>
+          <tr>
+            <th data-note="Primary key: uniquely identifies each row. No two rows share this value.">id</th>
+            <th data-note="A text column. Holds one kind of data — here, a name string.">name</th>
+            <th data-note="A numeric column with a constraint: must be a positive integer.">yaş</th>
+            <th data-note="Foreign key: points to an id in another table (see the Relationships tab).">team_id</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td class="pk">1</td><td>Priya Nair</td><td>29</td><td>101</td></tr>
+          <tr><td class="pk">2</td><td>Jonas Weber</td><td>34</td><td>102</td></tr>
+          <tr><td class="pk">3</td><td>Amara Diallo</td><td>26</td><td>101</td></tr>
+        </tbody>
+      </table>
+      <div class="anatomy-note" id="anatomyNote">Ayrıntılar için sütun başlığının üzerine gelin.</div>
+    </div>
+  </section>
+
+  <!-- PAGE 3: CRUD sandbox -->
+  <section class="page" id="crud">
+    <div class="card">
+      <h3 style="margin-top:0">Bu tablo canlıdır — deneyin</h3>
+      <p style="color:var(--muted); margin-top:0">Bir satır ekleyin veya silmek için bir satıra tıklayın. INSERT ve DELETE komutları arka planda işte bunu yapar.</p>
+      <div class="crud-toolbar">
+        <input type="text" id="crudName" placeholder="name">
+        <input type="text" id="crudPrice" placeholder="price">
+        <button class="btn-add" id="crudAddBtn">INSERT satırı</button>
+      </div>
+      <table>
+        <thead><tr><th>id</th><th>öğesi</th><th>fiyat</th><th></th></tr></thead>
+        <tbody id="crudBody"></tbody>
+      </table>
+      <div class="empty-msg" id="crudEmpty" style="display:none">Satır yok. Tablo boş — yukarıya bir satır ekleyin.</div>
+    </div>
+  </section>
+
+  <!-- PAGE 4: relationships -->
+  <section class="page" id="relations">
+    <div class="card">
+      <h3 style="margin-top:0">Bir ID ile birbirine bağlı iki tablo</h3>
+      <p style="color:var(--muted); margin-top:0"><strong>Kullanıcılar</strong> tablosundaki bir satırı tıklayın — bu <code>team_id</code> <strong>takımlar</strong> tablosundaki eşleşen satır vurgulanır. İşte bu bir birleştirmedir.</p>
+      <div class="rel-wrap">
+        <table id="usersTable">
+          <caption style="text-align:left; color:var(--muted); font-size:0.8rem; margin-bottom:6px">kullanıcılar</caption>
+          <thead><tr><th>id</th><th>ad</th><th>takım_id</th></tr></thead>
+          <tbody>
+            <tr data-team="101"><td class="pk">1</td><td>Priya Nair</td><td class="fk">101</td></tr>
+            <tr data-team="102"><td class="pk">2</td><td>Jonas Weber</td><td class="fk">102</td></tr>
+            <tr data-team="101"><td class="pk">3</td><td>Amara Diallo</td><td class="fk">101</td></tr>
+          </tbody>
+        </table>
+        <table id="teamsTable">
+          <caption style="text-align:left; color:var(--muted); font-size:0.8rem; margin-bottom:6px">takım</caption>
+          <thead><tr><th>id</th><th>ad</th></tr></thead>
+          <tbody>
+            <tr data-id="101"><td class="pk">101</td><td>Platform</td></tr>
+            <tr data-id="102"><td class="pk">102</td><td>Büyüme</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="anatomy-note" id="relNote">Birleştirmeyi görmek için bir kullanıcı satırına tıklayın.</div>
+    </div>
+  </section>
+
+  <!-- PAGE 5: SQL & Postgres -->
+  <section class="page" id="sql">
+    <div class="pg-note">
+      <span class="pg-elephant">🐘</span>
+      
+      <span><strong>SQL</strong>, sorgu dilidir — veritabanından veri istemek için kullandığınız kelimelerdir. <strong>PostgreSQL (&quot;Postgres&quot;)</strong>, SQL&#x27;i anlayan ve depolayan/çalıştıran belirli bir veritabanı motorudur (diğerleri: MySQL, SQLite, SQL Server). Aynı dil, farklı motor — tıpkı farklı kişiler tarafından konuşulan İngilizce gibi.</span>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:0">Bir sorgu seçin ve 4. sayfadaki tablolarda çalıştırın</h3>
+      <div class="query-list" id="queryList">
+        <button data-q="select" class="active">SELECT *</button>
+        <button data-q="where">WHERE filtre</button>
+        <button data-q="join">JOIN</button>
+        <button data-q="insert">INSERT</button>
+      </div>
+      <pre class="sql" id="sqlText"></pre>
+      <div class="run-row"><button class="btn-run" id="sqlRunBtn">▶ Postgres&#x27;te çalıştır</button></div>
+      <p class="result-label">Sonuç</p>
+      <div id="sqlResult"></div>
+    </div>
+  </section>
+
+</main>
+
+<footer>Etkileşimli demo · çerçeve yok, derleme adımı yok</footer>
+
+<script>
+  // page nav
+  document.querySelectorAll('nav button').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      document.querySelectorAll('nav button').forEach(b=>b.classList.remove('active'));
+      document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById(btn.dataset.page).classList.add('active');
+    });
+  });
+
+  // --- anatomy hover ---
+  const anatomyNote = document.getElementById('anatomyNote');
+  document.querySelectorAll('#anatomyTable th').forEach(th=>{
+    th.addEventListener('mouseenter', ()=> anatomyNote.textContent = th.dataset.note);
+    th.addEventListener('mouseleave', ()=> anatomyNote.textContent = 'Hover a column header for details.');
+  });
+
+  // --- CRUD sandbox ---
+  let nextId = 3;
+  const crudBody = document.getElementById('crudBody');
+  const crudEmpty = document.getElementById('crudEmpty');
+  const seed = [[1,'Coffee','4.50'],[2,'Notebook','6.00']];
+
+  function renderRow(id, item, price){
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td class="pk">${id}</td><td></td><td></td><td class="row-del" title="delete row">✕</td>`;
+    tr.children[1].textContent = item;
+    tr.children[2].textContent = price;
+    tr.querySelector('.row-del').addEventListener('click', ()=>{
+      tr.remove();
+      toggleEmpty();
+    });
+    crudBody.appendChild(tr);
+  }
+
+  function toggleEmpty(){
+    crudEmpty.style.display = crudBody.children.length ? 'none' : 'block';
+  }
+
+  seed.forEach(([id,item,price]) => renderRow(id,item,price));
+  toggleEmpty();
+
+  document.getElementById('crudAddBtn').addEventListener('click', ()=>{
+    const nameEl = document.getElementById('crudName');
+    const priceEl = document.getElementById('crudPrice');
+    const name = nameEl.value.trim();
+    const price = priceEl.value.trim();
+    if(!name || !price) return;
+    nextId++;
+    renderRow(nextId, name, price);
+    nameEl.value = '';
+    priceEl.value = '';
+    toggleEmpty();
+  });
+
+  // --- relationships join highlight ---
+  const relNote = document.getElementById('relNote');
+  document.querySelectorAll('#usersTable tbody tr').forEach(tr=>{
+    tr.style.cursor = 'pointer';
+    tr.addEventListener('click', ()=>{
+      document.querySelectorAll('#usersTable tr, #teamsTable tr').forEach(r=>r.classList.remove('rel-highlight'));
+      tr.classList.add('rel-highlight');
+      const teamId = tr.dataset.team;
+      const match = document.querySelector(`#teamsTable tr[data-id="${teamId}"]`);
+      if(match){
+        match.classList.add('rel-highlight');
+        relNote.textContent = `users.team_id (${teamId}) → teams.id (${teamId}): matched "${match.children[1].textContent}"`;
+      }
+    });
+  });
+
+  // --- SQL & Postgres playground ---
+  // mirrors the users/teams data from the Relationships page, as a mock in-memory engine
+  let usersData = [
+    {id:1, name:'Priya Nair', age:29, team_id:101},
+    {id:2, name:'Jonas Weber', age:34, team_id:102},
+    {id:3, name:'Amara Diallo', age:26, team_id:101},
+  ];
+  let teamsData = [
+    {id:101, name:'Platform'},
+    {id:102, name:'Growth'},
+  ];
+
+  function hl(sql){
+    return sql
+      .replace(/\b(SELECT|FROM|WHERE|JOIN|ON|INSERT INTO|VALUES|AS)\b/g, '<span class="sql-kw">$1</span>')
+      .replace(/'([^']*)'/g, `<span class="sql-str">'$1'</span>`);
+  }
+
+  const queries = {
+    select: {
+      sql: `SELECT * FROM teams;`,
+      run: () => ({ cols:['id','name'], rows: teamsData.map(t=>[t.id,t.name]) })
+    },
+    where: {
+      sql: `SELECT name, age FROM users\nWHERE age > 28;`,
+      run: () => {
+        const rows = usersData.filter(u=>u.age>28).map(u=>[u.name,u.age]);
+        return { cols:['name','age'], rows };
+      }
+    },
+    join: {
+      sql: `SELECT users.name, teams.name AS team\nFROM users\nJOIN teams ON users.team_id = teams.id;`,
+      run: () => {
+        const rows = usersData.map(u=>{
+          const t = teamsData.find(t=>t.id===u.team_id);
+          return [u.name, t ? t.name : null];
+        });
+        return { cols:['name','team'], rows };
+      }
+    },
+    insert: {
+      sql: `INSERT INTO teams (id, name)\nVALUES (103, 'Design');\n\nSELECT * FROM teams;`,
+      run: () => {
+        if(!teamsData.some(t=>t.id===103)){
+          teamsData.push({id:103, name:'Design'});
+        }
+        return { cols:['id','name'], rows: teamsData.map(t=>[t.id,t.name]) };
+      }
+    }
+  };
+
+  let activeQuery = 'select';
+  const sqlText = document.getElementById('sqlText');
+  const sqlResult = document.getElementById('sqlResult');
+
+  function renderQueryText(){
+    sqlText.innerHTML = hl(queries[activeQuery].sql);
+  }
+
+  function renderResult(){
+    const { cols, rows } = queries[activeQuery].run();
+    if(!rows.length){
+      sqlResult.innerHTML = `<div class="empty-msg">0 rows returned.</div>`;
+      return;
+    }
+    const thead = `<tr>${cols.map(c=>`<th>${c}</th>`).join('')}</tr>`;
+    const tbody = rows.map(r=>`<tr>${r.map(v=>`<td>${v===null?'<span style="color:var(--muted)">NULL</span>':v}</td>`).join('')}</tr>`).join('');
+    sqlResult.innerHTML = `<table><thead>${thead}</thead><tbody>${tbody}</tbody></table><div class="row-count">${rows.length} row${rows.length===1?'':'s'} returned</div>`;
+  }
+
+  document.querySelectorAll('#queryList button').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      document.querySelectorAll('#queryList button').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      activeQuery = btn.dataset.q;
+      renderQueryText();
+      sqlResult.innerHTML = '<div class="empty-msg">Click "Run" to execute.</div>';
+    });
+  });
+
+  document.getElementById('sqlRunBtn').addEventListener('click', renderResult);
+
+  renderQueryText();
+  sqlResult.innerHTML = '<div class="empty-msg">Click "Run" to execute.</div>';
+</script>
+
+</body>
+</html>

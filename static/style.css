@@ -356,6 +356,12 @@ body:not(.portal) .btn-dark.big { padding:14px 32px; }
   color:var(--text-muted); margin-bottom:14px;
 }
 
+/* ---- Demo cards (interactive HTML demos) ---- */
+.demo-card { display:block; color:inherit; text-decoration:none; transition:border-color 200ms; }
+.demo-card:hover { border-color:var(--blue-40); }
+.demo-card h3 { font-size:var(--fs-body); font-weight:600; color:var(--text); margin-bottom:6px; }
+.demo-card:hover h3 { color:var(--blue-text); }
+
 /* ---- Tables (dark) ---- */
 .portal table { width:100%; border-collapse:collapse; font-size:var(--fs-xs); background:transparent; }
 .portal th, .portal td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--border-subtle); }

@@ -23,6 +23,7 @@ const P_HARNESS: &str = "M8.25 3v1.5M4.5 8.25H3m18 0h-1.5M4.5 12H3m18 0h-1.5m-15
 const P_MONOPOLY: &str = "M14.25 6.087c0-.355.186-.676.401-.959.221-.29.349-.634.349-1.003 0-1.036-1.007-1.875-2.25-1.875s-2.25.84-2.25 1.875c0 .369.128.713.349 1.003.215.283.401.604.401.959v0a.64.64 0 0 1-.657.643 48.39 48.39 0 0 1-4.163-.3c.186 1.613.293 3.25.315 4.907a.656.656 0 0 1-.658.663v0c-.355 0-.676-.186-.959-.401a1.647 1.647 0 0 0-1.003-.349c-1.036 0-1.875 1.007-1.875 2.25s.84 2.25 1.875 2.25c.369 0 .713-.128 1.003-.349.283-.215.604-.401.959-.401v0c.31 0 .555.26.532.57a48.039 48.039 0 0 1-.642 5.056c1.518.19 3.058.309 4.616.354a.64.64 0 0 0 .657-.643v0c0-.355-.186-.676-.401-.959a1.647 1.647 0 0 1-.349-1.003c0-1.035 1.008-1.875 2.25-1.875 1.243 0 2.25.84 2.25 1.875 0 .369-.128.713-.349 1.003-.215.283-.4.604-.4.959v0c0 .333.277.599.61.58a48.1 48.1 0 0 0 5.427-.63 48.05 48.05 0 0 0 .582-4.717.532.532 0 0 0-.533-.57v0c-.355 0-.676.186-.959.401-.29.221-.634.349-1.003.349-1.035 0-1.875-1.007-1.875-2.25s.84-2.25 1.875-2.25c.37 0 .713.128 1.003.349.283.215.604.401.96.401v0a.656.656 0 0 0 .658-.663 48.422 48.422 0 0 0-.37-5.36c-1.676.24-3.37.404-5.082.484a.638.638 0 0 1-.667-.643v0Z";
 const P_ADMIN: &str = "M11.42 15.17 17.25 21A2.652 2.652 0 0 0 21 17.25l-5.877-5.877M11.42 15.17l2.496-3.03c.317-.384.74-.626 1.208-.766M11.42 15.17l-4.655 5.653a2.548 2.548 0 1 1-3.586-3.586l6.837-5.63m5.108-.233c.55-.164 1.163-.188 1.743-.14a4.5 4.5 0 0 0 4.486-6.336l-3.276 3.277a3.004 3.004 0 0 1-2.25-2.25l3.276-3.276a4.5 4.5 0 0 0-6.336 4.486c.091 1.076-.071 2.264-.904 2.95l-.102.085m-1.745 1.437L5.909 7.5H4.5L2.25 3.75l1.5-1.5L7.5 4.5v1.409l4.26 4.26m-1.745 1.437 1.745-1.437m6.615 8.206L15.75 15.75M4.867 19.125h.008v.008h-.008v-.008Z";
 const P_LOGOUT: &str = "M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15M12 9l-3 3m0 0 3 3m-3-3h12.75";
+const P_DEMO: &str = "m3.75 13.5 10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75Z";
 
 fn nav_link(href: &str, page: &str, key: &str, icon: &str, label: &str) -> String {
     let active = if page == key { "active" } else { "" };
@@ -52,6 +53,8 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
     <div class="sb-head">Haftalar</div>
     {harness}
     {monopoly}
+    <div class="sb-head">Video Demoları</div>
+    {demos}
     {admin_block}
   </nav>
   <div class="sb-footer">
@@ -69,6 +72,7 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
                 board = nav_link("/board", active, "board", &ico(P_BOARD), "Görev Panosu"),
                 harness = nav_link("/agentic-harness", active, "agentic-harness", &ico(P_HARNESS), "Agentic Harness (1. Hafta)"),
                 monopoly = nav_link("/ai-monopoly", active, "ai-monopoly", &ico(P_MONOPOLY), "AI Monopoly (2. Hafta)"),
+                demos = nav_link("/demos", active, "demos", &ico(P_DEMO), "İnteraktif Demolar"),
                 admin_block = admin_block,
                 initial = esc(&u.display_name.chars().next().unwrap_or('?').to_string()),
                 name = esc(&u.display_name),
@@ -96,7 +100,7 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/style.css?v=4">
+<link rel="stylesheet" href="/static/style.css?v=5">
 </head>
 <body class="{body_class}">
 {shell}
@@ -172,6 +176,30 @@ pub fn ai_monopoly(user: &User) -> String {
     layout("AI Monopoly", Some(user), "ai-monopoly", r##"
 <h1>AI Monopoly — 2. Hafta</h1>
 <p class="muted">Yakında burada.</p>"##)
+}
+
+// ponytail: hardcoded list — demos are files in static/demos/, add a row here when adding a file
+const DEMOS: [(&str, &str, &str); 7] = [
+    ("ai-timeline/index.html", "Makineler Nasıl Öğrenmeyi Öğrendi", "Yapay zekânın zaman çizelgesi — 4 bölümlük interaktif seri"),
+    ("html-css-js-demo.html", "HTML + CSS + JS", "Koddan çıktıya: web sayfası nasıl oluşur"),
+    ("backend-frontend-demo.html", "Ön Uç ve Arka Uç", "İstemci ile sunucu arasındaki iş bölümü"),
+    ("database-demo.html", "Veritabanı Nedir?", "Veritabanı nedir, veriler nasıl saklanır"),
+    ("authentication-demo.html", "Kimlik Doğrulama", "Kimlik doğrulama nasıl çalışır"),
+    ("ui-ux-demo.html", "UI ve UX", "Arayüz ile deneyim arasındaki fark"),
+    ("package-manager-demo.html", "Paket Yöneticisi Nedir?", "Paket yöneticileri ne işe yarar"),
+];
+
+pub fn demos(user: &User) -> String {
+    let cards: String = DEMOS.iter().map(|(file, title, desc)| format!(
+        r##"<a class="panel demo-card" href="/static/demos/{file}" target="_blank" rel="noopener">
+  <h3>{title}</h3>
+  <p class="meta">{desc}</p>
+</a>"##)).collect();
+    let content = format!(
+        r##"<h1 class="pagetitle">Video Demoları</h1>
+<p class="muted">Derslerde kullanılan interaktif demolar. Yeni sekmede açılır.</p>
+<div class="admingrid">{cards}</div>"##);
+    layout("Video Demoları", Some(user), "demos", &content)
 }
 
 pub fn video_grid(user: &User, videos: &[VideoWithProgress], level: Option<&str>) -> String {

@@ -1,0 +1,886 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>2012 — Unutma Hilesi (Dropout)</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    background: #fff;
+    color: #111;
+    font-family: 'Comic Sans MS', 'Segoe Print', 'Bradley Hand', cursive;
+    margin: 0;
+    padding: 0 12px 40px;
+    line-height: 1.5;
+  }
+  .wrap { max-width: 880px; margin: 0 auto; }
+  h1 {
+    font-size: 2rem;
+    margin: 28px 0 4px;
+    transform: rotate(-1deg);
+  }
+  h1 .year {
+    color: #F5A623;
+    font-size: 1.2em;
+  }
+  h2 {
+    font-size: 1.35rem;
+    margin: 10px 0 8px;
+    display: inline-block;
+    transform: rotate(-0.6deg);
+    background: linear-gradient(180deg, transparent 62%, rgba(245,166,35,.45) 62%, rgba(245,166,35,.45) 92%, transparent 92%);
+    padding: 0 6px;
+  }
+  .sub { font-size: 1.05rem; margin: 0 0 24px; transform: rotate(-0.3deg); }
+  section.card {
+    border: 3px solid #111;
+    border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
+    padding: 18px 20px 22px;
+    margin: 26px 0;
+    background: #fff;
+  }
+  section.card:nth-of-type(odd)  { transform: rotate(0.25deg); }
+  section.card:nth-of-type(even) { transform: rotate(-0.25deg); }
+  .caption { font-size: 1rem; margin: 10px 4px; }
+  .caption.big { font-size: 1.08rem; }
+  .note {
+    border: 2px dashed #111;
+    border-radius: 20px 8px 22px 8px / 8px 20px 8px 22px;
+    padding: 10px 14px;
+    margin: 14px 2px;
+    background: #fffdf5;
+    transform: rotate(-0.3deg);
+  }
+  .demo-row { display: flex; flex-wrap: wrap; gap: 18px; align-items: flex-start; margin-top: 8px; }
+  canvas.board {
+    border: 3px solid #111;
+    border-radius: 12px 4px 14px 5px / 5px 12px 5px 14px;
+    width: 340px;
+    max-width: 100%;
+    touch-action: none;
+    background: #fff;
+  }
+  canvas.net {
+    border: 3px solid #111;
+    border-radius: 14px 5px 12px 6px / 6px 14px 5px 12px;
+    width: 100%;
+    max-width: 700px;
+    background: #fff;
+    display: block;
+    margin: 8px auto;
+  }
+  .side { flex: 1 1 300px; min-width: 280px; }
+  .meter { margin: 8px 0 14px; }
+  .meter .label { font-size: 0.98rem; }
+  .meter .bar {
+    height: 26px;
+    border: 2.5px solid #111;
+    border-radius: 30px 8px 30px 8px / 8px 30px 8px 30px;
+    overflow: hidden;
+    background: #fff;
+    margin: 3px 0;
+  }
+  .meter .fill {
+    height: 100%;
+    width: 50%;
+    transition: width 0.25s;
+  }
+  .meter.train .fill { background: rgba(41,171,226,.75); }
+  .meter.test  .fill { background: rgba(245,166,35,.85); }
+  .meter .num { font-size: 1.15rem; font-weight: bold; }
+  canvas.chart {
+    border: 2.5px solid #111;
+    border-radius: 10px 4px 12px 5px / 5px 10px 5px 12px;
+    width: 100%;
+    max-width: 340px;
+    background: #fff;
+  }
+  .legend { font-size: 0.88rem; margin: 6px 2px; }
+  .legend .dotA { color: #1a8fc4; font-weight: bold; }
+  .legend .dotB { color: #d98d0b; font-weight: bold; }
+  button {
+    font-family: inherit;
+    font-size: 1.05rem;
+    padding: 10px 20px;
+    background: #fff;
+    color: #111;
+    border: 3px solid #111;
+    border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
+    cursor: pointer;
+    margin: 6px 4px;
+    min-height: 48px;
+  }
+  button:active { transform: scale(0.97); }
+  button.toggle {
+    font-size: 1.3rem;
+    font-weight: bold;
+    padding: 14px 26px;
+    transform: rotate(-1deg);
+  }
+  button.toggle.on {
+    background: #29ABE2;
+    color: #fff;
+  }
+  button.toggle.off {
+    background: #eee;
+    color: #555;
+  }
+  .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin: 10px 0; }
+  .slider-box { flex: 1 1 260px; min-width: 240px; }
+  .slider-box label { font-size: 1rem; }
+  input[type=range] {
+    width: 100%;
+    height: 40px;
+    accent-color: #F5A623;
+    cursor: pointer;
+  }
+  .pct { font-weight: bold; font-size: 1.2rem; color: #F5A623; }
+  .minis { display: flex; flex-wrap: wrap; gap: 14px; justify-content: center; margin: 12px 0; }
+  .mini {
+    text-align: center;
+    transform: rotate(-1deg);
+  }
+  .mini:nth-child(even) { transform: rotate(1.2deg); }
+  .mini canvas {
+    border: 2.5px solid #111;
+    border-radius: 18px 6px 16px 7px / 7px 18px 7px 16px;
+    background: #fff;
+  }
+  .mini .tag { font-size: 0.85rem; }
+  footer {
+    margin: 40px 0 10px;
+    border-top: 3px solid #111;
+    padding-top: 14px;
+    font-size: 1rem;
+    text-align: center;
+  }
+  footer a { color: #29ABE2; }
+  .hint { font-size: 0.9rem; color: #444; }
+  section.card.hero { border-width: 4px; box-shadow: 6px 6px 0 rgba(41,171,226,.30); }
+  .badge {
+    display: inline-block;
+    font-size: 0.85rem;
+    border: 2px solid #111;
+    border-radius: 20px 6px 20px 6px / 6px 20px 6px 20px;
+    padding: 2px 10px;
+    margin-right: 8px;
+    transform: rotate(-2deg);
+    vertical-align: middle;
+  }
+  .badge.star { background: #F5A623; color: #fff; }
+  .badge.side { background: #eee; color: #444; }
+  .setup { font-size: 1.02rem; font-style: italic; color: #333; margin: 2px 4px 10px; }
+  .trythis {
+    border: 2.5px solid #29ABE2;
+    border-radius: 18px 6px 20px 8px / 8px 18px 8px 20px;
+    background: #f2fbff;
+    padding: 10px 16px;
+    margin: 12px 2px;
+  }
+  .trythis b.t { color: #1a8fc4; }
+  .trythis ol { margin: 6px 0 2px 22px; padding: 0; }
+  .trythis li { margin: 4px 0; }
+  button.play {
+    font-size: 1.25rem;
+    font-weight: bold;
+    background: #29ABE2;
+    color: #fff;
+    transform: rotate(-1deg);
+  }
+  .knobs {
+    border: 2px dashed #aaa;
+    border-radius: 14px;
+    padding: 8px 12px;
+    margin-top: 12px;
+    color: #444;
+  }
+  .knobs .legend, .knobs .hint { font-size: 0.85rem; }
+  .knobs-title { font-size: 0.85rem; color: #888; letter-spacing: 1px; }
+</style>
+
+<div class="wrap">
+
+<h1><span class="year">2012</span> — Unutma Hilesi</h1>
+<p class="sub">2012 civarında, büyük sinir ağlarının utanç verici bir alışkanlığı vardı: <b>çok fazla çalışıyorlardı</b> —
+her alıştırma sorusunu mükemmel çözüyor, ardından gerçek sınavda fiyasko yaşıyorlardı. Geoff Hinton&#x27;ın ekibi,
+şaka gibi gelen bir hileyle bu sorunu çözdü: <b>öğrenme sırasında beynin yarısını rastgele devre dışı bırakmak</b>. Bu sayfada önce sorunun
+canlı olarak nasıl ortaya çıktığını izleyeceksiniz (1. perde), ardından bu numarayı kendiniz deneyecek ve işe yaradığını göreceksiniz (2. perde).</p>
+
+<!-- ================= DEMO 1 : overfitting felt first ================= -->
+<section class="card hero" id="demo1">
+  <h2><span class="badge star">★ ana olay · 1. perde</span> Bu ağın nasıl aşırı çalışacağını izleyin</h2>
+  <p class="setup">Bir ağın, kalıbı öğrenmek yerine cevap kağıdını ezberlemesini izlemek üzeresiniz.</p>
+  <p class="caption">Ağ, <span style="color:#1a8fc4;font-weight:bold">mavi noktaları</span>
+  <span style="color:#d98d0b;font-weight:bold">turuncu </span>noktalardan ayırmak zorundadır. Yalnızca <b>25 dolu </b>noktayı inceleyebilir;
+  içi <b>boş noktalar ise</b> ağın asla görmediği <b>sürpriz bir sınavdır</b>. Arka plan renkleri = her noktada ağın o andaki tahmini.</p>
+
+  <div class="trythis">
+    <b class="t">şunu deneyin:</b>
+    <ol>
+      <li><b>▶</b> tuşuna basın → renklerin kesikli halkalı noktaların etrafında tuhaf küçük adacıklar oluşturmasını izleyin</li>
+      <li>iki puanı izleyin: <b>çalışılan noktaların</b> puanı ~%0’a düşerken, <b>yeni noktaların puanı</b> da düşer… sonra yavaşça YUKARI doğru tırmanır</li>
+      <li>↺ tuşuna basın → farklı rastgele başlangıç, aynı üzücü son</li>
+    </ol>
+  </div>
+
+  <div class="demo-row">
+    <div>
+      <button class="play" id="d1-play">▶ ezberlemesini izleyin</button>
+      <canvas class="board" id="d1-board" width="340" height="340"></canvas>
+      <p class="legend">
+      ● dolu = incelediği noktalar   ○ boş = sürpriz test<br>
+      ╌╌ kesikli eğri = gerçek desen   ⊚ kesikli halka = kasıtlı olarak yanlış renkle gösterilen bir nokta</p>
+    </div>
+    <div class="side">
+      <div class="meter train">
+        <div class="label"><b>çalıştığı</b> noktalarda yanlış:</div>
+        <div class="bar"><div class="fill" id="d1-trainbar"></div></div>
+        <div class="num" id="d1-trainnum">–</div>
+      </div>
+      <div class="meter test">
+        <div class="label"><b>daha önce hiç görmediği yeni </b>noktalarda yanlış:</div>
+        <div class="bar"><div class="fill" id="d1-testbar"></div></div>
+        <div class="num" id="d1-testnum">–</div>
+      </div>
+      <button id="d1-reset">↺ sıfırdan yeniden başla</button>
+      <div class="knobs">
+        <div class="knobs-title">DAHA FAZLA AYAR DÜĞMESİ</div>
+        <canvas class="chart" id="d1-chart" width="340" height="130"></canvas>
+        <p class="legend">zaman içindeki hata puanı:
+          <span class="dotA">— incelenen noktalar</span>   <span class="dotB">— yeni noktalar</span></p>
+      </div>
+    </div>
+  </div>
+
+  <div class="note caption big">
+    <b>Az önce gördüğünüz şeye aşırı uyum denir.</b>
+    Ağ,
+    kasıtlı olarak yanlış etiketlenmiş sorunlu noktaları bile ezberleyecek kadar büyüktür, bu yüzden bunların etrafında adacıklar oluşturur — incelediği şeylerde mükemmel,
+    yeni her şeyde ise <i>daha kötü</i>
+    performans gösterir. Deseni öğrenmeyi bıraktı ve cevap kağıdını ezberlemeye başladı.
+  </div>
+</section>
+
+<!-- ================= DEMO 2 : the coin-flip trick ================= -->
+<section class="card hero" id="demo2">
+  <h2><span class="badge star">★ ana olay · 2. perde</span> Aynı ağ, aynı noktalar… tek bir yeni değişiklik</h2>
+  <p class="setup">Şimdi düzeltme. Aynı beyin, aynı noktalar — ancak her öğrenme turunda, nöronların yarısı rastgele kapatılır.</p>
+  <p class="caption">Aşağıdaki her <span style="color:#29ABE2;font-weight:bold">mavi daire</span> bir nörondur.
+  Anahtar zaten <b>AÇIK</b> konumda: her turda, rastgele seçilen <i>farklı</i> bir yarısı griye dönüp üstü çiziliyor — ▶ tuşuna basarak titremelerini izleyin.</p>
+
+  <div class="trythis">
+    <b class="t">şunu deneyin:</b>
+    <ol>
+      <li><b>▶</b> tuşuna basın → nöronlar yanıp sönerek söner, ancak sınır düzgün kalır ve <b>yeni noktaların</b> puanı DÜŞÜK kalır</li>
+      <li>anahtarı <b>KAPALI</b> konuma getirin → 1. perdeden kalan adacıkların yeniden büyüdüğünü izleyin</li>
+      <li>kaydırıcıyı tutun (daha fazla ayar düğmesi): %0 = tekrar 1. perde, %80 = öğrenmek için çok fazla nöron uykuda — ideal noktayı bulun</li>
+    </ol>
+  </div>
+
+  <canvas class="net" id="d2-net" width="700" height="430"></canvas>
+
+  <div class="controls">
+    <button class="play" id="d2-play">▶ öğrenmesini izleyin — hile AÇIK</button>
+    <button class="toggle on" id="d2-toggle">DROPOUT: AÇIK</button>
+    <button id="d2-reset">↺ sıfırdan yeniden başlat</button>
+  </div>
+
+  <div class="demo-row">
+    <div>
+      <canvas class="board" id="d2-board" width="340" height="340"></canvas>
+      <p class="legend">aynı 25 çalışma noktası, 1. perdekiyle aynı sürpriz sınav</p>
+    </div>
+    <div class="side">
+      <div class="meter train">
+        <div class="label"><b>çalıştığı</b> noktalarda yanlış:</div>
+        <div class="bar"><div class="fill" id="d2-trainbar"></div></div>
+        <div class="num" id="d2-trainnum">–</div>
+      </div>
+      <div class="meter test">
+        <div class="label"><b>daha önce hiç görmediği yeni </b>noktalarda yanlış:</div>
+        <div class="bar"><div class="fill" id="d2-testbar"></div></div>
+        <div class="num" id="d2-testnum">–</div>
+      </div>
+      <div class="knobs">
+        <div class="knobs-title">DAHA FAZLA AYAR</div>
+        <div class="slider-box">
+          <label for="d2-p">her geçişte devre dışı bırakılan nöronların oranı:
+            <span class="pct" id="d2-pval">%50</span></label>
+          <input type="range" id="d2-p" min="0" max="80" step="5" value="50">
+        </div>
+        <canvas class="chart" id="d2-chart" width="340" height="130"></canvas>
+        <p class="legend">zaman içindeki hata puanı:
+          <span class="dotA">— çalışılan noktalar</span>   <span class="dotB">— yeni noktalar</span></p>
+      </div>
+    </div>
+  </div>
+
+  <div class="note caption big">
+    <b>Az önce gördüğünüz şeye &quot;dropout&quot; denir</b>
+    (Hinton&#x27;un grubu, 2012). Herhangi bir nöron her an ortadan kaybolabileceğinden
+    ağ, her şeyi tek bir nörona bağlayamaz ve nöronlar kırılgan gruplar halinde
+    (&quot;birlikte uyum sağlama&quot;) — her biri kendi başına yararlı bir şey öğrenmelidir. Aynı ağ, aynı veriler — nöron başına bir yazı tura
+    atışı ve yeni noktalar puanı düşük kalır.
+  </div>
+</section>
+
+<!-- ================= DEMO 3 : ensemble for free ================= -->
+<section class="card" id="demo3">
+  <h2><span class="badge side">yan görev</span> Gizlice, koca bir ekibi eğittiniz</h2>
+  <p class="setup">2. perdenin gerçekte ne yaptığına dair son bir açıklama.</p>
+  <p class="caption">Her çalışma turunda, rastgele yazı tura atışları geride <b>farklı, daha küçük</b> bir <b>ağ</b> bırakır.
+  Altı gerçek tur, altı farklı beyin gibi görünür:</p>
+
+  <div class="minis" id="d3-minis"></div>
+  <div style="text-align:center"><button id="d3-shuffle">🎲 madeni paraları tekrar atın</button>
+  <p class="hint">(ayrıca birkaç saniyede bir kendiliğinden yeniden karışırlar)</p></div>
+
+  <div class="note caption big">
+    Yani dropout, binlerce <b>küçük ağdan</b> <b>oluşan devasa </b>bir <b>takımı</b> eğitmek ve
+    oylarının ortalamasını almak gibidir. Üstelik bu işlem <b>ücretsizdir</b>: hepsi aynı ağın içinde yaşar ve aynı bağlantıları paylaşır.
+    Test aşamasında yazı tura atma durur, <b>her nöron uyanır</b> ve tüm ağ,
+    takımın ortalama oyu gibi davranır. (Küçük bir teknik ayrıntı: eğitim sırasında hayatta kalan nöronlar biraz daha yüksek sesle bağırır —
+    çıktıları 1/(1−p) oranında artırılır — böylece test aşamasında hiçbir ayarlamaya gerek kalmaz.)
+  </div>
+
+  <div class="note caption big" style="background:#f2fbff">
+    <b>Tarihten bir satır:</b>
+    Dropout, <b>2012</b>
+    ’de ortaya çıktı — bu, görüntü tanıma alanında
+    büyük yankı uyandıran AlexNet ile aynı yıldı… ve AlexNet de dropout <i>kullanıyordu</i>
+    . Bu yöntem, büyük
+    ağların genelleme yapabilmesi için standart bir araç haline geldi. Sadece ham ölçek değil, küçük, neredeyse saçma gibi gelen bir fikir — derin öğrenmenin önünü açmaya yardımcı oldu.
+  </div>
+</section>
+
+<footer>
+  ← önceki: <a href="02-learning.html">1974–1986 · Öğrenme</a>
+   ·  <a href="index.html">dizin (zaman çizelgesi)</a>  · 
+  sonraki: <a href="04-generative.html">1985–2014 · Rüya Gören Makineler</a> →
+</footer>
+
+</div>
+
+<script>
+'use strict';
+
+/* ---------------- seeded RNG ---------------- */
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+function gaussMaker(rng) {
+  return function () {
+    let u = 0, v = 0;
+    while (u === 0) u = rng();
+    while (v === 0) v = rng();
+    return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+  };
+}
+
+/* ---------------- dataset (shared by demos 1 & 2) ---------------- */
+const BLUE = [41, 171, 226], ORANGE = [245, 166, 35];
+const trueBoundary = x => 0.5 + 0.17 * Math.sin(5.2 * x - 0.8);
+
+function makeDataset() {
+  const rng = mulberry32(20120612);
+  function sample(margin) {
+    for (;;) {
+      const x = 0.05 + 0.9 * rng(), y = 0.05 + 0.9 * rng();
+      const m = y - trueBoundary(x);
+      if (Math.abs(m) > margin)
+        return { x, y, label: m > 0 ? 1 : 0, noise: false };
+    }
+  }
+  const train = [];
+  for (let i = 0; i < 25; i++) train.push(sample(0.07));
+  // flip 3 points sitting comfortably inside a region -> "troublemakers"
+  const candidates = [];
+  for (let i = 0; i < train.length; i++) {
+    const m = Math.abs(train[i].y - trueBoundary(train[i].x));
+    if (m > 0.11 && m < 0.32) candidates.push(i);
+  }
+  for (let k = candidates.length - 1; k > 0; k--) { // shuffle
+    const j = Math.floor(rng() * (k + 1));
+    [candidates[k], candidates[j]] = [candidates[j], candidates[k]];
+  }
+  for (let k = 0; k < 3 && k < candidates.length; k++) {
+    const p = train[candidates[k]];
+    p.label = 1 - p.label;
+    p.noise = true;
+  }
+  const test = [];
+  for (let i = 0; i < 28; i++) test.push(sample(0.05));
+  // some quiz dots live near the troublemakers (labeled by the TRUE pattern),
+  // so islands carved around noise points actually cost points on the quiz
+  const noisy = train.filter(p => p.noise);
+  for (const np of noisy) {
+    let added = 0;
+    while (added < 4) {
+      const ang = rng() * 2 * Math.PI, rad = 0.04 + 0.09 * rng();
+      const x = Math.min(0.97, Math.max(0.03, np.x + rad * Math.cos(ang)));
+      const y = Math.min(0.97, Math.max(0.03, np.y + rad * Math.sin(ang)));
+      const m = y - trueBoundary(x);
+      if (Math.abs(m) < 0.04) continue;
+      test.push({ x, y, label: m > 0 ? 1 : 0, noise: false });
+      added++;
+    }
+  }
+  return { train, test };
+}
+const DATA = makeDataset();
+
+/* ---------------- tiny MLP: 2 -> 16 -> 16 -> 1 ---------------- */
+const N1 = 16, N2 = 16;
+
+class MLP {
+  constructor(seed) {
+    const gauss = gaussMaker(mulberry32(seed));
+    const mk = (n, scale) => Float64Array.from({ length: n }, () => gauss() * scale);
+    this.W1 = mk(2 * N1, Math.sqrt(1 / 2));
+    this.b1 = new Float64Array(N1);
+    this.W2 = mk(N1 * N2, Math.sqrt(1 / N1));
+    this.b2 = new Float64Array(N2);
+    this.W3 = mk(N2, Math.sqrt(1 / N2));
+    this.b3 = 0;
+    // scratch buffers
+    this.a1 = new Float64Array(N1); this.h1 = new Float64Array(N1);
+    this.a2 = new Float64Array(N2); this.h2 = new Float64Array(N2);
+    this.gW1 = new Float64Array(2 * N1); this.gb1 = new Float64Array(N1);
+    this.gW2 = new Float64Array(N1 * N2); this.gb2 = new Float64Array(N2);
+    this.gW3 = new Float64Array(N2); this.gb3 = 0;
+    this.m1 = new Float64Array(N1); this.m2 = new Float64Array(N2); // dropout masks
+    this.m1.fill(1); this.m2.fill(1);
+    this.stepRng = mulberry32(seed ^ 0x9e3779b9);
+  }
+
+  // forward pass; useMask=false for evaluation / heatmap (plain forward)
+  forward(x, y, useMask) {
+    const { W1, b1, W2, b2, W3, a1, h1, a2, h2, m1, m2 } = this;
+    for (let j = 0; j < N1; j++) {
+      const z = x * W1[j] + y * W1[N1 + j] + b1[j];
+      a1[j] = Math.tanh(z);
+      h1[j] = useMask ? a1[j] * m1[j] : a1[j];
+    }
+    for (let k = 0; k < N2; k++) {
+      let z = b2[k];
+      for (let j = 0; j < N1; j++) z += h1[j] * W2[j * N2 + k];
+      a2[k] = Math.tanh(z);
+      h2[k] = useMask ? a2[k] * m2[k] : a2[k];
+    }
+    let z = this.b3;
+    for (let k = 0; k < N2; k++) z += h2[k] * W3[k];
+    return 1 / (1 + Math.exp(-z));
+  }
+
+  // one full-batch gradient step; p = drop probability (inverted dropout)
+  trainStep(batch, lr, p) {
+    const { m1, m2 } = this;
+    if (p > 0) {
+      const keep = 1 - p, scale = 1 / keep;
+      for (let j = 0; j < N1; j++) m1[j] = this.stepRng() < keep ? scale : 0;
+      for (let k = 0; k < N2; k++) m2[k] = this.stepRng() < keep ? scale : 0;
+    } else {
+      m1.fill(1); m2.fill(1);
+    }
+    const { W2, W3, a1, h1, a2, h2, gW1, gb1, gW2, gb2, gW3 } = this;
+    gW1.fill(0); gb1.fill(0); gW2.fill(0); gb2.fill(0); gW3.fill(0); this.gb3 = 0;
+    const dz2 = new Float64Array(N2), dz1 = new Float64Array(N1);
+    for (const pt of batch) {
+      const out = this.forward(pt.x, pt.y, true);
+      const d3 = out - pt.label;                       // sigmoid + cross-entropy
+      for (let k = 0; k < N2; k++) {
+        gW3[k] += h2[k] * d3;
+        dz2[k] = W3[k] * d3 * m2[k] * (1 - a2[k] * a2[k]);
+        gb2[k] += dz2[k];
+      }
+      this.gb3 += d3;
+      for (let j = 0; j < N1; j++) {
+        let dh1 = 0;
+        for (let k = 0; k < N2; k++) {
+          gW2[j * N2 + k] += h1[j] * dz2[k];
+          dh1 += W2[j * N2 + k] * dz2[k];
+        }
+        dz1[j] = dh1 * m1[j] * (1 - a1[j] * a1[j]);
+        gb1[j] += dz1[j];
+        gW1[j] += pt.x * dz1[j];
+        gW1[N1 + j] += pt.y * dz1[j];
+      }
+    }
+    const s = lr / batch.length;
+    for (let i = 0; i < this.W1.length; i++) this.W1[i] -= s * gW1[i];
+    for (let j = 0; j < N1; j++) this.b1[j] -= s * gb1[j];
+    for (let i = 0; i < this.W2.length; i++) this.W2[i] -= s * gW2[i];
+    for (let k = 0; k < N2; k++) { this.b2[k] -= s * gb2[k]; this.W3[k] -= s * gW3[k]; }
+    this.b3 -= s * this.gb3;
+  }
+
+  evaluate(set) { // plain forward: {loss, err}
+    let loss = 0, wrong = 0;
+    for (const pt of set) {
+      let out = this.forward(pt.x, pt.y, false);
+      out = Math.min(1 - 1e-7, Math.max(1e-7, out));
+      loss -= pt.label ? Math.log(out) : Math.log(1 - out);
+      if ((out > 0.5 ? 1 : 0) !== pt.label) wrong++;
+    }
+    return { loss: loss / set.length, err: wrong / set.length };
+  }
+}
+
+/* ---------------- drawing helpers ---------------- */
+function setupCanvas(canvas) {
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const w = canvas.width, h = canvas.height;
+  canvas.width = w * dpr; canvas.height = h * dpr;
+  canvas.style.width = ''; // CSS handles display size
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  return { ctx, w, h };
+}
+
+function mixColor(t) { // 0 -> orange side, 1 -> blue side, pastel for whiteboard
+  let r, g, b;
+  if (t < 0.5) {
+    const u = t * 2;
+    r = ORANGE[0] + (255 - ORANGE[0]) * u;
+    g = ORANGE[1] + (255 - ORANGE[1]) * u;
+    b = ORANGE[2] + (255 - ORANGE[2]) * u;
+  } else {
+    const u = (t - 0.5) * 2;
+    r = 255 + (BLUE[0] - 255) * u;
+    g = 255 + (BLUE[1] - 255) * u;
+    b = 255 + (BLUE[2] - 255) * u;
+  }
+  const soft = 0.5; // blend toward white
+  return [r + (255 - r) * soft, g + (255 - g) * soft, b + (255 - b) * soft];
+}
+
+const GRID = 40;
+function drawBoard(demo) {
+  const { bctx, bw, bh, model, heat, heatCtx, heatImg } = demo;
+  const d = heatImg.data;
+  for (let gy = 0; gy < GRID; gy++) {
+    const py = 1 - (gy + 0.5) / GRID;           // data y-axis points up
+    for (let gx = 0; gx < GRID; gx++) {
+      const px = (gx + 0.5) / GRID;
+      const prob = model.forward(px, py, false);
+      const [r, g, b] = mixColor(prob);
+      const i = (gy * GRID + gx) * 4;
+      d[i] = r; d[i + 1] = g; d[i + 2] = b; d[i + 3] = 255;
+    }
+  }
+  heatCtx.putImageData(heatImg, 0, 0);
+  bctx.clearRect(0, 0, bw, bh);
+  bctx.imageSmoothingEnabled = true;
+  bctx.drawImage(heat, 0, 0, bw, bh);
+
+  // the real pattern, dashed
+  bctx.save();
+  bctx.setLineDash([7, 6]);
+  bctx.strokeStyle = 'rgba(0,0,0,0.55)';
+  bctx.lineWidth = 2;
+  bctx.beginPath();
+  for (let i = 0; i <= 60; i++) {
+    const x = i / 60, y = trueBoundary(x);
+    const cx = x * bw, cy = (1 - y) * bh;
+    i === 0 ? bctx.moveTo(cx, cy) : bctx.lineTo(cx, cy);
+  }
+  bctx.stroke();
+  bctx.restore();
+
+  // points
+  const dot = (pt, hollow) => {
+    const cx = pt.x * bw, cy = (1 - pt.y) * bh;
+    const col = pt.label === 1 ? 'rgb(26,143,196)' : 'rgb(217,141,11)';
+    bctx.beginPath();
+    bctx.arc(cx, cy, hollow ? 5 : 6, 0, Math.PI * 2);
+    bctx.fillStyle = hollow ? '#fff' : col;
+    bctx.fill();
+    bctx.lineWidth = 2.2;
+    bctx.strokeStyle = hollow ? col : '#111';
+    bctx.stroke();
+    if (pt.noise) {                              // dashed ring for troublemakers
+      bctx.save();
+      bctx.setLineDash([3, 3]);
+      bctx.strokeStyle = '#111';
+      bctx.lineWidth = 1.6;
+      bctx.beginPath();
+      bctx.arc(cx, cy, 10, 0, Math.PI * 2);
+      bctx.stroke();
+      bctx.restore();
+    }
+  };
+  for (const pt of DATA.test) dot(pt, true);
+  for (const pt of DATA.train) dot(pt, false);
+}
+
+function drawChart(demo) {
+  const { cctx, cw, ch, hist } = demo;
+  cctx.clearRect(0, 0, cw, ch);
+  const padL = 8, padB = 8, padT = 8;
+  const yMax = 1.0;
+  const toX = i => padL + (cw - padL - 6) * (hist.length < 2 ? 0 : i / (hist.length - 1));
+  const toY = v => ch - padB - (ch - padB - padT) * Math.min(v, yMax) / yMax;
+  const line = (key, color, width) => {
+    cctx.beginPath();
+    cctx.strokeStyle = color;
+    cctx.lineWidth = width;
+    cctx.lineJoin = 'round';
+    for (let i = 0; i < hist.length; i++) {
+      const x = toX(i), y = toY(hist[i][key]);
+      i === 0 ? cctx.moveTo(x, y) : cctx.lineTo(x, y);
+    }
+    cctx.stroke();
+  };
+  // axes, hand-ish
+  cctx.strokeStyle = '#111';
+  cctx.lineWidth = 2;
+  cctx.beginPath();
+  cctx.moveTo(padL, padT); cctx.lineTo(padL, ch - padB); cctx.lineTo(cw - 4, ch - padB);
+  cctx.stroke();
+  if (hist.length > 1) {
+    line('train', 'rgba(41,171,226,0.95)', 2.5);
+    line('test', 'rgba(245,166,35,0.95)', 3);
+  }
+}
+
+/* big network diagram (demo 2) */
+function drawNet(demo) {
+  const { nctx, nw, nh, model, enabled } = demo;
+  nctx.clearRect(0, 0, nw, nh);
+  const layers = [
+    { n: 2, mask: null, r: 12 },
+    { n: N1, mask: enabled ? model.m1 : null, r: 9 },
+    { n: N2, mask: enabled ? model.m2 : null, r: 9 },
+    { n: 1, mask: null, r: 12 },
+  ];
+  const xs = [70, nw * 0.38, nw * 0.62, nw - 70];
+  const ys = layers.map(L => {
+    const gap = Math.min(25, (nh - 40) / L.n);
+    const start = nh / 2 - gap * (L.n - 1) / 2;
+    return Array.from({ length: L.n }, (_, i) => start + i * gap);
+  });
+  const off = (L, i) => L.mask && L.mask[i] === 0;
+  // edges
+  for (let l = 0; l < 3; l++) {
+    for (let i = 0; i < layers[l].n; i++) {
+      for (let j = 0; j < layers[l + 1].n; j++) {
+        const dead = off(layers[l], i) || off(layers[l + 1], j);
+        nctx.strokeStyle = dead ? 'rgba(0,0,0,0.03)' : 'rgba(0,0,0,0.10)';
+        nctx.lineWidth = 1;
+        nctx.beginPath();
+        nctx.moveTo(xs[l], ys[l][i]);
+        nctx.lineTo(xs[l + 1], ys[l + 1][j]);
+        nctx.stroke();
+      }
+    }
+  }
+  // neurons
+  for (let l = 0; l < 4; l++) {
+    for (let i = 0; i < layers[l].n; i++) {
+      const dead = off(layers[l], i);
+      const x = xs[l], y = ys[l][i], r = layers[l].r;
+      nctx.beginPath();
+      nctx.arc(x, y, r, 0, Math.PI * 2);
+      nctx.fillStyle = dead ? '#ddd' : '#29ABE2';
+      nctx.fill();
+      nctx.lineWidth = 2.2;
+      nctx.strokeStyle = dead ? '#999' : '#111';
+      nctx.stroke();
+      if (dead) {                                 // cross it out
+        const k = r * 0.62;
+        nctx.beginPath();
+        nctx.moveTo(x - k, y - k); nctx.lineTo(x + k, y + k);
+        nctx.moveTo(x + k, y - k); nctx.lineTo(x - k, y + k);
+        nctx.strokeStyle = '#555';
+        nctx.lineWidth = 2;
+        nctx.stroke();
+      }
+    }
+  }
+  nctx.fillStyle = '#111';
+  nctx.font = "15px 'Comic Sans MS', cursive";
+  nctx.textAlign = 'center';
+  nctx.fillText('in: x, y', xs[0], 24);
+  nctx.fillText('16 neurons', xs[1], 16);
+  nctx.fillText('16 neurons', xs[2], 16);
+  nctx.fillText('out: blue?', xs[3], nh / 2 - 26);
+}
+
+/* ---------------- demo factory (demos 1 & 2 share everything) ---------------- */
+const LR = 0.3, STEPS_PER_FRAME = 14;
+
+function createDemo(prefix, opts) {
+  const $ = id => document.getElementById(prefix + '-' + id);
+  const board = setupCanvas($('board'));
+  const chart = setupCanvas($('chart'));
+  const demo = {
+    model: new MLP(opts.seed),
+    p: opts.p, enabled: opts.enabled,
+    hist: [], rec: 3, sinceRec: 0, frame: 0,
+    bctx: board.ctx, bw: board.w, bh: board.h,
+    cctx: chart.ctx, cw: chart.w, ch: chart.h,
+    heat: document.createElement('canvas'),
+    trainBar: $('trainbar'), trainNum: $('trainnum'),
+    testBar: $('testbar'), testNum: $('testnum'),
+  };
+  demo.heat.width = GRID; demo.heat.height = GRID;
+  demo.heatCtx = demo.heat.getContext('2d');
+  demo.heatImg = demo.heatCtx.createImageData(GRID, GRID);
+
+  if (opts.net) {
+    const net = setupCanvas($('net'));
+    demo.nctx = net.ctx; demo.nw = net.w; demo.nh = net.h;
+  }
+
+  demo.running = false;
+  demo.reset = () => {
+    demo.model = new MLP((Math.random() * 1e9) | 0);
+    demo.hist = []; demo.rec = 3; demo.sinceRec = 0;
+    drawBoard(demo);
+    drawChart(demo);
+    if (demo.nctx) drawNet(demo);
+  };
+  $('reset').addEventListener('click', demo.reset);
+  const playBtn = $('play');
+  const playLabel = playBtn.textContent;
+  playBtn.addEventListener('click', () => {
+    demo.running = !demo.running;
+    playBtn.textContent = demo.running ? '❚❚ pause' : playLabel;
+  });
+
+  demo.tick = () => {
+    const p = demo.enabled ? demo.p : 0;
+    for (let s = 0; s < STEPS_PER_FRAME; s++) demo.model.trainStep(DATA.train, LR, p);
+
+    // record history (decimate when it gets long, so the whole story stays visible)
+    if (++demo.sinceRec >= demo.rec) {
+      demo.sinceRec = 0;
+      const tr = demo.model.evaluate(DATA.train);
+      const te = demo.model.evaluate(DATA.test);
+      demo.hist.push({ train: tr.loss, test: te.loss });
+      demo.lastEval = { tr, te };
+      if (demo.hist.length > 360) {
+        demo.hist = demo.hist.filter((_, i) => i % 2 === 0);
+        demo.rec *= 2;
+      }
+    }
+    demo.frame++;
+    if (demo.frame % 2 === 0) drawBoard(demo);
+    if (demo.frame % 6 === 0) drawChart(demo);
+    if (demo.nctx && demo.frame % 8 === 0) drawNet(demo);
+    if (demo.frame % 12 === 0 && demo.lastEval) {
+      const { tr, te } = demo.lastEval;
+      demo.trainBar.style.width = Math.max(2, tr.err * 100) + '%';
+      demo.testBar.style.width = Math.max(2, te.err * 100) + '%';
+      demo.trainNum.textContent = Math.round(tr.err * 100) + '% wrong';
+      demo.testNum.textContent = Math.round(te.err * 100) + '% wrong';
+    }
+  };
+  // first paint immediately, before training starts
+  drawBoard(demo);
+  drawChart(demo);
+  if (demo.nctx) drawNet(demo);
+  return demo;
+}
+
+const demo1 = createDemo('d1', { seed: 1234567, p: 0, enabled: false, net: false });
+const demo2 = createDemo('d2', { seed: 7654321, p: 0.5, enabled: true, net: true });
+
+/* demo 2 controls */
+const toggleBtn = document.getElementById('d2-toggle');
+toggleBtn.addEventListener('click', () => {
+  demo2.enabled = !demo2.enabled;
+  toggleBtn.textContent = 'DROPOUT: ' + (demo2.enabled ? 'ON' : 'OFF');
+  toggleBtn.className = 'toggle ' + (demo2.enabled ? 'on' : 'off');
+  toggleBtn.setAttribute('aria-pressed', demo2.enabled);
+});
+const pSlider = document.getElementById('d2-p');
+const pVal = document.getElementById('d2-pval');
+pSlider.addEventListener('input', () => {
+  demo2.p = pSlider.value / 100;
+  pVal.textContent = pSlider.value + '%';
+});
+
+/* ---------------- demo 3: six mini networks ---------------- */
+const miniRng = mulberry32(606060);
+const minisBox = document.getElementById('d3-minis');
+const miniCanvases = [];
+for (let i = 0; i < 6; i++) {
+  const div = document.createElement('div');
+  div.className = 'mini';
+  const c = document.createElement('canvas');
+  c.width = 150; c.height = 168;
+  div.appendChild(c);
+  const tag = document.createElement('div');
+  tag.className = 'tag';
+  tag.textContent = 'pass ' + (i + 1);
+  div.appendChild(tag);
+  minisBox.appendChild(div);
+  miniCanvases.push(setupCanvas(c));
+}
+
+function drawMini(mc) {
+  const { ctx, w, h } = mc;
+  ctx.clearRect(0, 0, w, h);
+  const layers = [2, 8, 8, 1].map(n => ({
+    n,
+    mask: n === 8 ? Array.from({ length: n }, () => miniRng() < 0.5) : null, // true = dropped
+  }));
+  const xs = [22, w * 0.4, w * 0.62, w - 22];
+  const ys = layers.map(L => {
+    const gap = Math.min(19, (h - 20) / L.n);
+    const start = h / 2 - gap * (L.n - 1) / 2;
+    return Array.from({ length: L.n }, (_, i) => start + i * gap);
+  });
+  const off = (L, i) => L.mask && L.mask[i];
+  for (let l = 0; l < 3; l++)
+    for (let i = 0; i < layers[l].n; i++)
+      for (let j = 0; j < layers[l + 1].n; j++) {
+        const dead = off(layers[l], i) || off(layers[l + 1], j);
+        ctx.strokeStyle = dead ? 'rgba(0,0,0,0.04)' : 'rgba(0,0,0,0.16)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(xs[l], ys[l][i]);
+        ctx.lineTo(xs[l + 1], ys[l + 1][j]);
+        ctx.stroke();
+      }
+  for (let l = 0; l < 4; l++)
+    for (let i = 0; i < layers[l].n; i++) {
+      const dead = off(layers[l], i);
+      const x = xs[l], y = ys[l][i], r = 6.5;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fillStyle = dead ? '#ddd' : '#29ABE2';
+      ctx.fill();
+      ctx.lineWidth = 1.8;
+      ctx.strokeStyle = dead ? '#999' : '#111';
+      ctx.stroke();
+      if (dead) {
+        const k = r * 0.65;
+        ctx.beginPath();
+        ctx.moveTo(x - k, y - k); ctx.lineTo(x + k, y + k);
+        ctx.moveTo(x + k, y - k); ctx.lineTo(x - k, y + k);
+        ctx.strokeStyle = '#555';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
+    }
+}
+function shuffleMinis() { miniCanvases.forEach(drawMini); }
+document.getElementById('d3-shuffle').addEventListener('click', shuffleMinis);
+shuffleMinis();
+
+/* ---------------- main loop ---------------- */
+let lastMiniShuffle = 0;
+function loop(t) {
+  if (demo1.running) demo1.tick();
+  if (demo2.running) demo2.tick();
+  if (t - lastMiniShuffle > 2200) { shuffleMinis(); lastMiniShuffle = t; }
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>

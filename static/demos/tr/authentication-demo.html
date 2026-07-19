@@ -1,0 +1,913 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kimlik Doğrulama Noktası</title>
+  <style>
+    :root {
+      --ink: #101713;
+      --panel: #18211b;
+      --line: #35433a;
+      --paper: #eff3e8;
+      --muted: #aab6a9;
+      --lime: #c9f45d;
+      --red: #ff705f;
+      --gold: #f1c45b;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--paper);
+      background:
+        linear-gradient(90deg, rgb(255 255 255 / 3%) 1px, transparent 1px) 0 0 / 34px 34px,
+        var(--ink);
+      font-family: "Trebuchet MS", sans-serif;
+    }
+
+    button, input { font: inherit; }
+
+    button {
+      min-height: 44px;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      color: var(--paper);
+      background: transparent;
+      cursor: pointer;
+    }
+
+    button:hover:not(:disabled) { border-color: var(--lime); }
+
+    button:focus-visible,
+    input:focus-visible {
+      outline: 3px solid var(--gold);
+      outline-offset: 3px;
+    }
+
+    button:disabled {
+      opacity: .38;
+      cursor: not-allowed;
+    }
+
+    .primary {
+      border-color: var(--lime);
+      color: var(--ink);
+      background: var(--lime);
+      font-weight: 800;
+    }
+
+    .danger {
+      border-color: var(--red);
+      color: var(--red);
+    }
+
+    header {
+      width: min(1100px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: clamp(28px, 5vw, 56px) 0 20px;
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 24px;
+    }
+
+    h1 {
+      margin: 0;
+      font: 800 clamp(2rem, 6vw, 4.8rem)/.9 Georgia, serif;
+      letter-spacing: 0;
+    }
+
+    .flow {
+      color: var(--lime);
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .tabs {
+      width: min(1100px, calc(100% - 32px));
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      border: 1px solid var(--line);
+    }
+
+    .tabs button {
+      border: 0;
+      border-right: 1px solid var(--line);
+      border-radius: 0;
+      padding: 12px 8px;
+      color: var(--muted);
+    }
+
+    .tabs button:last-child { border-right: 0; }
+
+    .tabs button[aria-selected="true"] {
+      color: var(--ink);
+      background: var(--lime);
+      font-weight: 800;
+    }
+
+    main {
+      width: min(1100px, calc(100% - 32px));
+      margin: 24px auto 48px;
+    }
+
+    [hidden] { display: none !important; }
+
+    .page {
+      min-height: 520px;
+      border: 1px solid var(--line);
+      background: rgb(24 33 27 / 92%);
+      overflow: hidden;
+    }
+
+    .page-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 66px;
+      padding: 14px clamp(18px, 4vw, 40px);
+      border-bottom: 1px solid var(--line);
+    }
+
+    h2 {
+      margin: 0;
+      font: 700 clamp(1.35rem, 3vw, 2.2rem)/1 Georgia, serif;
+      letter-spacing: 0;
+    }
+
+    .state {
+      color: var(--muted);
+      font-size: .8rem;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .state.ok { color: var(--lime); }
+    .state.bad { color: var(--red); }
+    .state.warn { color: var(--gold); }
+
+    .stage {
+      min-height: 452px;
+      display: grid;
+      place-items: center;
+      padding: clamp(24px, 5vw, 56px);
+    }
+
+    .track {
+      width: 100%;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      align-items: center;
+      gap: 0;
+    }
+
+    .stop {
+      position: relative;
+      display: grid;
+      place-items: center;
+      gap: 14px;
+      text-align: center;
+      font-weight: 800;
+    }
+
+    .stop:not(:last-child)::after {
+      content: "";
+      position: absolute;
+      z-index: 0;
+      top: 37px;
+      left: 65%;
+      width: 70%;
+      height: 3px;
+      background: var(--line);
+    }
+
+    .stop:not(:last-child)::before {
+      content: "";
+      position: absolute;
+      z-index: 1;
+      top: 31px;
+      right: -1px;
+      border: 7px solid transparent;
+      border-left-color: var(--lime);
+    }
+
+    .symbol {
+      position: relative;
+      z-index: 2;
+      width: 76px;
+      aspect-ratio: 1;
+      display: grid;
+      place-items: center;
+      border: 2px solid var(--lime);
+      border-radius: 50%;
+      color: var(--lime);
+      background: var(--panel);
+      font: 800 1.5rem Georgia, serif;
+    }
+
+    .split {
+      width: 100%;
+      display: grid;
+      grid-template-columns: minmax(260px, .85fr) minmax(320px, 1.15fr);
+      gap: clamp(28px, 6vw, 80px);
+      align-items: center;
+    }
+
+    form {
+      display: grid;
+      gap: 14px;
+    }
+
+    label {
+      display: grid;
+      gap: 7px;
+      color: var(--muted);
+      font-size: .8rem;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    input {
+      width: 100%;
+      min-height: 48px;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      padding: 0 14px;
+      color: var(--paper);
+      background: var(--ink);
+    }
+
+    .actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .actions button { padding: 0 18px; }
+
+    .credentials {
+      margin: 0;
+      color: var(--muted);
+      font-size: .78rem;
+    }
+
+    code {
+      color: var(--gold);
+      font-family: Consolas, monospace;
+    }
+
+    .scanner {
+      position: relative;
+      min-height: 280px;
+      display: grid;
+      align-content: center;
+      gap: 18px;
+      border-left: 1px solid var(--line);
+      padding-left: clamp(28px, 5vw, 64px);
+    }
+
+    .scan-line {
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 2px;
+      background: var(--lime);
+      box-shadow: 0 0 18px var(--lime);
+      animation: scan 2.4s ease-in-out infinite alternate;
+    }
+
+    .check {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 16px;
+      padding-bottom: 14px;
+      border-bottom: 1px solid var(--line);
+      font-size: 1.05rem;
+    }
+
+    .check output {
+      color: var(--muted);
+      font-weight: 800;
+    }
+
+    .check output.ok { color: var(--lime); }
+    .check output.bad { color: var(--red); }
+
+    .status-line {
+      min-height: 24px;
+      margin: 8px 0 0;
+      color: var(--muted);
+    }
+
+    .status-line.ok { color: var(--lime); }
+    .status-line.bad { color: var(--red); }
+    .status-line.warn { color: var(--gold); }
+
+    .transfer {
+      width: 100%;
+      display: grid;
+      grid-template-columns: 1fr minmax(120px, .4fr) 1fr;
+      align-items: center;
+      gap: 20px;
+    }
+
+    .machine {
+      min-height: 250px;
+      display: grid;
+      place-items: center;
+      align-content: center;
+      gap: 16px;
+      border: 1px solid var(--line);
+      background: var(--ink);
+    }
+
+    .machine strong {
+      color: var(--muted);
+      text-transform: uppercase;
+    }
+
+    .server-stack {
+      width: 92px;
+      height: 76px;
+      border: 2px solid var(--lime);
+      background: repeating-linear-gradient(
+        to bottom,
+        transparent 0 20px,
+        var(--lime) 20px 22px
+      );
+    }
+
+    .browser {
+      width: 130px;
+      height: 88px;
+      border: 2px solid var(--paper);
+      border-top-width: 18px;
+    }
+
+    .lane {
+      position: relative;
+      height: 4px;
+      background: var(--line);
+    }
+
+    .lane::after {
+      content: "";
+      position: absolute;
+      right: 0;
+      top: -6px;
+      border: 8px solid transparent;
+      border-left-color: var(--lime);
+    }
+
+    .pass {
+      width: min(260px, 82%);
+      padding: 16px;
+      border: 2px solid var(--gold);
+      color: var(--gold);
+      background: var(--panel);
+      transform: rotate(-2deg);
+    }
+
+    .pass span {
+      display: block;
+      margin-bottom: 8px;
+      font-size: .72rem;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .pass code {
+      display: block;
+      overflow-wrap: anywhere;
+      font-size: .82rem;
+    }
+
+    .pass.empty {
+      border-style: dashed;
+      color: var(--muted);
+      opacity: .7;
+    }
+
+    .pass.expired {
+      border-color: var(--red);
+      color: var(--red);
+      text-decoration: line-through;
+    }
+
+    .pass.travel { animation: deliver .7s cubic-bezier(.22, 1, .36, 1); }
+
+    .gate-demo {
+      width: 100%;
+      display: grid;
+      grid-template-columns: 1fr 110px 1fr;
+      align-items: center;
+      gap: clamp(18px, 4vw, 48px);
+    }
+
+    .request {
+      display: grid;
+      justify-items: start;
+      gap: 16px;
+    }
+
+    .packet {
+      width: 96px;
+      padding: 10px;
+      border: 2px solid var(--gold);
+      color: var(--gold);
+      text-align: center;
+      font-weight: 800;
+      transform: rotate(-3deg);
+    }
+
+    .packet.fly { animation: send .7s cubic-bezier(.22, 1, .36, 1); }
+
+    .gate {
+      position: relative;
+      width: 88px;
+      height: 220px;
+      border: 5px solid var(--red);
+      border-bottom: 0;
+    }
+
+    .gate::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      left: -18px;
+      width: 114px;
+      height: 6px;
+      background: var(--red);
+      transform: rotate(-12deg);
+      transition: transform .3s ease, opacity .3s ease;
+    }
+
+    .gate.open {
+      border-color: var(--lime);
+    }
+
+    .gate.open::after {
+      opacity: 0;
+      transform: translateY(-70px) rotate(-12deg);
+    }
+
+    .vault {
+      min-height: 250px;
+      display: grid;
+      place-items: center;
+      align-content: center;
+      gap: 8px;
+      border: 1px solid var(--line);
+      text-align: center;
+      background: var(--ink);
+    }
+
+    .route-code {
+      color: var(--red);
+      font: 800 4.5rem/1 Georgia, serif;
+    }
+
+    .vault.open .route-code { color: var(--lime); }
+
+    .end-stage {
+      width: min(720px, 100%);
+      display: grid;
+      gap: 28px;
+      justify-items: center;
+      text-align: center;
+    }
+
+    .end-stage .pass { width: min(420px, 100%); }
+
+    @keyframes scan {
+      from { transform: translateX(0); }
+      to { transform: translateX(min(440px, 32vw)); }
+    }
+
+    @keyframes deliver {
+      from { opacity: 0; transform: translateX(-90px) rotate(-8deg); }
+      to { opacity: 1; transform: translateX(0) rotate(-2deg); }
+    }
+
+    @keyframes send {
+      50% { opacity: 1; transform: translateX(110px) rotate(0); }
+      100% { opacity: 0; transform: translateX(210px) rotate(3deg); }
+    }
+
+    @media (max-width: 720px) {
+      header {
+        align-items: start;
+        flex-direction: column;
+      }
+
+      .flow { font-size: .8rem; }
+
+      .tabs {
+        grid-template-columns: repeat(5, minmax(72px, 1fr));
+        overflow-x: auto;
+      }
+
+      .tabs button { font-size: .78rem; }
+      .page { min-height: 590px; }
+      .stage { min-height: 522px; }
+
+      .track {
+        grid-template-columns: 1fr;
+        gap: 34px;
+      }
+
+      .stop {
+        grid-template-columns: 76px 1fr;
+        text-align: left;
+      }
+
+      .stop:not(:last-child)::after {
+        top: 64px;
+        left: 37px;
+        width: 3px;
+        height: 48px;
+      }
+
+      .stop:not(:last-child)::before {
+        top: 102px;
+        right: auto;
+        left: 31px;
+        border-left-color: transparent;
+        border-top-color: var(--lime);
+      }
+
+      .split {
+        grid-template-columns: 1fr;
+      }
+
+      .scanner {
+        min-height: 190px;
+        border-top: 1px solid var(--line);
+        border-left: 0;
+        padding: 28px 0 0;
+      }
+
+      .scan-line { display: none; }
+
+      .transfer,
+      .gate-demo {
+        grid-template-columns: 1fr;
+      }
+
+      .lane {
+        width: 4px;
+        height: 54px;
+        justify-self: center;
+      }
+
+      .lane::after {
+        right: -6px;
+        top: auto;
+        bottom: -14px;
+        border-left-color: transparent;
+        border-top-color: var(--lime);
+      }
+
+      .gate {
+        height: 110px;
+        justify-self: center;
+      }
+
+      .request { justify-items: center; }
+      .vault { width: 100%; min-height: 180px; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        scroll-behavior: auto !important;
+        animation-duration: .01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: .01ms !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>AUTH<br>KONTROL NOKTASI</h1>
+    <div class="flow">TALEP -&gt; DOĞRULAMA -&gt; GEÇİŞ -&gt; GİRİŞ -&gt; SON</div>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Authentication steps">
+    <button id="tab-map" role="tab" aria-selected="true" aria-controls="map" data-page="map">1 Harita</button>
+    <button id="tab-login" role="tab" aria-selected="false" aria-controls="login" data-page="login">2 Oturum Açma</button>
+    <button id="tab-token" role="tab" aria-selected="false" aria-controls="token" data-page="token">3 Geç</button>
+    <button id="tab-route" role="tab" aria-selected="false" aria-controls="route" data-page="route">4 Kapı</button>
+    <button id="tab-end" role="tab" aria-selected="false" aria-controls="end" data-page="end">5 Son</button>
+  </nav>
+
+  <main>
+    <section class="page" id="map" role="tabpanel" aria-labelledby="tab-map">
+      <div class="page-head">
+        <h2>Güzergâh</h2>
+        <span class="state" id="mapState">Çıkış yapıldı</span>
+      </div>
+      <div class="stage">
+        <div class="track" aria-label="Claim identity, verify password, receive pass, access protected area">
+          <div class="stop"><div class="symbol">@</div><span>Talep</span></div>
+          <div class="stop"><div class="symbol">#</div><span>Doğrula</span></div>
+          <div class="stop"><div class="symbol">Kimlik</div><span>Geçiş</span></div>
+          <div class="stop"><div class="symbol">GİT</div><span>Erişim</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="page" id="login" role="tabpanel" aria-labelledby="tab-login" hidden>
+      <div class="page-head">
+        <h2>Giriş kontrolü</h2>
+        <span class="state" id="loginState">Bekleniyor</span>
+      </div>
+      <div class="stage">
+        <div class="split">
+          <form id="loginForm">
+            <label>
+            E-posta
+              <input id="email" type="email" autocomplete="off" placeholder="alex@example.com" required>
+            </label>
+            <label>
+            Şifre
+              <input id="password" type="password" autocomplete="off" placeholder="sunrise42" required>
+            </label>
+            <div class="actions">
+              <button class="primary" id="loginButton" type="submit" disabled>Giriş</button>
+              <button id="fillButton" type="button">Demo bilgilerini girin</button>
+            </div>
+            <p class="credentials"><code>alex@example.com</code> / <code>sunrise42</code></p>
+            <p class="status-line" id="loginMessage" aria-live="polite">Demo giriş bilgilerini girin.</p>
+          </form>
+          <div class="scanner" aria-label="Credential verifier">
+            <div class="scan-line" aria-hidden="true"></div>
+            <div class="check"><span>Hesap</span><output id="emailCheck">--</output></div>
+            <div class="check"><span>Şifre karma değeri</span><output id="passwordCheck">--</output></div>
+            <div class="check"><span>Şifre oluştur</span><output id="passCheck">HAYIR</output></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="page" id="token" role="tabpanel" aria-labelledby="tab-token" hidden>
+      <div class="page-head">
+        <h2>Oturum şifresi</h2>
+        <span class="state" id="tokenState">Şifre yok</span>
+      </div>
+      <div class="stage">
+        <div class="transfer">
+          <div class="machine">
+            <div class="server-stack" aria-hidden="true"></div>
+            <strong>Sunucu</strong>
+            <button id="mintButton" type="button">Yeni geçiş kartı</button>
+          </div>
+          <div class="lane" aria-hidden="true"></div>
+          <div class="machine">
+            <div class="browser" aria-hidden="true"></div>
+            <strong>Tarayıcı</strong>
+            <div class="pass empty" id="tokenPass">
+              <span>Oturum belirteci</span>
+              <code id="tokenValue">none</code>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="page" id="route" role="tabpanel" aria-labelledby="tab-route" hidden>
+      <div class="page-head">
+        <h2>Korunan yol</h2>
+        <span class="state" id="routeState">Kilitli</span>
+      </div>
+      <div class="stage">
+        <div class="gate-demo">
+          <div class="request">
+            <div class="packet" id="packet">İSTEK</div>
+            <div class="actions">
+              <button id="noTokenButton" type="button">Geçiş yok</button>
+              <button class="primary" id="useTokenButton" type="button">Şifre kullan</button>
+            </div>
+          </div>
+          <div class="gate" id="gate" aria-label="Security gate"></div>
+          <div class="vault" id="vault">
+            <span class="route-code" id="routeCode">401</span>
+            
+            <strong id="routeLabel">REDDEDİLDİ</strong>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="page" id="end" role="tabpanel" aria-labelledby="tab-end" hidden>
+      <div class="page-head">
+        <h2>Oturumu sonlandır</h2>
+        <span class="state" id="endState">Oturum kapatıldı</span>
+      </div>
+      <div class="stage">
+        <div class="end-stage">
+          <div class="pass empty" id="endPass">
+            <span>Oturum belirteci</span>
+            <code id="endTokenValue">none</code>
+          </div>
+          <div class="actions">
+            <button class="danger" id="logoutButton" type="button">Oturumu kapat</button>
+            <button id="expireButton" type="button">Süre doldu</button>
+          </div>
+          <div class="vault" id="endVault">
+            <span class="route-code" id="endCode">401</span>
+            
+            <strong id="endLabel">REDDEDİLDİ</strong>
+          </div>
+          <p class="status-line" id="endMessage" aria-live="polite">Etkin şifre yok.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    let loggedIn = false;
+    let sessionToken = "";
+    let tokenExpired = false;
+
+    const fakeHash = value =>
+      [...value].reduce((hash, char) => (hash * 31 + char.charCodeAt(0)) >>> 0, 7).toString(16);
+
+    const mockUser = {
+      email: "alex@example.com",
+      password: "sunrise42",
+      passwordHash: fakeHash("sunrise42")
+    };
+
+    const $ = id => document.getElementById(id);
+    const tabs = [...document.querySelectorAll('[role="tab"]')];
+    const pages = [...document.querySelectorAll('[role="tabpanel"]')];
+
+    function mark(element, text, type = "") {
+      element.textContent = text;
+      element.className = "state" + (type ? " " + type : "");
+    }
+
+    function check(element, success) {
+      element.textContent = success ? "MATCH" : "NO";
+      element.className = success ? "ok" : "bad";
+    }
+
+    function validToken() {
+      return loggedIn && Boolean(sessionToken) && !tokenExpired;
+    }
+
+    function showPass(element, valueElement) {
+      element.className = "pass";
+      if (!sessionToken) element.classList.add("empty");
+      if (tokenExpired) element.classList.add("expired");
+      valueElement.textContent = sessionToken || "none";
+    }
+
+    function showRoute(open, prefix = "") {
+      const vault = $(prefix ? prefix + "Vault" : "vault");
+      const code = $(prefix ? prefix + "Code" : "routeCode");
+      const label = $(prefix ? prefix + "Label" : "routeLabel");
+      vault.classList.toggle("open", open);
+      code.textContent = open ? "200" : "401";
+      label.textContent = open ? "OPEN" : "DENIED";
+      if (!prefix) $("gate").classList.toggle("open", open);
+    }
+
+    function update() {
+      const valid = validToken();
+      const status = valid ? "Signed in" : tokenExpired ? "Expired" : "Signed out";
+      const type = valid ? "ok" : tokenExpired ? "warn" : "";
+
+      mark($("mapState"), status, type);
+      mark($("tokenState"), valid ? "Pass valid" : sessionToken ? "Expired" : "No pass", type);
+      mark($("endState"), status, type);
+
+      $("mintButton").disabled = !loggedIn;
+      $("useTokenButton").disabled = !sessionToken;
+      $("logoutButton").disabled = !sessionToken;
+      $("expireButton").disabled = !sessionToken || tokenExpired;
+
+      showPass($("tokenPass"), $("tokenValue"));
+      showPass($("endPass"), $("endTokenValue"));
+      showRoute(valid, "end");
+
+      $("endMessage").textContent = valid
+        ? "Pass accepted."
+        : tokenExpired ? "Pass expired." : "No active pass.";
+      $("endMessage").className = "status-line " + (valid ? "ok" : tokenExpired ? "warn" : "");
+    }
+
+    function issueToken() {
+      loggedIn = true;
+      tokenExpired = false;
+      sessionToken = "sess_" + crypto.getRandomValues(new Uint32Array(1))[0].toString(36);
+      update();
+      $("tokenPass").classList.add("travel");
+    }
+
+    function activate(tab) {
+      tabs.forEach(button => {
+        const active = button === tab;
+        button.setAttribute("aria-selected", active);
+        button.tabIndex = active ? 0 : -1;
+      });
+      pages.forEach(page => {
+        page.hidden = page.id !== tab.dataset.page;
+      });
+    }
+
+    tabs.forEach((tab, index) => {
+      tab.tabIndex = index ? -1 : 0;
+      tab.addEventListener("click", () => activate(tab));
+      tab.addEventListener("keydown", event => {
+        const keys = {
+          ArrowRight: (index + 1) % tabs.length,
+          ArrowLeft: (index - 1 + tabs.length) % tabs.length,
+          Home: 0,
+          End: tabs.length - 1
+        };
+        if (keys[event.key] === undefined) return;
+        event.preventDefault();
+        tabs[keys[event.key]].focus();
+        activate(tabs[keys[event.key]]);
+      });
+    });
+
+    $("fillButton").addEventListener("click", () => {
+      $("email").value = mockUser.email;
+      $("password").value = mockUser.password;
+      $("loginButton").disabled = false;
+      $("email").focus();
+    });
+
+    function updateLoginButton() {
+      $("loginButton").disabled = !($("email").value.trim() && $("password").value);
+    }
+
+    $("email").addEventListener("input", updateLoginButton);
+    $("password").addEventListener("input", updateLoginButton);
+
+    $("loginForm").addEventListener("submit", event => {
+      event.preventDefault();
+      const emailOk = $("email").value.trim().toLowerCase() === mockUser.email;
+      const passwordOk = fakeHash($("password").value) === mockUser.passwordHash;
+
+      check($("emailCheck"), emailOk);
+      check($("passwordCheck"), passwordOk);
+      check($("passCheck"), emailOk && passwordOk);
+
+      if (emailOk && passwordOk) {
+        mark($("loginState"), "Accepted", "ok");
+        $("loginMessage").textContent = "Pass issued.";
+        $("loginMessage").className = "status-line ok";
+        issueToken();
+        return;
+      }
+
+      loggedIn = false;
+      sessionToken = "";
+      tokenExpired = false;
+      mark($("loginState"), "Rejected", "bad");
+      $("loginMessage").textContent = "No pass.";
+      $("loginMessage").className = "status-line bad";
+      showRoute(false);
+      update();
+    });
+
+    $("mintButton").addEventListener("click", issueToken);
+
+    function send(open) {
+      $("packet").classList.remove("fly");
+      void $("packet").offsetWidth;
+      $("packet").classList.add("fly");
+      showRoute(open);
+      mark($("routeState"), open ? "Open" : "Rejected", open ? "ok" : "bad");
+    }
+
+    $("noTokenButton").addEventListener("click", () => send(false));
+    $("useTokenButton").addEventListener("click", () => send(validToken()));
+
+    $("logoutButton").addEventListener("click", () => {
+      loggedIn = false;
+      sessionToken = "";
+      tokenExpired = false;
+      showRoute(false);
+      mark($("routeState"), "Locked");
+      update();
+    });
+
+    $("expireButton").addEventListener("click", () => {
+      tokenExpired = true;
+      showRoute(false);
+      mark($("routeState"), "Rejected", "bad");
+      update();
+    });
+
+    update();
+  </script>
+</body>
+</html>

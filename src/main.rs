@@ -61,6 +61,7 @@ async fn main() {
         .route("/app", get(video_grid))
         .route("/agentic-harness", get(agentic_harness))
         .route("/ai-monopoly", get(ai_monopoly))
+        .route("/demos", get(demos))
         .route("/watch/{id}", get(watch))
         .route("/api/progress", post(progress))
         .route("/board", get(board))
@@ -294,6 +295,11 @@ async fn agentic_harness(State(app): State<App>, headers: HeaderMap) -> Result<H
 async fn ai_monopoly(State(app): State<App>, headers: HeaderMap) -> Result<Html<String>, Response> {
     let user = require(current_user(&app, &headers).await)?;
     Ok(Html(html::ai_monopoly(&user)))
+}
+
+async fn demos(State(app): State<App>, headers: HeaderMap) -> Result<Html<String>, Response> {
+    let user = require(current_user(&app, &headers).await)?;
+    Ok(Html(html::demos(&user)))
 }
 
 async fn video_grid(State(app): State<App>, headers: HeaderMap, Query(q): Query<LevelQ>) -> Result<Html<String>, Response> {

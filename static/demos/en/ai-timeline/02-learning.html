@@ -1,0 +1,751 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>1974–1986 — Learning from Mistakes</title>
+<style>
+  :root{
+    --ink:#111;
+    --blue:#29ABE2;
+    --orange:#F5A623;
+    --red:#E0342B;
+    --paper:#ffffff;
+  }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; padding:0; background:var(--paper); color:var(--ink);
+    font-family:'Comic Sans MS','Segoe Print','Bradley Hand',cursive; }
+  body{ padding:18px 12px 40px; max-width:860px; margin:0 auto; font-size:17px; line-height:1.45; }
+
+  h1{ font-size:clamp(26px,5vw,40px); margin:6px 0 2px; transform:rotate(-0.6deg); }
+  h2{ font-size:clamp(20px,4vw,27px); margin:0 0 4px; transform:rotate(-0.4deg); }
+  .era{ color:var(--orange); font-weight:bold; letter-spacing:1px; }
+  .lead{ margin:4px 0 26px; transform:rotate(0.2deg); }
+
+  .panel{
+    border:2.5px solid var(--ink);
+    border-radius:22px 8px 20px 10px / 10px 20px 8px 22px;
+    padding:16px 16px 14px;
+    margin:0 0 34px;
+    background:var(--paper);
+    box-shadow:3px 3px 0 rgba(0,0,0,.12);
+  }
+  .panel:nth-of-type(odd){ transform:rotate(-0.35deg); }
+  .panel:nth-of-type(even){ transform:rotate(0.3deg); }
+
+  .cap{ font-size:15px; margin:10px 2px 0; }
+  .cap b{ background:rgba(245,166,35,.25); padding:0 4px; border-radius:6px; }
+  .small{ font-size:13.5px; color:#444; }
+
+  canvas{ display:block; max-width:100%; height:auto; touch-action:none;
+    border:2px solid var(--ink); border-radius:14px 6px 14px 6px / 6px 14px 6px 14px; background:#fff; }
+
+  button{
+    font-family:inherit; font-size:16px; cursor:pointer;
+    background:#fff; color:var(--ink);
+    border:2.5px solid var(--ink);
+    border-radius:14px 6px 12px 8px / 8px 12px 6px 14px;
+    padding:10px 16px; min-height:48px; min-width:48px;
+    box-shadow:2px 2px 0 rgba(0,0,0,.25);
+    transform:rotate(-0.5deg);
+  }
+  button:active{ transform:translate(2px,2px) rotate(-0.5deg); box-shadow:none; }
+  button.primary{ background:var(--blue); color:#fff; border-color:var(--ink); }
+  button.accent{ background:var(--orange); color:#fff; }
+  .row{ display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin:10px 0 4px; }
+
+  input[type=range]{ width:180px; height:34px; accent-color:var(--orange); cursor:pointer; }
+  label{ font-size:15px; }
+
+  .readout{
+    display:inline-block; border:2px dashed var(--ink); border-radius:10px;
+    padding:4px 10px; font-size:16px; background:#fffdf5; transform:rotate(0.4deg);
+  }
+  .callout{
+    border:3px solid var(--orange);
+    border-radius:16px 6px 16px 6px / 6px 16px 6px 16px;
+    background:rgba(245,166,35,.14);
+    padding:10px 14px; margin:14px 0 4px;
+    font-size:clamp(17px,3.4vw,21px); font-weight:bold;
+    transform:rotate(-1deg);
+  }
+
+  /* framing: tags, setup lines, decoders, try-this, takeaways */
+  .tag{
+    display:inline-block; font-size:13px; font-weight:bold; letter-spacing:1px;
+    border:2px solid var(--ink); border-radius:10px 4px 10px 4px / 4px 10px 4px 10px;
+    padding:2px 12px; background:#f6f6f6; transform:rotate(-1.4deg); margin:0 0 6px;
+  }
+  .setup{ font-size:16px; font-style:italic; margin:2px 2px 10px; }
+  .decoder{ font-size:13.5px; color:#555; margin:8px 2px 0; }
+  .decoder b{ color:#111; background:rgba(41,171,226,.16); padding:0 4px; border-radius:6px; }
+  .trythis{
+    border:2.5px dashed var(--blue); border-radius:12px 5px 12px 5px / 5px 12px 5px 12px;
+    background:rgba(41,171,226,.07); padding:8px 14px 8px 12px; margin:12px 0 6px; font-size:15px;
+  }
+  .trythis ol{ margin:4px 0 2px 22px; padding:0; }
+  .trythis li{ margin:4px 0; }
+  .takeaway{
+    border:3px solid var(--blue);
+    border-radius:6px 16px 6px 16px / 16px 6px 16px 6px;
+    background:rgba(41,171,226,.10);
+    padding:10px 14px; margin:14px 0 2px; font-size:16px; transform:rotate(0.4deg);
+  }
+  .takeaway .tk{ display:block; font-size:12px; letter-spacing:1.5px; font-weight:bold; color:#106a94; margin-bottom:2px; }
+
+  /* hierarchy: warm-ups narrower, hero promoted */
+  .panel.warmup{ max-width:690px; }
+  .panel.hero{
+    border-width:4.5px;
+    box-shadow:6px 6px 0 rgba(0,0,0,.18);
+    transform:none;
+  }
+  .panel.hero .tag{ background:var(--orange); color:#fff; border-color:var(--ink); }
+  .panel.hero h2{ font-size:clamp(22px,4.5vw,31px); }
+  .bigplay{ font-size:20px; padding:14px 26px; background:var(--blue); color:#fff; font-weight:bold; }
+  .knobs{
+    border:2px dashed #999; border-radius:10px; padding:6px 12px; margin:8px 0 2px;
+    font-size:14px; color:#444; display:flex; flex-wrap:wrap; gap:8px 12px; align-items:center;
+  }
+
+  /* demo 4 lamps */
+  .lamps{ display:flex; flex-wrap:wrap; gap:8px; margin:8px 0; }
+  .lamp{
+    width:52px; height:52px; font-size:22px; font-weight:bold;
+    border:2.5px solid var(--ink); border-radius:12px 5px 12px 5px / 5px 12px 5px 12px;
+    background:#fff; cursor:pointer; font-family:inherit;
+    box-shadow:2px 2px 0 rgba(0,0,0,.2); position:relative; padding:0; min-height:52px; min-width:52px;
+  }
+  .lamp.on{ background:var(--orange); color:#fff; }
+  .lamp.reading{ outline:4px solid var(--blue); outline-offset:2px; }
+  .lamp .ptr{ position:absolute; left:50%; transform:translateX(-50%); top:-26px; font-size:16px; color:var(--blue); font-weight:bold; }
+
+  .trace{ display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin:6px 0; }
+  .tbox{
+    width:40px; height:40px; border:2px solid var(--ink); border-radius:8px 4px 8px 4px;
+    display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:bold;
+    background:#f4f4f4; color:#999;
+  }
+  .tbox.even{ background:#d9f0fa; color:#106a94; }
+  .tbox.odd{ background:var(--orange); color:#fff; }
+
+  .memory{
+    display:inline-block; min-width:150px; text-align:center;
+    border:3px solid var(--ink); border-radius:16px 8px 16px 8px / 8px 16px 8px 16px;
+    padding:10px 16px; font-size:24px; font-weight:bold; transform:rotate(-0.8deg);
+  }
+  .memory.even{ background:#d9f0fa; color:#106a94; }
+  .memory.odd{ background:var(--orange); color:#fff; }
+
+  .vs{ display:flex; flex-wrap:wrap; gap:14px; margin-top:10px; }
+  .vscard{
+    flex:1 1 240px; border:2.5px solid var(--ink);
+    border-radius:14px 6px 14px 6px / 6px 14px 6px 14px; padding:10px 12px; font-size:15px;
+  }
+  .vscard h3{ margin:0 0 6px; font-size:17px; }
+  .vscard.rnn{ background:rgba(41,171,226,.10); }
+  .vscard.mlp{ background:#f6f6f6; transform:rotate(0.6deg); }
+  .bigans{ font-size:22px; font-weight:bold; }
+
+  footer{
+    margin-top:30px; border-top:3px dashed var(--ink); padding-top:14px;
+    display:flex; flex-wrap:wrap; gap:8px 22px; font-size:16px;
+  }
+  footer a{ color:var(--blue); font-weight:bold; }
+  .sketchwrap{ display:flex; flex-wrap:wrap; gap:16px; align-items:flex-start; }
+</style>
+
+<h1><span class="era">1974–1986</span> Learning from Mistakes</h1>
+<p class="lead">In 1974, a Harvard PhD student named Paul Werbos wrote a thesis showing how a network could learn from its own
+mistakes — and almost nobody read it. Twelve years later, in 1986, Rumelhart, Hinton &amp; Williams put the idea in <i>Nature</i>,
+and everything clicked. Last page ended with one neuron staring at 4 little points (XOR) it <i>could not learn</i> — on this page,
+those dots finally fall. Two quick warm-ups first (know <b>which way is downhill</b>, know <b>who to blame</b>), then the main event.</p>
+
+<!-- ================= DEMO 1 : GRADIENT DESCENT ================= -->
+<section class="panel warmup">
+  <span class="tag">warm-up #1</span>
+  <h2>1 · Roll the ball downhill</h2>
+  <p class="setup">Before a network can fix its mistakes, it needs one basic skill: sensing which direction makes the error smaller.</p>
+  <canvas id="gdCanvas" width="720" height="360"></canvas>
+  <p class="decoder">decoder: <b>ball</b> = the network's total error L &nbsp;·&nbsp; <b>downhill</b> = fewer mistakes
+  &nbsp;·&nbsp; the rule it follows is <i>w ← w − η·slope</i>.</p>
+  <div class="trythis"><b>try this</b>
+    <ol>
+      <li>drag the ball anywhere on the curve → watch the orange arrow always point downhill</li>
+      <li>press "take one downhill step" a few times → watch L shrink as the ball rolls into a valley</li>
+      <li>crank step size η in "more knobs" → watch the ball <b>overshoot and bounce</b> across the valley</li>
+    </ol>
+  </div>
+  <div class="row">
+    <button id="gdStep" class="primary">take one downhill step</button>
+    <button id="gdAuto" class="accent">auto-roll ▶</button>
+    <span class="readout" id="gdRead">L = …</span>
+  </div>
+  <div class="knobs"><b>more knobs:</b>
+    <label for="gdLR">step size η (learning rate)</label>
+    <input type="range" id="gdLR" min="0.005" max="0.55" step="0.005" value="0.045">
+    <span class="readout" id="gdLRval">0.045</span>
+  </div>
+  <div class="takeaway"><span class="tk">WHAT YOU JUST SAW IS CALLED…</span>
+  <b>gradient descent</b>: always step opposite the slope, and the error rolls downhill on its own. Tiny η crawls (and can get
+  stuck in the little trap on the left); huge η bounces — step size matters.</div>
+</section>
+
+<!-- ================= DEMO 2 : BACKPROP ================= -->
+<section class="panel warmup">
+  <span class="tag">warm-up #2</span>
+  <h2>2 · But which way is downhill for <i>every</i> weight?</h2>
+  <p class="setup">Networks learn by assigning blame: when the answer is wrong, every weight must find out how much of the
+  mistake was <i>its</i> fault — its own slope <b>∂L/∂w</b>.</p>
+  <canvas id="bpCanvas" width="720" height="320"></canvas>
+  <p class="decoder">decoder: <b style="color:#c07f0e">orange pulse</b> = values flowing forward &nbsp;·&nbsp;
+  <b style="color:var(--red)">red pulse</b> = blame flowing backward.</p>
+  <div class="trythis"><b>try this</b>
+    <ol>
+      <li>press "forward →" → watch data flow left-to-right until the final error <b>L</b> appears</li>
+      <li>press "← backward" → watch red blame start at <b>∂L/∂L = 1</b> and chain right-to-left until every weight is tagged with its own ∂L/∂w</li>
+    </ol>
+  </div>
+  <div class="row">
+    <button id="bpFwd" class="primary">forward → (compute values)</button>
+    <button id="bpBwd" style="border-color:var(--red); color:var(--red);">← backward (compute blame)</button>
+  </div>
+  <p class="cap">Those little red numbers are exactly the "which way is downhill" arrows from warm-up #1 — one per weight,
+  all computed in a single backward sweep.</p>
+  <div class="takeaway"><span class="tk">WHAT YOU JUST SAW IS CALLED…</span>
+  <b>backpropagation</b> — blame flowing backwards. Paul Werbos worked it out in his 1974 Harvard PhD thesis,
+  and the world ignored it for 12 years.</div>
+</section>
+
+<!-- ================= DEMO 3 : XOR SOLVED ================= -->
+<section class="panel hero">
+  <span class="tag">★ the main event</span>
+  <h2>3 · The payoff: XOR, solved live</h2>
+  <p class="setup">These are the exact 4 dots that broke the 1958 perceptron — no straight line can separate them.
+  Below is a <b>real</b> network (2 inputs → 2 hidden neurons → 1 output) waiting to train, by real backpropagation, in your browser.</p>
+  <div class="sketchwrap">
+    <canvas id="xorCanvas" width="380" height="380" style="flex:0 1 400px;"></canvas>
+    <div style="flex:1 1 220px;">
+      <div class="row"><button id="xorStart" class="bigplay">▶ watch it learn</button></div>
+      <p class="readout" style="display:block" id="xorRead">error E = … · epoch 0</p>
+      <p class="readout" style="display:block; border-style:solid" id="xorStatus">paused — press ▶</p>
+      <div class="row"><button id="xorRestart" class="primary">restart with new random weights</button></div>
+    </div>
+  </div>
+  <p class="decoder">decoder: <b>heatmap colors</b> = the network's current answer at every point
+  (washed blue = "it's a 0 here", washed orange = "it's a 1 here").</p>
+  <div class="trythis"><b>try this</b>
+    <ol>
+      <li>press <b>▶</b> → watch the colors bend around the dots</li>
+      <li>watch the error number fall toward 0</li>
+      <li>hit restart → different random start, same ending</li>
+    </ol>
+  </div>
+  <div class="takeaway"><span class="tk">WHAT YOU JUST SAW IS CALLED…</span>
+  a <b>multi-layer perceptron (MLP)</b>: a middle "hidden" layer lets the network <b>BEND</b> the line, and backprop tunes it.
+  That's the 1986 <i>Nature</i> result by Rumelhart, Hinton &amp; Williams — and why deep learning exists.</div>
+  <p class="cap small"><b>1986 — "the year everything clicked."</b> Backprop goes from ignored to the foundation of the whole field.</p>
+</section>
+
+<!-- ================= DEMO 4 : RNN ================= -->
+<section class="panel">
+  <span class="tag">act two · same 1986 era</span>
+  <h2>4 · Give it a loop, and it remembers</h2>
+  <p class="setup">The era's other headline trick. An MLP forgets each input the instant it answers — so feed a neuron's
+  <b>own output back in</b> as an input, and it can read things that arrive one step at a time.</p>
+  <div class="sketchwrap">
+    <canvas id="loopCanvas" width="330" height="230" style="flex:0 1 330px;"></canvas>
+    <div style="flex:1 1 220px;">
+      <p class="decoder">decoder: <b>the loop</b> = memory — yesterday's output is today's input.</p>
+      <p class="cap">Below, a tiny looped cell scans the lamps left→right, carrying <b>one</b> memory:
+      is the count of 1s so far <b>even or odd</b>?</p>
+    </div>
+  </div>
+  <div class="trythis"><b>try this</b>
+    <ol>
+      <li>click any lamp to flip it 0↔1 → watch the cell re-scan and the memory box flip EVEN/ODD</li>
+      <li>compare the two cards at the bottom → the loop-free MLP sees only the current lamp, so it can't possibly know the count</li>
+    </ol>
+  </div>
+  <div class="lamps" id="lamps"></div>
+  <div class="row">
+    <span class="memory even" id="memBox">EVEN</span>
+    <button id="scanBtn" class="primary">scan again ▶</button>
+  </div>
+  <div class="trace" id="trace"></div>
+  <div class="vs">
+    <div class="vscard rnn">
+      <h3>looped net (memory)</h3>
+      <div>count of 1s so far is… <span class="bigans" id="rnnAns">—</span></div>
+      <div class="small">it carries the answer forward, step by step</div>
+    </div>
+    <div class="vscard mlp">
+      <h3>no-loop net (an MLP)</h3>
+      <div>it sees <b>only the current lamp</b>: <span class="bigans" id="mlpSees">—</span> → even or odd so far? <span class="bigans">???</span></div>
+      <div class="small">no loop → no memory → can't possibly know the count</div>
+    </div>
+  </div>
+  <div class="takeaway"><span class="tk">WHAT YOU JUST SAW IS CALLED…</span>
+  a <b>recurrent neural network (RNN)</b>, formalized in this same era. This is how nets read <b>sequences</b> — language,
+  audio, time series. MLPs and RNNs are still two of the basic building blocks of everything that came after.</div>
+</section>
+
+<footer>
+  <a href="01-origins.html">← prev: 1943–1958 Origins</a>
+  <a href="index.html">index.html (timeline)</a>
+  <a href="03-dropout.html">next: 2012 Dropout →</a>
+</footer>
+
+<script>
+'use strict';
+/* ---------- shared helpers ---------- */
+const TAU = Math.PI*2;
+const sig = z => 1/(1+Math.exp(-z));
+function mulberry32(a){ return function(){ a|=0; a=a+0x6D2B79F5|0;
+  let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t;
+  return ((t^t>>>14)>>>0)/4294967296; }; }
+function arrowHead(ctx,x,y,ang,size,color){
+  ctx.save(); ctx.translate(x,y); ctx.rotate(ang);
+  ctx.fillStyle=color; ctx.beginPath();
+  ctx.moveTo(0,0); ctx.lineTo(-size,-size*0.55); ctx.lineTo(-size,size*0.55);
+  ctx.closePath(); ctx.fill(); ctx.restore();
+}
+
+/* =====================================================
+   DEMO 1 — gradient descent on a wobbly loss curve
+   ===================================================== */
+(function(){
+  const cv=document.getElementById('gdCanvas'), ctx=cv.getContext('2d');
+  const XMIN=0.02, XMAX=0.98, LMAX=1.12;
+  const PXL=34, PXR=696, PYB=328, PYT=42;
+  const X2P = x => PXL + (x-XMIN)/(XMAX-XMIN)*(PXR-PXL);
+  const P2X = p => XMIN + (p-PXL)/(PXR-PXL)*(XMAX-XMIN);
+  const L2P = L => PYB - (L/LMAX)*(PYB-PYT);
+
+  function lossF(x){
+    return 2.0*(x-0.72)*(x-0.72)
+         + 0.32*Math.exp(-Math.pow((x-0.40)/0.085,2))
+         + 0.012*Math.sin(31*x) + 0.025;
+  }
+  function slopeF(x){ const h=1e-4; return (lossF(x+h)-lossF(x-h))/(2*h); }
+
+  // fixed jitter so the "hand-drawn" curve doesn't shimmer
+  const rnd=mulberry32(1974);
+  const jit=[]; for(let i=0;i<=200;i++) jit.push((rnd()-0.5)*2.2);
+
+  let bx=0.10;                  // ball position (in x-space)
+  let auto=false, frame=0;
+  let trail=[];                 // recent positions for the path dots
+  const lrEl=document.getElementById('gdLR'), lrVal=document.getElementById('gdLRval');
+  const read=document.getElementById('gdRead');
+
+  function step(){
+    const g=slopeF(bx);
+    bx -= parseFloat(lrEl.value)*g;
+    // bounce off the walls of the drawing
+    if(bx<XMIN) bx=XMIN+(XMIN-bx);
+    if(bx>XMAX) bx=XMAX-(bx-XMAX);
+    bx=Math.min(XMAX,Math.max(XMIN,bx));
+    trail.push(bx); if(trail.length>12) trail.shift();
+  }
+
+  function draw(){
+    ctx.clearRect(0,0,cv.width,cv.height);
+    ctx.lineWidth=2.5; ctx.strokeStyle='#111'; ctx.lineJoin='round'; ctx.lineCap='round';
+    // axes
+    ctx.beginPath(); ctx.moveTo(PXL-6,PYT-14); ctx.lineTo(PXL-6,PYB+8); ctx.lineTo(PXR+10,PYB+8); ctx.stroke();
+    ctx.font="15px 'Comic Sans MS','Segoe Print',cursive"; ctx.fillStyle='#111';
+    ctx.fillText('loss L (total error)', PXL, PYT-22);
+    ctx.fillText('weight w →', PXR-96, PYB+28);
+    // curve with jitter
+    ctx.beginPath();
+    for(let i=0;i<=200;i++){
+      const x=XMIN+(XMAX-XMIN)*i/200;
+      const px=X2P(x), py=L2P(lossF(x))+jit[i];
+      i?ctx.lineTo(px,py):ctx.moveTo(px,py);
+    }
+    ctx.stroke();
+    // labels for the dips
+    ctx.fillStyle='#666'; ctx.font="13px 'Comic Sans MS',cursive";
+    ctx.fillText('little trap', X2P(0.30)-30, L2P(lossF(0.30))-16);
+    ctx.fillText('the real bottom', X2P(0.75)-52, L2P(lossF(0.75))+26);
+    // trail
+    for(let i=0;i<trail.length;i++){
+      ctx.globalAlpha=(i+1)/trail.length*0.45;
+      ctx.fillStyle='#F5A623';
+      ctx.beginPath(); ctx.arc(X2P(trail[i]),L2P(lossF(trail[i])),4,0,TAU); ctx.fill();
+    }
+    ctx.globalAlpha=1;
+    // ball
+    const px=X2P(bx), py=L2P(lossF(bx));
+    ctx.fillStyle='#F5A623'; ctx.strokeStyle='#111'; ctx.lineWidth=2.5;
+    ctx.beginPath(); ctx.arc(px,py,11,0,TAU); ctx.fill(); ctx.stroke();
+    // slope arrow: downhill = opposite the slope sign
+    // pixel-y decreases as L grows, so tangent (1, g) in (x,L) => (sx, -g*sy) in pixels
+    const g=slopeF(bx);
+    const sx=(PXR-PXL)/(XMAX-XMIN), sy=(PYB-PYT)/LMAX;
+    const dx=sx, dy=-g*sy;
+    const dir=(g>0)?-1:1;               // downhill x-direction
+    let tx=dir*dx, ty=dir*dy;
+    const n=Math.hypot(tx,ty)||1; const len=Math.min(60,20+Math.abs(g)*22);
+    tx=tx/n*len; ty=ty/n*len;
+    ctx.strokeStyle='#F5A623'; ctx.lineWidth=4;
+    ctx.beginPath(); ctx.moveTo(px,py); ctx.lineTo(px+tx,py+ty); ctx.stroke();
+    arrowHead(ctx,px+tx,py+ty,Math.atan2(ty,tx),11,'#F5A623');
+    ctx.fillStyle='#111'; ctx.font="14px 'Comic Sans MS',cursive";
+    ctx.fillText('slope = '+g.toFixed(2)+'  → go this way', px+tx+8, py+ty+4);
+    read.textContent='L = '+lossF(bx).toFixed(3);
+  }
+
+  // dragging
+  let dragging=false;
+  cv.addEventListener('pointerdown',e=>{
+    const r=cv.getBoundingClientRect();
+    const mx=(e.clientX-r.left)*cv.width/r.width;
+    dragging=true; cv.setPointerCapture(e.pointerId);
+    bx=Math.min(XMAX,Math.max(XMIN,P2X(mx))); trail=[]; draw();
+  });
+  cv.addEventListener('pointermove',e=>{
+    if(!dragging) return;
+    const r=cv.getBoundingClientRect();
+    const mx=(e.clientX-r.left)*cv.width/r.width;
+    bx=Math.min(XMAX,Math.max(XMIN,P2X(mx))); draw();
+  });
+  cv.addEventListener('pointerup',()=>dragging=false);
+
+  document.getElementById('gdStep').addEventListener('click',()=>{ step(); draw(); });
+  const autoBtn=document.getElementById('gdAuto');
+  autoBtn.addEventListener('click',()=>{
+    auto=!auto; autoBtn.textContent=auto?'stop ⏸':'auto-roll ▶';
+  });
+  lrEl.addEventListener('input',()=>lrVal.textContent=parseFloat(lrEl.value).toFixed(3));
+
+  (function loop(){
+    frame++;
+    if(auto && frame%10===0){ step(); draw(); }
+    requestAnimationFrame(loop);
+  })();
+  draw();
+})();
+
+/* =====================================================
+   DEMO 2 — forward values / backward blame (Werbos 1974)
+   ===================================================== */
+(function(){
+  const cv=document.getElementById('bpCanvas'), ctx=cv.getContext('2d');
+  // fixed tiny net, real numbers
+  const x=[1,0], w=[[0.5,-0.4],[0.3,0.8]], b=[0.1,-0.2], v=[0.7,-0.6], c=0.05, t=1;
+  const z=[0,0], h=[0,0];
+  for(let j=0;j<2;j++){ z[j]=w[0][j]*x[0]+w[1][j]*x[1]+b[j]; h[j]=sig(z[j]); }
+  const zo=v[0]*h[0]+v[1]*h[1]+c, y=sig(zo), L=0.5*(y-t)*(y-t);
+  // gradients (the chain, top-down)
+  const dL_dy=y-t, d_o=dL_dy*y*(1-y);
+  const dv=[d_o*h[0], d_o*h[1]];
+  const dh=[d_o*v[0], d_o*v[1]];
+  const dz=[dh[0]*h[0]*(1-h[0]), dh[1]*h[1]*(1-h[1])];
+  const dw=[[dz[0]*x[0],dz[1]*x[0]],[dz[0]*x[1],dz[1]*x[1]]];
+
+  const N={ x1:[92,95], x2:[92,225], h1:[330,95], h2:[330,225], o:[545,160], L:[665,160] };
+  const edges=[
+    {a:'x1',d:'h1',wl:'w='+w[0][0], g:'∂L/∂w='+dw[0][0].toFixed(3), grp:0},
+    {a:'x1',d:'h2',wl:'w='+w[0][1], g:'∂L/∂w='+dw[0][1].toFixed(3), grp:0},
+    {a:'x2',d:'h1',wl:'w='+w[1][0], g:'∂L/∂w='+dw[1][0].toFixed(3), grp:0},
+    {a:'x2',d:'h2',wl:'w='+w[1][1], g:'∂L/∂w='+dw[1][1].toFixed(3), grp:0},
+    {a:'h1',d:'o', wl:'w='+v[0],    g:'∂L/∂w='+dv[0].toFixed(3),   grp:1},
+    {a:'h2',d:'o', wl:'w='+v[1],    g:'∂L/∂w='+dv[1].toFixed(3),   grp:1},
+    {a:'o', d:'L', wl:'',           g:'∂L/∂y='+dL_dy.toFixed(3),   grp:2},
+  ];
+  const vals={ x1:'x₁='+x[0], x2:'x₂='+x[1], h1:'h₁='+h[0].toFixed(2), h2:'h₂='+h[1].toFixed(2),
+               o:'y='+y.toFixed(2), L:'L='+L.toFixed(3) };
+
+  let mode=null;        // 'fwd' | 'bwd'
+  let t0=0;             // animation start time
+  let showVals=false, showGrads=false;
+  const GROUP_MS=750, NGRP=3;
+
+  function nodePos(k){ return N[k]; }
+  function edgeEnds(e){
+    const A=nodePos(e.a), D=nodePos(e.d);
+    const ang=Math.atan2(D[1]-A[1],D[0]-A[0]);
+    const R1=(e.a==='x1'||e.a==='x2'||e.a==='h1'||e.a==='h2'||e.a==='o')?26:24;
+    const R2=(e.d==='L')?30:26;
+    return [A[0]+Math.cos(ang)*R1, A[1]+Math.sin(ang)*R1,
+            D[0]-Math.cos(ang)*R2, D[1]-Math.sin(ang)*R2, ang];
+  }
+
+  function draw(now){
+    ctx.clearRect(0,0,cv.width,cv.height);
+    ctx.font="14px 'Comic Sans MS','Segoe Print',cursive";
+    // edges
+    for(const e of edges){
+      const [ax,ay,dx2,dy2,ang]=edgeEnds(e);
+      ctx.strokeStyle='#111'; ctx.lineWidth=2.5;
+      ctx.beginPath(); ctx.moveTo(ax,ay); ctx.lineTo(dx2,dy2); ctx.stroke();
+      arrowHead(ctx,dx2,dy2,ang,10,'#111');
+      const mx=(ax+dx2)/2, my=(ay+dy2)/2;
+      if(e.wl){ ctx.fillStyle='#555'; ctx.fillText(e.wl, mx-24, my-8); }
+      if(showGrads){ ctx.fillStyle='#E0342B'; ctx.fillText(e.g, mx-42, my+18); }
+    }
+    // nodes
+    for(const k of ['x1','x2','h1','h2','o']){
+      const [px,py]=N[k];
+      ctx.fillStyle='#29ABE2'; ctx.strokeStyle='#111'; ctx.lineWidth=2.5;
+      ctx.beginPath(); ctx.arc(px,py,26,0,TAU); ctx.fill(); ctx.stroke();
+    }
+    // L box
+    ctx.strokeStyle='#111'; ctx.lineWidth=2.5; ctx.fillStyle='#fffdf5';
+    ctx.fillRect(N.L[0]-28,N.L[1]-24,56,48); ctx.strokeRect(N.L[0]-28,N.L[1]-24,56,48);
+    ctx.fillStyle='#111'; ctx.font="bold 18px 'Comic Sans MS',cursive";
+    ctx.fillText('L', N.L[0]-7, N.L[1]+6);
+    // node name labels
+    ctx.font="bold 15px 'Comic Sans MS',cursive"; ctx.fillStyle='#fff';
+    ctx.fillText('x₁',N.x1[0]-9,N.x1[1]+5); ctx.fillText('x₂',N.x2[0]-9,N.x2[1]+5);
+    ctx.fillText('h₁',N.h1[0]-9,N.h1[1]+5); ctx.fillText('h₂',N.h2[0]-9,N.h2[1]+5);
+    ctx.fillText('y',N.o[0]-5,N.o[1]+5);
+    // layer captions
+    ctx.fillStyle='#666'; ctx.font="13px 'Comic Sans MS',cursive";
+    ctx.fillText('inputs',66,290); ctx.fillText('hidden',305,290); ctx.fillText('output',520,290); ctx.fillText('error',642,290);
+    // values under nodes
+    if(showVals){
+      ctx.fillStyle='#111'; ctx.font="14px 'Comic Sans MS',cursive";
+      for(const k in vals){
+        const [px,py]=N[k];
+        ctx.fillText(vals[k], px-26, py+(k==='L'?-32:46));
+      }
+    }
+    if(showGrads){
+      ctx.fillStyle='#E0342B'; ctx.font="bold 15px 'Comic Sans MS',cursive";
+      ctx.fillText('∂L/∂L = 1  (start here)', N.L[0]-95, N.L[1]-40);
+    }
+    // travelling pulses
+    if(mode){
+      const el=now-t0;
+      const grp=Math.floor(el/GROUP_MS);
+      const p=Math.min(1,(el%GROUP_MS)/GROUP_MS*1.15);
+      if(grp>=NGRP){ // finished
+        if(mode==='fwd') showVals=true; else showGrads=true;
+        mode=null;
+      } else {
+        const want=(mode==='fwd')?grp:(NGRP-1-grp);
+        for(const e of edges){ if(e.grp!==want) continue;
+          const [ax,ay,dx2,dy2]=edgeEnds(e);
+          const q=(mode==='fwd')?p:1-p;
+          const px=ax+(dx2-ax)*q, py=ay+(dy2-ay)*q;
+          ctx.fillStyle=(mode==='fwd')?'#F5A623':'#E0342B';
+          ctx.beginPath(); ctx.arc(px,py,8,0,TAU); ctx.fill();
+        }
+      }
+    }
+    requestAnimationFrame(draw);
+  }
+  document.getElementById('bpFwd').addEventListener('click',()=>{
+    mode='fwd'; t0=performance.now(); showVals=false;
+  });
+  document.getElementById('bpBwd').addEventListener('click',()=>{
+    mode='bwd'; t0=performance.now(); showGrads=false;
+    if(!showVals) showVals=true;   // backward needs the forward values anyway
+  });
+  requestAnimationFrame(draw);
+})();
+
+/* =====================================================
+   DEMO 3 — real 2-2-1 MLP trained live on XOR
+   ===================================================== */
+(function(){
+  const cv=document.getElementById('xorCanvas'), ctx=cv.getContext('2d');
+  const read=document.getElementById('xorRead'), status=document.getElementById('xorStatus');
+  const DATA=[[0,0,0],[0,1,1],[1,0,1],[1,1,0]];
+  const GRID=40, LR=0.9, EPB=25;            // grid cells, learning rate, epochs per frame
+  let W1,b1,W2,b2, epoch, solved, attempt=0, frameN=0, running=false;
+
+  const R=Math.random;
+  function reset(){
+    const r=()=> (R()*2-1);
+    W1=[[r(),r()],[r(),r()]]; b1=[r(),r()];
+    W2=[r(),r()]; b2=r();
+    epoch=0; solved=false; attempt++;
+    status.textContent=(running?'training…':'paused — press ▶')+' (attempt #'+attempt+')';
+    status.style.background='#fffdf5'; status.style.color='#111';
+  }
+  function fwd(x0,x1){
+    const h0=sig(W1[0][0]*x0+W1[1][0]*x1+b1[0]);
+    const h1=sig(W1[0][1]*x0+W1[1][1]*x1+b1[1]);
+    return [h0,h1, sig(W2[0]*h0+W2[1]*h1+b2)];
+  }
+  function trainEpoch(){          // per-sample backprop, the real thing
+    for(const [x0,x1,t] of DATA){
+      const [h0,h1,o]=fwd(x0,x1);
+      const d_o=(o-t)*o*(1-o);
+      const dh0=d_o*W2[0]*h0*(1-h0), dh1=d_o*W2[1]*h1*(1-h1);
+      W2[0]-=LR*d_o*h0; W2[1]-=LR*d_o*h1; b2-=LR*d_o;
+      W1[0][0]-=LR*dh0*x0; W1[1][0]-=LR*dh0*x1; b1[0]-=LR*dh0;
+      W1[0][1]-=LR*dh1*x0; W1[1][1]-=LR*dh1*x1; b1[1]-=LR*dh1;
+    }
+    epoch++;
+  }
+  function totalErr(){
+    let E=0;
+    for(const [x0,x1,t] of DATA){ const o=fwd(x0,x1)[2]; E+=0.5*(o-t)*(o-t); }
+    return E;
+  }
+  // domain shown: [-0.25,1.25]^2
+  const DMIN=-0.25, DMAX=1.25;
+  const toPx=v => (v-DMIN)/(DMAX-DMIN)*cv.width;
+  function heatmap(){
+    const cw=cv.width/GRID, chh=cv.height/GRID;
+    for(let i=0;i<GRID;i++) for(let j=0;j<GRID;j++){
+      const x0=DMIN+(DMAX-DMIN)*(i+0.5)/GRID;
+      const x1=DMIN+(DMAX-DMIN)*(j+0.5)/GRID;
+      const o=fwd(x0,x1)[2];
+      // two soft colors: washed blue (class 0) ↔ washed orange (class 1)
+      const rC=Math.round(210+(252-210)*o), gC=Math.round(233+(231-233)*o), bC=Math.round(247+(206-247)*o);
+      ctx.fillStyle='rgb('+rC+','+gC+','+bC+')';
+      ctx.fillRect(i*cw, cv.height-(j+1)*chh, cw+1, chh+1);
+    }
+    // the 4 points
+    ctx.font="bold 15px 'Comic Sans MS','Segoe Print',cursive";
+    for(const [x0,x1,t] of DATA){
+      const px=toPx(x0), py=cv.height-toPx(x1);
+      ctx.fillStyle = t? '#F5A623' : '#29ABE2';
+      ctx.strokeStyle='#111'; ctx.lineWidth=2.5;
+      ctx.beginPath(); ctx.arc(px,py,14,0,TAU); ctx.fill(); ctx.stroke();
+      ctx.fillStyle='#fff'; ctx.fillText(String(t),px-4,py+5);
+    }
+    // corner labels
+    ctx.fillStyle='#333'; ctx.font="13px 'Comic Sans MS',cursive";
+    ctx.fillText('(0,0)',toPx(0)-16,cv.height-toPx(0)+30);
+    ctx.fillText('(1,1)',toPx(1)-16,cv.height-toPx(1)-20);
+  }
+  function loop(){
+    frameN++;
+    if(running && !solved){
+      for(let k=0;k<EPB;k++) trainEpoch();
+      const E=totalErr();
+      read.textContent='error E = '+E.toFixed(4)+' · epoch '+epoch;
+      if(E<0.01){
+        solved=true;
+        status.textContent='learned it ✓ hidden layers bend the line';
+        status.style.background='rgba(41,171,226,.2)';
+        heatmap();
+      } else if(epoch>3500 && E>0.05){
+        reset();                          // stuck in a bad valley → new dice
+      }
+      if(frameN%3===0) heatmap();
+    }
+    requestAnimationFrame(loop);
+  }
+  const startBtn=document.getElementById('xorStart');
+  startBtn.addEventListener('click',()=>{
+    if(running) return;
+    running=true;
+    startBtn.textContent='learning…'; startBtn.disabled=true;
+    status.textContent='training… (attempt #'+attempt+')';
+  });
+  document.getElementById('xorRestart').addEventListener('click',()=>{
+    reset();
+    read.textContent='error E = '+totalErr().toFixed(4)+' · epoch 0';
+    heatmap();
+  });
+  reset();                                // static first frame: 4 points + random initial boundary
+  read.textContent='error E = '+totalErr().toFixed(4)+' · epoch 0';
+  heatmap(); loop();                      // training starts only when ▶ is pressed
+})();
+
+/* =====================================================
+   DEMO 4 — the loop is the memory (running parity)
+   ===================================================== */
+(function(){
+  // --- the loop drawing ---
+  const cv=document.getElementById('loopCanvas'), ctx=cv.getContext('2d');
+  function drawLoop(){
+    ctx.clearRect(0,0,cv.width,cv.height);
+    const cx=165, cy=140, r=34;
+    // input arrow
+    ctx.strokeStyle='#111'; ctx.lineWidth=2.5; ctx.lineCap='round';
+    ctx.beginPath(); ctx.moveTo(30,cy); ctx.lineTo(cx-r-8,cy); ctx.stroke();
+    arrowHead(ctx,cx-r-8,cy,0,10,'#111');
+    // output arrow
+    ctx.beginPath(); ctx.moveTo(cx+r+2,cy); ctx.lineTo(300,cy); ctx.stroke();
+    arrowHead(ctx,300,cy,0,10,'#111');
+    // the loop: output curves up and back to the input side
+    ctx.strokeStyle='#F5A623'; ctx.lineWidth=3.5;
+    ctx.beginPath();
+    ctx.moveTo(cx+r+30,cy-6);
+    ctx.bezierCurveTo(cx+r+70,cy-95, cx-r-70,cy-95, cx-r-24,cy-22);
+    ctx.stroke();
+    arrowHead(ctx,cx-r-24,cy-22,Math.PI*0.32,11,'#F5A623');
+    // neuron
+    ctx.fillStyle='#29ABE2'; ctx.strokeStyle='#111'; ctx.lineWidth=2.5;
+    ctx.beginPath(); ctx.arc(cx,cy,r,0,TAU); ctx.fill(); ctx.stroke();
+    ctx.fillStyle='#fff'; ctx.font="bold 16px 'Comic Sans MS',cursive";
+    ctx.fillText('Σ',cx-6,cy+6);
+    // labels
+    ctx.fillStyle='#111'; ctx.font="14px 'Comic Sans MS','Segoe Print',cursive";
+    ctx.fillText('input today',26,cy+22);
+    ctx.fillText('output',252,cy-10);
+    ctx.fillStyle='#c07f0e';
+    ctx.fillText("yesterday's output",cx-64,32);
+    ctx.fillText('is today\'s input',cx-54,50);
+  }
+  drawLoop();
+
+  // --- interactive parity scan ---
+  const lampsEl=document.getElementById('lamps'), traceEl=document.getElementById('trace');
+  const memBox=document.getElementById('memBox'), rnnAns=document.getElementById('rnnAns'),
+        mlpSees=document.getElementById('mlpSees');
+  let lamps=[1,0,1,1,0,0,1,0];
+  let timer=null;
+
+  function buildLamps(){
+    lampsEl.innerHTML='';
+    lamps.forEach((v,i)=>{
+      const btn=document.createElement('button');
+      btn.className='lamp'+(v?' on':'');
+      btn.textContent=v;
+      btn.setAttribute('aria-label','lamp '+(i+1));
+      btn.addEventListener('click',()=>{ lamps[i]^=1; buildLamps(); scan(); });
+      lampsEl.appendChild(btn);
+    });
+  }
+  function setMem(state,done){
+    memBox.className='memory '+(state?'odd':'even');
+    memBox.textContent=(state?'ODD':'EVEN')+(done?' ✓':'');
+  }
+  function scan(){
+    if(timer) clearInterval(timer);
+    let state=0, i=-1;
+    traceEl.innerHTML='<span class="small">memory over time:&nbsp;</span>';
+    const boxes=[];
+    for(let k=0;k<=lamps.length;k++){
+      const d=document.createElement('div'); d.className='tbox'; d.textContent='·';
+      traceEl.appendChild(d); boxes.push(d);
+    }
+    boxes[0].className='tbox even'; boxes[0].textContent='E';
+    setMem(0,false); rnnAns.textContent='EVEN'; mlpSees.textContent='—';
+    [...lampsEl.children].forEach(b=>{ b.classList.remove('reading'); const p=b.querySelector('.ptr'); if(p)p.remove(); });
+
+    timer=setInterval(()=>{
+      // clear previous marker
+      [...lampsEl.children].forEach(b=>{ b.classList.remove('reading'); const p=b.querySelector('.ptr'); if(p)p.remove(); });
+      i++;
+      if(i>=lamps.length){
+        clearInterval(timer); timer=null;
+        setMem(state,true);
+        rnnAns.textContent=(state?'ODD ✓':'EVEN ✓');
+        mlpSees.textContent='last lamp: '+lamps[lamps.length-1];
+        return;
+      }
+      const b=lampsEl.children[i];
+      b.classList.add('reading');
+      const ptr=document.createElement('span'); ptr.className='ptr'; ptr.textContent='▼';
+      b.appendChild(ptr);
+      state^=lamps[i];                       // the hard-wired recurrent cell: new = old XOR input
+      setMem(state,false);
+      rnnAns.textContent=state?'ODD':'EVEN';
+      mlpSees.textContent=String(lamps[i]);
+      boxes[i+1].className='tbox '+(state?'odd':'even');
+      boxes[i+1].textContent=state?'O':'E';
+    },450);
+  }
+  document.getElementById('scanBtn').addEventListener('click',scan);
+  buildLamps();
+  scan();                                    // runs immediately on load
+})();
+</script>

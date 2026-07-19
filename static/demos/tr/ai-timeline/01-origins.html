@@ -1,0 +1,1096 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>1943–1958 — İlk Nöronlar</title>
+<style>
+  :root{
+    --blue:#29ABE2;
+    --orange:#F5A623;
+    --ink:#111;
+    --paper:#f7f3e8;
+    --bad:#e74c3c;
+  }
+  *{ box-sizing:border-box; }
+  body{
+    margin:0;
+    background:#fff;
+    color:var(--ink);
+    font-family:'Comic Sans MS','Segoe Print','Bradley Hand',cursive;
+    line-height:1.45;
+  }
+  main{ max-width:920px; margin:0 auto; padding:24px 16px 60px; }
+
+  header.hero{ text-align:center; padding:28px 0 8px; }
+  header.hero h1{
+    font-size:2.4rem; margin:0;
+    transform:rotate(-1.2deg);
+  }
+  header.hero p{ margin:8px 0 0; font-size:1.05rem; color:#444; transform:rotate(0.4deg); }
+  .yeardots{ display:flex; justify-content:center; gap:26px; margin-top:18px; flex-wrap:wrap; }
+  .yeardots a{
+    text-decoration:none; color:var(--ink); font-size:1rem;
+    display:flex; flex-direction:column; align-items:center; gap:4px;
+  }
+  .yeardots .dot{
+    width:22px; height:22px; border-radius:50%;
+    background:var(--blue); border:3px solid var(--ink);
+  }
+  .yeardots a:nth-child(2) .dot{ background:var(--paper); }
+  .yeardots a:nth-child(3) .dot{ background:var(--orange); }
+  .yeardots a:hover{ text-decoration:underline wavy; }
+
+  section{ margin-top:56px; }
+  h2{
+    font-size:1.7rem; margin:0 0 4px;
+    transform:rotate(-0.8deg);
+    display:inline-block;
+    border-bottom:4px solid var(--blue);
+    padding-bottom:2px;
+  }
+  section:nth-of-type(2) h2{ border-bottom-color:#8a7a55; }
+  section:nth-of-type(3) h2{ border-bottom-color:var(--orange); }
+  section:nth-of-type(4) h2{ border-bottom-color:var(--bad); }
+  .caption{ font-size:1rem; color:#333; max-width:760px; margin:6px 0 14px; }
+  .caption.small{ font-size:0.92rem; color:#555; }
+
+  .board{
+    border:3px solid var(--ink);
+    border-radius:14px;
+    padding:18px;
+    background:#fff;
+    box-shadow:4px 5px 0 rgba(0,0,0,0.14);
+    transform:rotate(-0.4deg);
+  }
+  .board.tilt-r{ transform:rotate(0.5deg); }
+
+  .formula{
+    display:inline-block;
+    font-size:1.25rem;
+    border:2px dashed var(--ink);
+    border-radius:10px;
+    padding:8px 16px;
+    margin:10px 0;
+    background:#fdfdf6;
+    transform:rotate(-0.6deg);
+  }
+  .formula sub{ font-size:0.7em; }
+  .formula .hl{ color:var(--orange); font-weight:bold; }
+  .formula .hlb{ color:var(--blue); font-weight:bold; }
+
+  /* ---------- MP neuron ---------- */
+  .mp-wrap{ display:flex; flex-wrap:wrap; gap:18px; align-items:center; }
+  .mp-svgbox{ flex:1 1 460px; min-width:300px; transform:rotate(-0.7deg); }
+  .mp-svgbox svg{ width:100%; height:auto; display:block; }
+  .mp-side{ flex:1 1 260px; min-width:250px; }
+  .mpin{ cursor:pointer; }
+  .mpin circle{ transition:fill 0.12s; }
+  .mpin:hover circle{ stroke-width:4; }
+  #mpLamp.on{ filter:drop-shadow(0 0 9px #ffd34d); }
+
+  .theta-box{ margin:8px 0 14px; }
+  .theta-box label{ font-size:1.2rem; }
+  input[type=range]{
+    -webkit-appearance:none; appearance:none;
+    width:100%; height:34px; background:transparent; cursor:pointer;
+  }
+  input[type=range]::-webkit-slider-runnable-track{
+    height:8px; background:var(--ink); border-radius:4px;
+  }
+  input[type=range]::-moz-range-track{
+    height:8px; background:var(--ink); border-radius:4px;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none; appearance:none;
+    width:30px; height:30px; border-radius:50%;
+    background:var(--orange); border:3px solid var(--ink);
+    margin-top:-11px;
+  }
+  input[type=range]::-moz-range-thumb{
+    width:24px; height:24px; border-radius:50%;
+    background:var(--orange); border:3px solid var(--ink);
+  }
+  .mp-readout{ font-size:1.15rem; margin:6px 0; }
+  .mp-readout b{ font-size:1.3rem; }
+
+  .chips{ display:flex; gap:12px; flex-wrap:wrap; margin-top:12px; }
+  .chip{
+    font-family:inherit; font-size:1rem;
+    border:2px solid var(--ink); border-radius:999px;
+    background:#fff; padding:8px 16px; cursor:pointer;
+    transform:rotate(-1deg);
+  }
+  .chip:nth-child(2){ transform:rotate(1deg); }
+  .chip.done{
+    background:var(--orange); border-color:var(--ink);
+    animation:party 0.6s ease;
+  }
+  @keyframes party{
+    0%{ transform:scale(1) rotate(-1deg); }
+    40%{ transform:scale(1.25) rotate(3deg); }
+    100%{ transform:scale(1) rotate(-1deg); }
+  }
+  #mpChallengeMsg{ min-height:1.6em; font-size:1.05rem; margin-top:10px; }
+
+  /* ---------- Dartmouth ---------- */
+  .paper{
+    font-family:'Courier New',Courier,monospace;
+    background:var(--paper);
+    border:1px solid #cbbf9d;
+    box-shadow:5px 6px 0 rgba(0,0,0,0.15);
+    max-width:640px;
+    margin:14px auto;
+    padding:34px 38px;
+    transform:rotate(0.7deg);
+    color:#26221a;
+  }
+  .paper h3{
+    font-family:inherit; text-align:center; font-weight:bold;
+    font-size:1.05rem; letter-spacing:1px; margin:0 0 14px;
+    text-transform:uppercase; line-height:1.6;
+  }
+  .paper .byline{ text-align:center; font-size:0.85rem; margin:0 0 18px; }
+  .paper p{ font-size:0.9rem; margin:10px 0; }
+  .paper .stamp{
+    display:inline-block; border:2px solid #a33; color:#a33;
+    padding:2px 10px; font-size:0.8rem; transform:rotate(-4deg);
+    margin-top:8px;
+  }
+  .cards{
+    display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(200px,1fr));
+    gap:16px; margin-top:16px;
+  }
+  .card{
+    background:none; border:none; padding:0; cursor:pointer;
+    perspective:900px; height:150px; font-family:inherit;
+    text-align:left;
+  }
+  .card .inner{
+    position:relative; width:100%; height:100%;
+    transition:transform 0.55s;
+    transform-style:preserve-3d;
+  }
+  .card.flipped .inner{ transform:rotateY(180deg); }
+  .card .face{
+    position:absolute; inset:0;
+    backface-visibility:hidden; -webkit-backface-visibility:hidden;
+    border:3px solid var(--ink); border-radius:12px;
+    padding:12px 14px;
+    display:flex; flex-direction:column; justify-content:center;
+    box-shadow:3px 4px 0 rgba(0,0,0,0.12);
+  }
+  .card .front{
+    background:var(--paper);
+    font-family:'Courier New',Courier,monospace;
+    font-size:0.92rem; font-weight:bold; color:#26221a;
+  }
+  .card .front .num{ font-size:1.3rem; color:#a33; margin-bottom:4px; }
+  .card .back{
+    background:var(--blue); color:#fff;
+    transform:rotateY(180deg);
+    font-size:0.95rem;
+  }
+  .card:nth-child(odd){ transform:rotate(-0.8deg); }
+  .card:nth-child(even){ transform:rotate(0.7deg); }
+  .card .front .hint{ font-weight:normal; font-size:0.72rem; color:#8a7a55; margin-top:6px; }
+
+  /* ---------- perceptron ---------- */
+  .ptron-wrap{ display:flex; flex-wrap:wrap; gap:18px; }
+  .ptron-canvasbox{ flex:1 1 480px; min-width:300px; }
+  .ptron-canvasbox canvas{
+    width:100%; height:auto; display:block;
+    border:3px solid var(--ink); border-radius:12px;
+    background:#fff; cursor:crosshair;
+    box-shadow:4px 5px 0 rgba(0,0,0,0.12);
+    transform:rotate(-0.4deg);
+    touch-action:manipulation;
+  }
+  .ptron-side{ flex:1 1 260px; min-width:250px; }
+  .wrow{ display:flex; align-items:center; gap:10px; margin:2px 0; }
+  .wrow .wlabel{ width:110px; font-size:1.05rem; white-space:nowrap; }
+  .wrow input[type=range]{ flex:1; height:28px; }
+  .wrow input[type=range]::-webkit-slider-thumb{
+    width:24px; height:24px; margin-top:-8px; background:var(--blue);
+  }
+  .wrow input[type=range]::-moz-range-thumb{ background:var(--blue); }
+  .btnrow{ display:flex; gap:10px; flex-wrap:wrap; margin:12px 0; }
+  button.big{
+    font-family:inherit; font-size:1.1rem;
+    border:3px solid var(--ink); border-radius:12px;
+    background:var(--orange); padding:10px 18px; cursor:pointer;
+    box-shadow:3px 3px 0 rgba(0,0,0,0.2);
+    transform:rotate(-0.6deg);
+  }
+  button.big:active{ transform:translate(2px,2px) rotate(-0.6deg); box-shadow:none; }
+  button.big.secondary{ background:#fff; }
+  button.big.blue{ background:var(--blue); color:#fff; }
+  .classpick{ display:flex; gap:0; margin:6px 0; }
+  .classpick button{
+    font-family:inherit; font-size:1rem; cursor:pointer;
+    border:3px solid var(--ink); background:#fff; padding:8px 14px;
+  }
+  .classpick button:first-child{ border-radius:12px 0 0 12px; border-right-width:1.5px; }
+  .classpick button:last-child{ border-radius:0 12px 12px 0; border-left-width:1.5px; }
+  .classpick button[aria-pressed="true"]{ background:#e9f6fd; box-shadow:inset 3px 3px 0 rgba(0,0,0,0.15); }
+  .classpick button:last-child[aria-pressed="true"]{ background:#fdf3e0; }
+  .status{ font-size:1.05rem; min-height:1.6em; margin-top:8px; }
+  .status.win{ color:#1a7d3c; font-weight:bold; }
+  .status.fail{ color:var(--bad); }
+
+  .rulecard{
+    display:inline-block;
+    font-size:1.1rem;
+    border:2px dashed var(--orange);
+    border-radius:10px; padding:8px 14px; margin:8px 0;
+    background:#fffaf0; transform:rotate(0.5deg);
+  }
+
+  /* ---------- xor ---------- */
+  #xorStatus{ font-size:1.1rem; }
+  .teaser{
+    display:inline-block; margin-top:16px;
+    font-size:1.15rem;
+    border:3px solid var(--ink); border-radius:12px;
+    padding:10px 18px; background:#fdfdf6;
+    transform:rotate(-0.8deg);
+    text-decoration:none; color:var(--ink);
+    box-shadow:3px 4px 0 rgba(0,0,0,0.15);
+  }
+  .teaser:hover{ background:var(--orange); }
+
+  /* ---------- framing / pacing ---------- */
+  .story{
+    max-width:700px; margin:24px auto 0;
+    border:3px solid var(--ink); border-radius:14px;
+    background:#fdfdf6; padding:14px 20px;
+    font-size:1.05rem; text-align:left;
+    box-shadow:4px 5px 0 rgba(0,0,0,0.12);
+    transform:rotate(-0.4deg);
+  }
+  .tag{
+    display:inline-block; font-size:0.78rem; font-weight:bold;
+    border:2px solid var(--ink); border-radius:999px;
+    padding:2px 12px; margin-left:10px; vertical-align:middle;
+    transform:rotate(-2deg); white-space:nowrap;
+  }
+  .tag.main{ background:var(--orange); }
+  .tag.side{ background:#e9f6fd; }
+  .tag.interlude{ background:var(--paper); }
+  .setup{ font-size:1.02rem; margin:10px 0 8px; max-width:760px; }
+  .setup::before{ content:"👉 "; }
+  .trythis{
+    border:3px dashed var(--blue); border-radius:12px;
+    background:#f2fafe; padding:10px 16px; margin:10px 0 14px;
+    max-width:760px;
+  }
+  .trythis .tt-title{ display:block; margin-bottom:4px; font-weight:bold; }
+  .trythis ol{ margin:0; padding-left:24px; }
+  .trythis li{ margin:5px 0; }
+  .takeaway{
+    border:3px solid var(--orange); border-radius:12px;
+    background:#fffaf0; padding:10px 16px; margin:14px 0 0;
+    max-width:760px; font-size:1.05rem;
+    box-shadow:3px 4px 0 rgba(0,0,0,0.12);
+    transform:rotate(-0.3deg);
+  }
+  .decoder{
+    font-size:0.92rem; color:#555; margin:10px 0 0;
+    font-style:italic; max-width:760px;
+  }
+  .decoder::before{ content:"🔑 "; font-style:normal; }
+  .knobs{
+    border:2px dashed #aaa; border-radius:10px;
+    background:#fafafa; padding:8px 12px; margin-top:12px;
+    font-size:0.95rem;
+  }
+  .knobs .knobs-label{
+    display:block; font-size:0.72rem; color:#888;
+    text-transform:uppercase; letter-spacing:1px; margin-bottom:4px;
+  }
+  .knobs .rulecard{ font-size:0.95rem; margin:4px 0 8px; }
+
+  /* hero demo promotion */
+  .board.heroic{
+    border-width:5px;
+    box-shadow:8px 9px 0 rgba(245,166,35,0.4);
+  }
+
+  /* side demo demotion */
+  #mp h2{ font-size:1.35rem; }
+  #mp .board{ max-width:780px; }
+
+  /* dartmouth = compressed interlude */
+  #dartmouth{ margin-top:40px; }
+  #dartmouth h2{ font-size:1.35rem; }
+  #dartmouth .paper{ padding:20px 26px; margin:10px auto; max-width:560px; }
+  #dartmouth .paper p{ font-size:0.85rem; margin:8px 0; }
+  #dartmouth .cards{ margin-top:10px; }
+  #xor{ margin-top:36px; }
+
+  footer{
+    margin-top:70px; padding-top:16px;
+    border-top:3px dashed var(--ink);
+    display:flex; justify-content:space-between; flex-wrap:wrap; gap:10px;
+    font-size:1.05rem;
+  }
+  footer a{ color:var(--ink); }
+</style>
+</head>
+<body>
+<main>
+
+<header class="hero">
+  <h1>İlk Nöronlar</h1>
+  <p>1943 – 1958 · her şeyin başlangıcı olan üç fikir</p>
+  <nav class="yeardots">
+    <a href="#mp"><span class="dot"></span>1943 · matematiksel bir nöron</a>
+    <a href="#dartmouth"><span class="dot"></span></a>
+    
+    <a href="#dartmouth">1955 · “AI” adını</a>
+    <a href="#perceptron"><span class="dot"></span></a>
+    <a href="#dartmouth">alır</a>
+    
+    <a href="#perceptron">1958 · öğrenir!</a>
+  </nav>
+</header>
+
+<div class="story">
+  1943&#x27;te iki araştırmacı, bir beyin hücresini basit bir matematik formülü olarak tanımladı: girdileri topla, toplam yeterince büyükse ateşle.
+  1958&#x27;e gelindiğinde, <b>kendini</b> ayarlayabilen bir makine ortaya çıktı — kimse ayarlamadan noktaları sıralamayı öğrendi.
+  Sonra biri, hiçbir düz çizgiyle bölünemeyen dört nokta çizdi ve o tek resim, tüm alanı on yıllarca dondurdu.
+  Bu sayfada bu üç anı kendiniz deneyimleyebilirsiniz.
+</div>
+
+<!-- ============ 1943 MP NEURON ============ -->
+<section id="mp">
+  <h2>1943 — matematiksel bir beyin hücresi</h2>
+  <span class="tag side">ısınma · yan görev</span>
+  <p class="caption">Warren McCulloch ve Walter Pitts, bir nöronun ilk matematiksel modelini tasarladı.</p>
+  <p class="setup">1943 tarihli bir “matematiksel beyin hücresini” elle çalıştırarak, tam olarak ne zaman ateşlenmeye karar verdiğini öğreneceksiniz.</p>
+  <div class="trythis">
+    <span class="tt-title">bunu deneyin</span>
+    <ol>
+      <li>mavi girişleri açıp kapatın → Σ&#x27;nin yükselmesini ve Σ ≥ θ olduğu anda lambanın yanmasını izleyin</li>
+      <li>θ kaydırıcısını sürükleyin → aynı girişlerin aniden &quot;yeterli&quot; olmaktan çıktığını izleyin</li>
+      <li>⚡ AND / OR yongalarına tıklayın → her bir mantık kapısını oluşturan θ değerini bulun</li>
+    </ol>
+  </div>
+
+  <div class="board">
+    <div class="mp-wrap">
+      <div class="mp-svgbox">
+        <svg id="mpSvg" viewBox="0 0 560 350" role="img" aria-label="McCulloch-Pitts neuron diagram">
+          <defs>
+            <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="#111"/>
+            </marker>
+          </defs>
+          <!-- connection lines (from inputs to neuron) drawn by JS-independent static geometry -->
+          <g id="mpLines" stroke="#111" stroke-width="2.5" fill="none"></g>
+          <!-- input circles -->
+          <g id="mpInputs"></g>
+          <!-- neuron body: two halves -->
+          <g transform="rotate(-2 330 175)">
+            <path d="M330,105 A70,70 0 0 0 330,245 Z" fill="#29ABE2" stroke="#111" stroke-width="3"/>
+            <path d="M330,105 A70,70 0 0 1 330,245 Z" fill="#F5A623" stroke="#111" stroke-width="3"/>
+            <line x1="330" y1="105" x2="330" y2="245" stroke="#111" stroke-width="3"/>
+            <text x="296" y="158" font-size="30" fill="#fff" text-anchor="middle" font-family="inherit" font-style="italic">g</text>
+            <text id="mpSumTxt" x="296" y="198" font-size="20" fill="#fff" text-anchor="middle">Σ=0</text>
+            <text x="364" y="158" font-size="30" fill="#fff" text-anchor="middle" font-family="inherit" font-style="italic">f</text>
+            <text id="mpThetaTxt" x="364" y="198" font-size="20" fill="#fff" text-anchor="middle">θ=2</text>
+          </g>
+          <text x="330" y="278" font-size="15" text-anchor="middle" fill="#444">g adds them up · f checks the threshold</text>
+          <!-- output -->
+          <line x1="402" y1="175" x2="460" y2="175" stroke="#111" stroke-width="2.5" marker-end="url(#arr)"/>
+          <circle id="mpLamp" cx="497" cy="175" r="27" fill="#f0f0f0" stroke="#111" stroke-width="3"/>
+          <text id="mpOutTxt" x="497" y="182" font-size="20" text-anchor="middle">y=0</text>
+          <text x="497" y="226" font-size="15" text-anchor="middle" fill="#444">output</text>
+        </svg>
+      </div>
+
+      <div class="mp-side">
+        <div class="formula">y = 1 eğer Σ<sub>i</sub> x<sub>i</sub> ≥ <span class="hl">θ</span> ise, aksi takdirde y = 0</div>
+        <div class="theta-box">
+          <label for="mpTheta">eşik değeri <b>θ = <span id="mpThetaVal">2</span></b>  <span style="font-size:0.85rem;color:#666">(bunu elle ayarlayabilirsiniz!)</span></label>
+          <input type="range" id="mpTheta" min="0" max="6" step="1" value="2" aria-label="threshold theta">
+        </div>
+        <div class="mp-readout" id="mpReadout"></div>
+        <div class="chips">
+          <button class="chip" id="chipAnd" type="button">⚡ bunu bir AND kapısı haline getirin</button>
+          <button class="chip" id="chipOr" type="button">⚡ bunu bir OR kapısı haline getirin</button>
+        </div>
+        <div id="mpChallengeMsg"></div>
+      </div>
+    </div>
+  </div>
+
+  <p class="decoder">kod çözücü: lamba = nöronun ateşlenmesi (y = 1) · θ = giriş toplamının aşması gereken çubuk.</p>
+
+  <div class="takeaway"><b>Az önce gördüğünüz şeye eşik nöron denir:</b> toplam + eşik, başka bir şey değil.
+  Üç sınırlaması — girişlerin sadece 0 veya 1 olması, her girişin tam olarak aynı ağırlıkta sayılması ve her görev için θ&#x27;nin elle seçilmesi — 1958 yılının öneminin tam da nedenidir.</div>
+</section>
+
+<!-- ============ 1955 DARTMOUTH ============ -->
+<section id="dartmouth">
+  <h2>1955 — alan bir isim alır</h2>
+  <span class="tag interlude">ara · hızlı bir göz atma</span>
+  <p class="caption">1955’teki önerisiyle bu alana isim veren 1956 yaz atölyesi — “yapay zeka” kelimelerini kullanan <b>ilk belge</b>.</p>
+
+  <div class="paper">
+    <h3>Dartmouth Yapay Zeka Yaz Araştırma Projesi<br><br>için Bir Öneri</h3>
+    <p class="byline">J. McCarthy · M. L. Minsky · N. Rochester · C. E. Shannon<br>31 Ağustos 1955</p>
+    <p>1956 yazında Dartmouth Koleji’nde 2 ay sürecek ve 10 kişilik bir yapay zeka çalışmasının
+    gerçekleştirilmesini öneriyoruz... Çalışma,
+    öğrenmenin her yönünün veya zekanın herhangi bir
+    diğer özelliğinin prensipte o kadar kesin bir şekilde tanımlanabileceği
+    ve bir makinenin bunu simüle edebileceği varsayımı temelinde
+    yürütülecektir.</p>
+    <span class="stamp">bu alana “YAPAY ZEKA” adını verdi</span>
+  </div>
+
+  <p class="caption">Çalışılacak <b>7 problem</b> sıraladılar. Her biri ayrı bir alan haline geldi.
+  Bir kartı tıklayarak neye dönüştüğünü görün:</p>
+
+  <div class="cards" id="dartCards">
+    <button class="card" type="button">
+      <div class="inner">
+        <div class="face front"><div class="num">1.</div>Otomatik Bilgisayarlar<div class="hint">tıklayın ve çevirin →</div></div>
+        <div class="face back">Sadece bir bilgisayara sahip olmak bile — 1955&#x27;te bu tek başına bir araştırma konusuydu. Şimdi ise telefonunuzda var.</div>
+      </div>
+    </button>
+    <button class="card" type="button">
+      <div class="inner">
+        <div class="face front"><div class="num">2.</div>Bir Bilgisayar Bir Dili Kullanacak Şekilde Nasıl Programlanabilir?<div class="hint">tıklayın ve sayfayı çevirin →</div></div>
+        <div class="face back">Sohbet robotları ve LLM&#x27;ler — ChatGPT ve Claude&#x27;un arkasındaki teknoloji. Yaklaşık 70 yıl sürdü.</div>
+      </div>
+    </button>
+    <button class="card" type="button">
+      <div class="inner">
+        <div class="face front"><div class="num">3.</div>Nöron Ağları<div class="hint">tıklayın ve sayfayı çevirin →</div></div>
+        <div class="face back">Sinir ağları — derin öğrenme. Kelimenin tam anlamıyla bu zaman çizelgesinin konusu. Şu anda buradasınız.</div>
+      </div>
+    </button>
+    <button class="card" type="button">
+      <div class="inner">
+        <div class="face front"><div class="num">4.</div>Hesaplama Büyüklüğü Teorisi<div class="hint">tıklayın ve sayfayı çevirin →</div></div>
+        <div class="face back">Hesaplama karmaşıklığı — problemlerin gerçekte ne kadar zor olduğunu ölçmek (büyük-O, P ve NP).</div>
+      </div>
+    </button>
+    <button class="card" type="button">
+      <div class="inner">
+        <div class="face front"><div class="num">5.</div>Kişisel Gelişim<div class="hint">çevirmek için tıklayın →</div></div>
+        <div class="face back">Makine öğrenimi — yeni kod yerine verilerden gelişen programlar. Kaydırmaya devam et ↓</div>
+      </div>
+    </button>
+    <button class="card" type="button">
+      <div class="inner">
+        <div class="face front"><div class="num">6.</div>Soyutlamalar<div class="hint">tıklayın ve sayfayı çevirin →</div></div>
+        <div class="face back">Günümüzde fikirlerin bir makine içinde nasıl temsil edildiği: özellikler ve gömüler.</div>
+      </div>
+    </button>
+    <button class="card" type="button">
+      <div class="inner">
+        <div class="face front"><div class="num">7.</div>Rastgelelik ve Yaratıcılık<div class="hint">tıklayın ve çevirin →</div></div>
+        <div class="face back">Üretken Yapay Zeka — görüntü ve metin üreteçleri, kontrollü bir rastgelelik dokunuşuyla yaratır.</div>
+      </div>
+    </button>
+  </div>
+</section>
+
+<!-- ============ 1958 PERCEPTRON ============ -->
+<section id="perceptron">
+  <h2>1958 — Perceptron kendi kendine öğrenir</h2>
+  <span class="tag main">★ en önemli olay</span>
+  <p class="caption">Frank Rosenblatt <b>ilk sinir ağ</b>ını kurar. 1943&#x27;e göre üç yenilik:
+  girdiler <b>herhangi bir sayı</b> olabilir, her girdiye kendi ağırlığı atanır…
+  ve ağırlıklar <b>kendiliğinden değişir</b>.</p>
+
+  <div class="formula">Σ<sub>i</sub> <span class="hlb">w<sub>i</sub></span>x<sub>i</sub> ≥ 0 ise y = 1, aksi takdirde y = 0</div>
+  <p class="caption small">θ nereye gitti? <b>Önyargı hilesi</b>: ağırlığı w₀ = −θ olan sahte bir girdi x₀ = 1 ekleyin.
+  Özenle seçilen eşik değeri artık başka bir ağırlık haline geldi — böylece o da otomatik olarak öğrenilir.</p>
+
+  <p class="setup">Bir makinenin kendi hatalarını düzeltmesini izlemek üzeresiniz — hiçbir insan düğmelere dokunmuyor.</p>
+  <div class="trythis">
+    <span class="tt-title">bunu deneyin — tüm gösteri, 3 adım</span>
+    <ol>
+      <li>grafiğe tıklayarak her iki renkteki noktaları yerleştirin (●/▲ düğmeleriyle değiştirin) → izleyin: henüz hiçbir şey olmuyor, çizgi umursamıyor</li>
+      <li>▶ öğren&#x27;e basın → her nokta çizginin sağ tarafına yerleşene kadar ağırlıkların değişmesini ve çizginin sallanmasını izleyin</li>
+      <li>aşağı kaydırın ve 4 XOR noktasını yerleştirin → sonsuza kadar çırpınmasını izleyin</li>
+    </ol>
+  </div>
+
+  <div class="board tilt-r heroic">
+    <div class="ptron-wrap">
+      <div class="ptron-canvasbox">
+        <canvas id="ptCanvas" width="640" height="440" aria-label="perceptron scatter plot"></canvas>
+        <div class="classpick" role="group" aria-label="which class to place">
+          <button id="pickA" type="button" aria-pressed="true">tıklayınca mavi ● eklenir</button>
+          <button id="pickB" type="button" aria-pressed="false">tıklayın, ▲ turuncu ekler</button>
+        </div>
+      </div>
+      <div class="ptron-side">
+        <div class="btnrow">
+          <button class="big" id="ptLearn" type="button">▶ öğren</button>
+          <button class="big secondary" id="ptReset" type="button">↺ sıfırla</button>
+        </div>
+        <div class="status" id="ptStatus"></div>
+        <div class="knobs">
+          <span class="knobs-label">daha fazla düğme — tüm işi yapan 3 sayı</span>
+          <div class="rulecard">hata durumunda:  w ← w + lr·(hedef − tahmin)·x</div>
+          <div class="wrow"><span class="wlabel">w₀ = <b id="w0v">0,00</b></span><input type="range" id="w0s" min="-4" max="4" step="0.05" aria-label="weight w0"></div>
+          <div class="wrow"><span class="wlabel">w₁ = <b id="w1v">0,00</b></span><input type="range" id="w1s" min="-4" max="4" step="0.05" aria-label="weight w1"></div>
+          <div class="wrow"><span class="wlabel">w₂ = <b id="w2v">0,00</b></span><input type="range" id="w2s" min="-4" max="4" step="0.05" aria-label="weight w2"></div>
+          <p class="caption small" style="margin:4px 0">kaydırıcıları kendiniz hareket ettirin ya da ▶&#x27;nin onları hareket ettirmesine izin verin</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <p class="caption small">Çizgi, Σw<sub>i</sub>x<sub>i</sub> = 0 olduğu noktadır. Kırmızı daire ile işaretlenmiş noktalar hatalardır.
+  Grafiğe tıklayarak kendi noktalarınızı ekleyin ve sistemin işini zorlaştırın.</p>
+  <p class="decoder">çözücü: çizgi = makinenin iki grubu birbirinden ayırmak için kullandığı mevcut kural — bir tarafta kalan her şeye ●, diğer tarafta kalanlara ▲ denir.</p>
+
+  <div class="takeaway"><b>Az önce gördüğünüz şeye perceptron öğrenme kuralı denir:</b> her hata ağırlıkları biraz değiştirir,
+  ve bu değişiklikler, çizgi iki grubu ayırana kadar birikir — insan müdahalesine gerek yoktur.</div>
+</section>
+
+<!-- ============ XOR ============ -->
+<section id="xor">
+  <h2>…ve sistemi bozan minik veri kümesi</h2>
+  <span class="tag main">★ ana olay · 2. bölüm</span>
+  <p class="caption">Dört nokta. Tek gereken bu.
+  <b>XOR</b>: yalnızca iki girdi <i>farklı</i> olduğunda 1 çıktısı verir.</p>
+  <p class="setup">Aynı öğreniciye, bir araştırma alanını alt üst eden en küçük veri setini beslemek üzeresiniz.</p>
+
+  <div class="board heroic">
+    <div class="ptron-wrap">
+      <div class="ptron-canvasbox" style="max-width:460px">
+        <canvas id="xorCanvas" width="460" height="440" aria-label="XOR scatter plot"></canvas>
+      </div>
+      <div class="ptron-side">
+        <div class="btnrow">
+          <button class="big blue" id="xorBtn" type="button">⬇ 4 XOR noktasını ekleyin</button>
+        </div>
+        <div class="status fail" id="xorStatus"></div>
+        <div class="knobs">
+          <span class="knobs-label">daha fazla ayar — aynı 3 ağırlık, hiçbir yere varamıyor</span>
+          <div class="wrow"><span class="wlabel">w₀ = <b id="xw0v">–</b></span></div>
+          <div class="wrow"><span class="wlabel">w₁ = <b id="xw1v">–</b></span></div>
+          <div class="wrow"><span class="wlabel">w₂ = <b id="xw2v">–</b></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <p class="caption">Çırpındığını görüyor musunuz? Her geçişte hala hatalar var, bu yüzden kural çizgiyi
+  <b>sonsuza kadar</b> ileri geri çekip duruyor.</p>
+  <p class="decoder">çözücü: çırpınan çizgi = kuralın çözemediği bir problemde kuralını kusursuzca uygulayan bir öğrenici.</p>
+
+  <div class="takeaway"><b>Az önce gördüğünüz şey XOR problemidir:</b> bu 4 noktayı ayırabilecek hiçbir düz çizgi yoktur.
+  Bu durum 1969’da kanıtlandığında, fonlar kesildi — bu tek resim, sinir ağı araştırmalarını yaklaşık 28 yıl boyunca dondurdu.</div>
+
+  <a class="teaser" href="02-learning.html">Sorunun çözümü 1986’ya kadar sürdü → <b>02-learning.html</b></a>
+</section>
+
+<footer>
+  <a href="index.html">← index.html (zaman çizelgesi)</a>
+  
+  <a href="02-learning.html">sonraki: 1974–1986 Öğrenme → 02-learning.html</a>
+</footer>
+
+</main>
+
+<script>
+'use strict';
+/* =================================================================
+   1) McCulloch-Pitts neuron playground
+   ================================================================= */
+(function(){
+  var x = [1,1,0,0,0,0];      // six boolean inputs
+  var theta = 2;
+  var doneAnd = false, doneOr = false;
+
+  var NS = 'http://www.w3.org/2000/svg';
+  var gLines = document.getElementById('mpLines');
+  var gInputs = document.getElementById('mpInputs');
+  var inputEls = [];
+
+  // build 6 inputs + arrows
+  for(var i=0;i<6;i++){
+    var yPos = 45 + i*52;
+    var line = document.createElementNS(NS,'line');
+    line.setAttribute('x1', 92); line.setAttribute('y1', yPos);
+    line.setAttribute('x2', 262); line.setAttribute('y2', 175 + (yPos-175)*0.18);
+    line.setAttribute('marker-end','url(#arr)');
+    gLines.appendChild(line);
+
+    var g = document.createElementNS(NS,'g');
+    g.setAttribute('class','mpin');
+    g.setAttribute('role','button');
+    g.setAttribute('aria-label','input x'+(i+1));
+    var c = document.createElementNS(NS,'circle');
+    c.setAttribute('cx',70); c.setAttribute('cy',yPos); c.setAttribute('r',21);
+    c.setAttribute('stroke','#111'); c.setAttribute('stroke-width',3);
+    var t = document.createElementNS(NS,'text');
+    t.setAttribute('x',70); t.setAttribute('y',yPos+7);
+    t.setAttribute('font-size',20); t.setAttribute('text-anchor','middle');
+    var lbl = document.createElementNS(NS,'text');
+    lbl.setAttribute('x',30); lbl.setAttribute('y',yPos+6);
+    lbl.setAttribute('font-size',17); lbl.setAttribute('text-anchor','middle');
+    lbl.setAttribute('fill','#444');
+    lbl.innerHTML = 'x<tspan baseline-shift="sub" font-size="12">'+(i+1)+'</tspan>';
+    g.appendChild(c); g.appendChild(t);
+    gInputs.appendChild(lbl);
+    gInputs.appendChild(g);
+    (function(idx){
+      g.addEventListener('click', function(){ x[idx] = 1 - x[idx]; render(); });
+    })(i);
+    inputEls.push({c:c, t:t});
+  }
+
+  var lamp = document.getElementById('mpLamp');
+  var outTxt = document.getElementById('mpOutTxt');
+  var sumTxt = document.getElementById('mpSumTxt');
+  var thetaTxt = document.getElementById('mpThetaTxt');
+  var thetaVal = document.getElementById('mpThetaVal');
+  var slider = document.getElementById('mpTheta');
+  var readout = document.getElementById('mpReadout');
+  var chipAnd = document.getElementById('chipAnd');
+  var chipOr = document.getElementById('chipOr');
+  var chMsg = document.getElementById('mpChallengeMsg');
+
+  slider.addEventListener('input', function(){ theta = +slider.value; render(); });
+  chipAnd.addEventListener('click', function(){
+    chMsg.textContent = 'hint: AND = lamp lights only when ALL six inputs fire. How big must θ be?';
+  });
+  chipOr.addEventListener('click', function(){
+    chMsg.textContent = 'hint: OR = one single firing input is already enough. How small can θ go (without being silly)?';
+  });
+
+  function render(){
+    var sum = 0;
+    for(var i=0;i<6;i++){
+      sum += x[i];
+      inputEls[i].c.setAttribute('fill', x[i] ? '#29ABE2' : '#fff');
+      inputEls[i].t.setAttribute('fill', x[i] ? '#fff' : '#999');
+      inputEls[i].t.textContent = x[i];
+    }
+    var out = sum >= theta ? 1 : 0;
+    sumTxt.textContent = 'Σ='+sum;
+    thetaTxt.textContent = 'θ='+theta;
+    thetaVal.textContent = theta;
+    outTxt.textContent = 'y='+out;
+    lamp.setAttribute('fill', out ? '#ffd34d' : '#f0f0f0');
+    lamp.setAttribute('class', out ? 'on' : '');
+    readout.innerHTML = 'Σx<sub>i</sub> = <b>'+sum+'</b> '+(out? '≥':'&lt;')+' θ = '+theta+
+      ' &nbsp;→&nbsp; y = <b>'+out+'</b>'+(theta===0 ? ' <span style="color:#666;font-size:0.85rem">(θ=0: a lamp that can never say no)</span>' : '');
+
+    // challenge detection
+    if(theta === 6 && !doneAnd){
+      doneAnd = true;
+      chipAnd.classList.add('done');
+      chipAnd.textContent = '✓ AND gate!';
+      chMsg.innerHTML = '🎉 <b>θ = 6</b> → the lamp needs ALL six inputs on. You built an AND gate!';
+    }
+    if(theta === 1 && !doneOr){
+      doneOr = true;
+      chipOr.classList.add('done');
+      chipOr.textContent = '✓ OR gate!';
+      chMsg.innerHTML = '🎉 <b>θ = 1</b> → any single input lights the lamp. You built an OR gate!';
+    }
+  }
+  render();
+})();
+
+/* =================================================================
+   2) Dartmouth flip cards
+   ================================================================= */
+(function(){
+  var cards = document.querySelectorAll('#dartCards .card');
+  for(var i=0;i<cards.length;i++){
+    (function(card){
+      card.addEventListener('click', function(){ card.classList.toggle('flipped'); });
+    })(cards[i]);
+  }
+})();
+
+/* =================================================================
+   Shared perceptron plot engine
+   ================================================================= */
+function makePlot(opts){
+  var canvas = document.getElementById(opts.id);
+  var dpr = window.devicePixelRatio || 1;
+  var W = canvas.width, H = canvas.height;      // logical pixels
+  canvas.width = W * dpr; canvas.height = H * dpr;
+  canvas.style.maxWidth = W + 'px';
+  var ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+
+  var P = {
+    canvas: canvas, ctx: ctx, W: W, H: H, M: 36,
+    world: opts.world,
+    pts: [],
+    w: opts.w.slice(),
+    lr: opts.lr,
+    neverStop: !!opts.neverStop,
+    labels: !!opts.labels,
+    training: false, idx: 0, epoch: 0,
+    epochMistakes: 0, lastEpochMistakes: null,
+    stepMs: 120, last: 0, flash: null,
+    converged: false, stuck: false,
+    raf: null,
+    onChange: opts.onChange || function(){}
+  };
+
+  function cx(x){ return P.M + (x - P.world.x0)/(P.world.x1 - P.world.x0)*(P.W - 2*P.M); }
+  function cyy(y){ return P.H - P.M - (y - P.world.y0)/(P.world.y1 - P.world.y0)*(P.H - 2*P.M); }
+  P.toWorld = function(px, py){
+    return {
+      x: P.world.x0 + (px - P.M)/(P.W - 2*P.M)*(P.world.x1 - P.world.x0),
+      y: P.world.y0 + (P.H - P.M - py)/(P.H - 2*P.M)*(P.world.y1 - P.world.y0)
+    };
+  };
+
+  P.predict = function(x, y){
+    return (P.w[0] + P.w[1]*x + P.w[2]*y) >= 0 ? 1 : 0;
+  };
+
+  P.errorCount = function(){
+    var n = 0;
+    for(var i=0;i<P.pts.length;i++){
+      if(P.predict(P.pts[i].x, P.pts[i].y) !== P.pts[i].t) n++;
+    }
+    return n;
+  };
+
+  // endpoints of the decision line clipped to the world rectangle
+  function lineSegment(){
+    var w0=P.w[0], w1=P.w[1], w2=P.w[2];
+    var b=P.world, cand=[], eps=1e-9, X, Y, i;
+    if(Math.abs(w2) > eps){
+      [b.x0, b.x1].forEach(function(xe){
+        Y = -(w0 + w1*xe)/w2;
+        if(Y >= b.y0-1e-6 && Y <= b.y1+1e-6) cand.push([xe, Y]);
+      });
+    }
+    if(Math.abs(w1) > eps){
+      [b.y0, b.y1].forEach(function(ye){
+        X = -(w0 + w2*ye)/w1;
+        if(X >= b.x0-1e-6 && X <= b.x1+1e-6) cand.push([X, ye]);
+      });
+    }
+    // pick two distinct points
+    for(i=1;i<cand.length;i++){
+      if(Math.abs(cand[i][0]-cand[0][0]) > 1e-6 || Math.abs(cand[i][1]-cand[0][1]) > 1e-6){
+        return [cand[0], cand[i]];
+      }
+    }
+    return null;
+  }
+
+  P.draw = function(ts){
+    var c = ctx, i;
+    c.clearRect(0,0,P.W,P.H);
+
+    // prediction tint: coarse dot grid (whiteboard-marker stipple)
+    var nx = 26, ny = 20;
+    for(var gx=0; gx<nx; gx++){
+      for(var gy=0; gy<ny; gy++){
+        var wxp = P.world.x0 + (gx+0.5)/nx*(P.world.x1-P.world.x0);
+        var wyp = P.world.y0 + (gy+0.5)/ny*(P.world.y1-P.world.y0);
+        var pr = P.predict(wxp, wyp);
+        c.fillStyle = pr ? 'rgba(245,166,35,0.22)' : 'rgba(41,171,226,0.20)';
+        c.beginPath();
+        c.arc(cx(wxp), cyy(wyp), 2.6, 0, 6.2832);
+        c.fill();
+      }
+    }
+
+    // plot frame
+    c.strokeStyle = '#111'; c.lineWidth = 2; c.lineCap='round';
+    c.strokeRect(P.M, P.M, P.W-2*P.M, P.H-2*P.M);
+    c.fillStyle = '#555';
+    c.font = '14px "Comic Sans MS","Segoe Print",cursive';
+    c.textAlign = 'center';
+    c.fillText(fmtTick(P.world.x0), P.M, P.H-P.M+18);
+    c.fillText(fmtTick(P.world.x1), P.W-P.M, P.H-P.M+18);
+    c.textAlign = 'left';
+    c.fillText(fmtTick(P.world.y1), 4, P.M+5);
+    c.fillText(fmtTick(P.world.y0), 4, P.H-P.M+5);
+
+    // decision line
+    var seg = lineSegment();
+    if(seg){
+      c.strokeStyle = '#111'; c.lineWidth = 3.5;
+      c.beginPath();
+      c.moveTo(cx(seg[0][0]), cyy(seg[0][1]));
+      c.lineTo(cx(seg[1][0]), cyy(seg[1][1]));
+      c.stroke();
+    }
+
+    // points
+    for(i=0;i<P.pts.length;i++){
+      var p = P.pts[i];
+      var px = cx(p.x), py = cyy(p.y);
+      var wrong = P.predict(p.x, p.y) !== p.t;
+
+      if(P.training && i === P.idx){          // "currently reading this one" marker
+        c.strokeStyle = '#999'; c.lineWidth = 2;
+        c.setLineDash([4,4]);
+        c.beginPath(); c.arc(px, py, 16, 0, 6.2832); c.stroke();
+        c.setLineDash([]);
+      }
+      if(p.t === 0){                          // class A: blue circle
+        c.fillStyle = '#29ABE2';
+        c.beginPath(); c.arc(px, py, 9, 0, 6.2832); c.fill();
+        c.strokeStyle = '#111'; c.lineWidth = 2.5;
+        c.beginPath(); c.arc(px, py, 9, 0, 6.2832); c.stroke();
+      } else {                                // class B: orange triangle
+        c.fillStyle = '#F5A623';
+        c.beginPath();
+        c.moveTo(px, py-11); c.lineTo(px+10, py+8); c.lineTo(px-10, py+8);
+        c.closePath(); c.fill();
+        c.strokeStyle = '#111'; c.lineWidth = 2.5; c.stroke();
+      }
+      if(wrong){                              // mistake ring
+        c.strokeStyle = '#e74c3c'; c.lineWidth = 2.5;
+        c.setLineDash([5,3]);
+        c.beginPath(); c.arc(px, py, 14, 0, 6.2832); c.stroke();
+        c.setLineDash([]);
+      }
+      if(P.flash && P.flash.i === i && ts && ts < P.flash.until){  // just-updated flash
+        c.strokeStyle = '#e74c3c'; c.lineWidth = 4;
+        c.beginPath(); c.arc(px, py, 19, 0, 6.2832); c.stroke();
+      }
+      if(P.labels && p.label){
+        c.fillStyle = '#333';
+        c.font = '15px "Comic Sans MS","Segoe Print",cursive';
+        c.textAlign = 'center';
+        c.fillText(p.label, px, py - 20);
+      }
+    }
+  };
+
+  function fmtTick(v){ return (Math.round(v*100)/100).toString(); }
+
+  function step(ts){
+    if(P.pts.length === 0) return;
+    var p = P.pts[P.idx];
+    var pred = P.predict(p.x, p.y);
+    var err = p.t - pred;                       // target − prediction ∈ {-1,0,1}
+    if(err !== 0){
+      P.w[0] += P.lr * err;                     // x0 = 1 (bias trick)
+      P.w[1] += P.lr * err * p.x;
+      P.w[2] += P.lr * err * p.y;
+      P.epochMistakes++;
+      P.flash = { i: P.idx, until: ts + 380 };
+      P.stepMs = P.neverStop ? 240 : 380;       // linger so the fix is visible
+    } else {
+      P.stepMs = 45;                            // correct ones fly by
+    }
+    P.idx++;
+    if(P.idx >= P.pts.length){
+      P.idx = 0;
+      P.epoch++;
+      P.lastEpochMistakes = P.epochMistakes;
+      if(P.epochMistakes === 0 && !P.neverStop){
+        P.training = false; P.converged = true;
+      } else if(!P.neverStop && P.epoch > 400){
+        P.training = false; P.stuck = true;
+      }
+      P.epochMistakes = 0;
+    }
+  }
+
+  function loop(ts){
+    if(!P.training){ P.draw(ts); P.onChange(P); P.raf = null; return; }
+    if(ts - P.last >= P.stepMs){
+      P.last = ts;
+      step(ts);
+      P.draw(ts);
+      P.onChange(P);
+    }
+    P.raf = requestAnimationFrame(loop);
+  }
+
+  P.start = function(){
+    if(P.training) return;
+    P.training = true; P.converged = false; P.stuck = false;
+    P.idx = 0; P.epoch = 0; P.epochMistakes = 0; P.lastEpochMistakes = null;
+    P.last = 0;
+    if(!P.raf) P.raf = requestAnimationFrame(loop);
+    P.onChange(P);
+  };
+  P.stop = function(){
+    P.training = false;
+    P.draw(); P.onChange(P);
+  };
+  P.cx = cx; P.cy = cyy;
+  return P;
+}
+
+/* =================================================================
+   3) Perceptron trainer
+   ================================================================= */
+(function(){
+  var PRESETS = [
+    {x:0.15,y:0.20,t:0},{x:0.25,y:0.35,t:0},{x:0.30,y:0.15,t:0},
+    {x:0.20,y:0.50,t:0},{x:0.40,y:0.30,t:0},
+    {x:0.70,y:0.80,t:1},{x:0.80,y:0.60,t:1},{x:0.65,y:0.90,t:1},
+    {x:0.90,y:0.75,t:1},{x:0.75,y:0.55,t:1}
+  ];
+  var W_INIT = [0.6, -1.5, 0.4];               // deliberately backwards
+
+  var sliders = [
+    document.getElementById('w0s'),
+    document.getElementById('w1s'),
+    document.getElementById('w2s')
+  ];
+  var vals = [
+    document.getElementById('w0v'),
+    document.getElementById('w1v'),
+    document.getElementById('w2v')
+  ];
+  var learnBtn = document.getElementById('ptLearn');
+  var resetBtn = document.getElementById('ptReset');
+  var statusEl = document.getElementById('ptStatus');
+  var pickA = document.getElementById('pickA');
+  var pickB = document.getElementById('pickB');
+  var placing = 0;
+
+  var P = makePlot({
+    id: 'ptCanvas',
+    world: {x0:0, x1:1, y0:0, y1:1},
+    w: W_INIT,
+    lr: 0.4,
+    onChange: refresh
+  });
+  P.pts = PRESETS.map(function(p){ return {x:p.x, y:p.y, t:p.t}; });
+
+  function refresh(){
+    for(var i=0;i<3;i++){
+      vals[i].textContent = (P.w[i] >= 0 ? '' : '−') + Math.abs(P.w[i]).toFixed(2);
+      sliders[i].value = Math.max(-4, Math.min(4, P.w[i]));
+    }
+    learnBtn.textContent = P.training ? '⏸ pause' : '▶ learn';
+    var errs = P.errorCount();
+    statusEl.className = 'status' + (P.converged ? ' win' : (P.stuck ? ' fail' : ''));
+    if(P.converged){
+      statusEl.innerHTML = '🎉 0 mistakes after pass ' + P.epoch + ' — the perceptron found the line <b>by itself</b>!';
+    } else if(P.stuck){
+      statusEl.textContent = 'hmm… 400 passes and it still can\'t split these with ONE straight line. Remember this feeling 👇';
+    } else if(P.training){
+      statusEl.textContent = 'pass ' + (P.epoch+1) + ' · mistakes right now: ' + errs;
+    } else {
+      statusEl.textContent = 'mistakes right now: ' + errs + (errs ? ' (red rings)' : ' — all split!');
+    }
+  }
+
+  sliders.forEach(function(s, i){
+    s.addEventListener('input', function(){
+      P.training = false;                       // manual grab pauses learning
+      P.converged = false; P.stuck = false;
+      P.w[i] = +s.value;
+      P.draw(); refresh();
+    });
+  });
+
+  learnBtn.addEventListener('click', function(){
+    if(P.training){ P.stop(); } else { P.start(); }
+  });
+
+  resetBtn.addEventListener('click', function(){
+    P.stop();
+    P.pts = PRESETS.map(function(p){ return {x:p.x, y:p.y, t:p.t}; });
+    P.w = W_INIT.slice();
+    P.converged = false; P.stuck = false; P.epoch = 0; P.idx = 0;
+    P.draw(); refresh();
+  });
+
+  function setPick(v){
+    placing = v;
+    pickA.setAttribute('aria-pressed', v===0 ? 'true' : 'false');
+    pickB.setAttribute('aria-pressed', v===1 ? 'true' : 'false');
+  }
+  pickA.addEventListener('click', function(){ setPick(0); });
+  pickB.addEventListener('click', function(){ setPick(1); });
+
+  P.canvas.addEventListener('click', function(e){
+    var r = P.canvas.getBoundingClientRect();
+    var px = (e.clientX - r.left) * (P.W / r.width);
+    var py = (e.clientY - r.top) * (P.H / r.height);
+    var w = P.toWorld(px, py);
+    if(w.x < P.world.x0 || w.x > P.world.x1 || w.y < P.world.y0 || w.y > P.world.y1) return;
+    P.pts.push({x:w.x, y:w.y, t:placing});
+    P.converged = false; P.stuck = false;
+    P.draw(); refresh();
+  });
+
+  P.draw(); refresh();
+})();
+
+/* =================================================================
+   4) XOR cliffhanger
+   ================================================================= */
+(function(){
+  var XOR_PTS = [
+    {x:0, y:0, t:0, label:'(0,0)'},
+    {x:1, y:1, t:0, label:'(1,1)'},
+    {x:0, y:1, t:1, label:'(0,1)'},
+    {x:1, y:0, t:1, label:'(1,0)'}
+  ];
+  var btn = document.getElementById('xorBtn');
+  var statusEl = document.getElementById('xorStatus');
+  var vals = [
+    document.getElementById('xw0v'),
+    document.getElementById('xw1v'),
+    document.getElementById('xw2v')
+  ];
+
+  var P = makePlot({
+    id: 'xorCanvas',
+    world: {x0:-0.4, x1:1.4, y0:-0.4, y1:1.4},
+    w: [0.2, 0.5, -0.4],
+    lr: 0.5,
+    neverStop: true,                           // it will NEVER converge
+    labels: true,
+    onChange: refresh
+  });
+
+  function refresh(){
+    if(P.pts.length === 0) return;
+    for(var i=0;i<3;i++){
+      vals[i].textContent = (P.w[i] >= 0 ? '' : '−') + Math.abs(P.w[i]).toFixed(2);
+    }
+    var errs = P.errorCount();
+    var msg = 'pass ' + (P.epoch+1) + ' · mistakes: ' + errs;
+    if(P.epoch >= 4)  msg += ' — still not 0…';
+    if(P.epoch >= 12) msg += ' it never will be.';
+    statusEl.textContent = msg;
+  }
+
+  // empty-state hint
+  function emptyDraw(){
+    P.draw();
+    var c = P.ctx;
+    c.fillStyle = '#999';
+    c.font = '17px "Comic Sans MS","Segoe Print",cursive';
+    c.textAlign = 'center';
+    c.fillText('← press the button', P.W/2, P.H/2);
+  }
+
+  btn.addEventListener('click', function(){
+    P.training = false;                        // restart cleanly if already running
+    P.pts = XOR_PTS.map(function(p){ return {x:p.x, y:p.y, t:p.t, label:p.label}; });
+    P.w = [0.2, 0.5, -0.4];
+    btn.textContent = '↺ restart the doomed training';
+    P.start();
+  });
+
+  emptyDraw();
+})();
+</script>
+</body>
+</html>

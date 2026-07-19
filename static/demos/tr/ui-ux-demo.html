@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UI ve UX — Etkileşimli Demo</title>
+<style>
+  :root{
+    --bg:#0f1117; --panel:#171a23; --border:#2a2e3a; --text:#e8e9ee;
+    --muted:#8b8fa3; --good:#3ecf8e; --bad:#ef5b5b; --accent:#6c8cff;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    background:var(--bg); color:var(--text); line-height:1.5;
+  }
+  header{padding:24px 20px 0; text-align:center}
+  h1{margin:0 0 4px; font-size:1.6rem}
+  header p{color:var(--muted); margin:0 0 20px}
+
+  nav{
+    display:flex; gap:8px; justify-content:center; flex-wrap:wrap;
+    padding:0 20px 20px; border-bottom:1px solid var(--border);
+  }
+  nav button{
+    background:var(--panel); color:var(--text); border:1px solid var(--border);
+    padding:10px 18px; border-radius:8px; cursor:pointer; font-size:0.95rem;
+  }
+  nav button.active{background:var(--accent); border-color:var(--accent); color:#fff}
+
+  main{max-width:960px; margin:0 auto; padding:28px 20px 60px}
+  .page{display:none}
+  .page.active{display:block}
+
+  .compare{display:grid; grid-template-columns:1fr 1fr; gap:20px}
+  @media(max-width:700px){.compare{grid-template-columns:1fr}}
+
+  .card{
+    background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:20px; min-height:260px; display:flex; flex-direction:column;
+  }
+  .card h3{margin-top:0; display:flex; align-items:center; gap:8px}
+  .tag{font-size:0.7rem; padding:2px 8px; border-radius:99px; font-weight:600}
+  .tag.bad{background:rgba(239,91,91,.15); color:var(--bad)}
+  .tag.good{background:rgba(62,207,142,.15); color:var(--good)}
+
+  .status{margin-top:auto; padding-top:12px; font-size:0.85rem; color:var(--muted); min-height:1.2em}
+  .status.err{color:var(--bad)}
+  .status.ok{color:var(--good)}
+
+  /* --- Demo 1: bad UI vs good UI (same flow, different visuals) --- */
+  .fake-btn{
+    display:inline-block; cursor:pointer; user-select:none; text-align:center;
+  }
+  .ui-bad .fake-btn{
+    background:#3a3a3a; color:#999; border:1px solid #555; padding:6px 10px;
+    font-size:0.75rem; border-radius:0;
+  }
+  .ui-good .fake-btn{
+    background:var(--accent); color:#fff; padding:12px 24px; border-radius:8px;
+    font-size:1rem; font-weight:600; box-shadow:0 4px 14px rgba(108,140,255,.35);
+    transition:transform .15s ease;
+  }
+  .ui-good .fake-btn:hover{transform:translateY(-2px)}
+  .ui-bad label, .ui-good label{display:block; margin-bottom:6px; font-size:0.85rem; color:var(--muted)}
+  .ui-bad input, .ui-good input{width:100%; margin-bottom:14px; font-family:inherit}
+  .ui-bad input{
+    background:#222; color:#eee; border:1px solid #444; padding:4px; font-size:0.8rem;
+  }
+  .ui-good input{
+    background:#0d0f16; color:var(--text); border:1px solid var(--border);
+    padding:10px 12px; border-radius:8px; font-size:0.95rem;
+  }
+  .ui-good input:focus{outline:2px solid var(--accent); outline-offset:2px}
+
+  /* --- Demo 2: bad UX vs good UX (same visual polish, different flow logic) --- */
+  .flow-box input{
+    width:100%; padding:10px 12px; border-radius:8px; margin-bottom:8px;
+    background:#0d0f16; color:var(--text); border:1px solid var(--border); font-family:inherit;
+  }
+  .flow-box button{
+    padding:10px 18px; border-radius:8px; border:none; background:var(--accent);
+    color:#fff; font-weight:600; cursor:pointer;
+  }
+  .hint{font-size:0.75rem; color:var(--muted); margin:-4px 0 10px}
+
+  /* --- Demo 3: matrix --- */
+  .matrix{display:grid; grid-template-columns:1fr 1fr; gap:16px}
+  @media(max-width:700px){.matrix{grid-template-columns:1fr}}
+  .matrix .card small{color:var(--muted); display:block; margin-top:6px}
+
+  footer{text-align:center; color:var(--muted); font-size:0.8rem; padding:20px}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>UI ve UX</h1>
+  <p>Aynı hedef, farklı hata türleri. Öğelere tıklayın.</p>
+</header>
+
+<nav>
+  <button data-page="intro" class="active">1. Giriş</button>
+  <button data-page="ui">2. UI: Görünüm ve His</button>
+  <button data-page="ux">3. UX: Akış ve Mantık</button>
+  <button data-page="matrix">4. Birbirinden Bağımsız</button>
+</nav>
+
+<main>
+
+  <!-- PAGE 1 -->
+  <section class="page active" id="intro">
+    <div class="card" style="max-width:640px;margin:0 auto">
+      <h3>İki farklı görev</h3>
+      <p><strong>UI (Kullanıcı Arayüzü),</strong> görünüşle ilgilidir: boşluklar, renk, tipografi, işlevsellik — bir düğme tıklanabilir görünüyor mu?</p>
+      <p><strong>UX (Kullanıcı Deneyimi)</strong> ise kullanım sırasında hissedilenlerdir: akış mantıklı mı, hataları önlüyor mu, zamanınızı boşa harcamıyor mu?</p>
+      <p style="color:var(--muted)">Bir ekran muhteşem görünebilir (harika UI) ama kullanımı sinir bozucu olabilir (kötü UX) ya da çirkin görünebilir (kötü UI) ama kullanımı zahmetsiz olabilir (harika UX). Sonraki sayfalarda bu farkı hissedebilirsiniz.</p>
+    </div>
+  </section>
+
+  <!-- PAGE 2: UI demo — identical flow, different visual design -->
+  <section class="page" id="ui">
+    <p style="color:var(--muted)">Aynı görev — bir isim girin, gönderin — kötü UI ile iyi UI kullanılarak gösterilmiştir. Kullanılabilirlik, kontrast ve boşluklara dikkat edin.</p>
+    <div class="compare">
+      <div class="card ui-bad">
+        <h3>Kayıt Ol <span class="tag bad">Kötü UI</span></h3>
+        <label>ad</label>
+        <input type="text" id="uiBadInput">
+        <span class="fake-btn" id="uiBadBtn">tamam</span>
+        <div class="status" id="uiBadStatus"></div>
+      </div>
+      <div class="card ui-good">
+        <h3>Kayıt Ol <span class="tag good">İyi Kullanıcı Arayüzü</span></h3>
+        <label>Adınız</label>
+        <input type="text" id="uiGoodInput" placeholder="e.g. Alex Chen">
+        <span class="fake-btn" id="uiGoodBtn">Devam et →</span>
+        <div class="status" id="uiGoodStatus"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- PAGE 3: UX demo — same visual polish, different interaction logic -->
+  <section class="page" id="ux">
+    <p style="color:var(--muted)">Her iki kutu da aynı derecede sade görünüyor. Her birine 8 karakterden kısa bir şifre girmeyi deneyin — biri ancak sayfa tamamen yenilendikten sonra size bildirimde bulunurken, diğeri yazarken size rehberlik eder.</p>
+    <div class="compare">
+      <div class="card flow-box" id="uxBad">
+        <h3>Şifre oluştur <span class="tag bad">Kötü kullanıcı deneyimi</span></h3>
+        <input type="password" id="uxBadInput" placeholder="Password">
+        <button id="uxBadBtn">Gönder</button>
+        <div class="status" id="uxBadStatus"></div>
+      </div>
+      <div class="card flow-box" id="uxGood">
+        <h3>Şifre oluşturma <span class="tag good">İyi kullanıcı deneyimi</span></h3>
+        <input type="password" id="uxGoodInput" placeholder="Password">
+        <div class="hint" id="uxGoodHint">En az 8 karakter gereklidir</div>
+        <button id="uxGoodBtn" disabled>Gönder</button>
+        <div class="status" id="uxGoodStatus"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- PAGE 4: matrix -->
+  <section class="page" id="matrix">
+    <p style="color:var(--muted)">UI ve UX birbirinden bağımsız eksenlerdir. Her bir kutuyu tıklayarak kullanımını simüle edin.</p>
+    <div class="matrix">
+      <div class="card" style="border-color:var(--good)">
+        <h3>İyi UI + İyi UX <span class="tag good">İdeal</span></h3>
+        <p>Görünümü harika ve çalışması mükemmel.</p>
+        <small>Örneğin, yazdıkça verileri düzgün bir şekilde doğrulayan, özenle tasarlanmış bir form.</small>
+      </div>
+      <div class="card" style="border-color:var(--bad)">
+        <h3>İyi UI + Kötü UX <span class="tag bad">Tuzağı</span></h3>
+        <p>Güzel görünür, ancak akış yıkıcı eylemleri gizler, &quot;iptal&quot; seçeneğini saklar veya hata durumunda ilerlemenizi sıfırlar.</p>
+        <small>Örneğin, tek çıkış yolu yanlış etiketlenmiş küçük bir X olan şık bir modal pencere.</small>
+      </div>
+      <div class="card" style="border-color:var(--bad)">
+        <h3>Kötü UI + İyi UX <span class="tag bad">Çirkin ama çalışıyor</span></h3>
+        <p>1998&#x27;den kalma gibi görünür, ancak her eylem öngörülebilir, hızlı ve hataya karşı toleranslıdır.</p>
+        <small>Örneğin, eski Craigslist — çirkin, ancak tıkladığınızda ne olacağını her zaman bilirsiniz.</small>
+      </div>
+      <div class="card" style="border-color:var(--bad)">
+        <h3>Kötü UI + Kötü UX <span class="tag bad">Kaçınılmalı</span></h3>
+        <p>Çirkin ve kafa karıştırıcı. Her şey zor.</p>
+        <small>Örneğin: düğmeleri belirsiz olan ve hata durumunda verilerinizi kaybeden bir form.</small>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer>Etkileşimli demo · çerçeve yok, derleme adımı yok</footer>
+
+<script>
+  // page nav
+  document.querySelectorAll('nav button').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      document.querySelectorAll('nav button').forEach(b=>b.classList.remove('active'));
+      document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById(btn.dataset.page).classList.add('active');
+    });
+  });
+
+  // --- UI demo interactions ---
+  function wireUiBtn(inputId, btnId, statusId, label){
+    const input = document.getElementById(inputId);
+    const btn = document.getElementById(btnId);
+    const status = document.getElementById(statusId);
+    btn.addEventListener('click', ()=>{
+      if(!input.value.trim()){
+        status.textContent = 'submitted empty (no validation shown here)';
+        status.className = 'status err';
+      } else {
+        status.textContent = `${label} welcome, ${input.value.trim()}`;
+        status.className = 'status ok';
+      }
+    });
+  }
+  wireUiBtn('uiBadInput','uiBadBtn','uiBadStatus','ok.');
+  wireUiBtn('uiGoodInput','uiGoodBtn','uiGoodStatus','✓');
+
+  // --- UX demo: bad flow — only validates on submit, wipes input on error ---
+  const uxBadInput = document.getElementById('uxBadInput');
+  const uxBadStatus = document.getElementById('uxBadStatus');
+  document.getElementById('uxBadBtn').addEventListener('click', ()=>{
+    if(uxBadInput.value.length < 8){
+      uxBadStatus.textContent = 'Error. Try again.';
+      uxBadStatus.className = 'status err';
+      uxBadInput.value = ''; // punishes the user by wiping what they typed
+    } else {
+      uxBadStatus.textContent = 'Password set.';
+      uxBadStatus.className = 'status ok';
+    }
+  });
+
+  // --- UX demo: good flow — live feedback, disabled submit until valid ---
+  const uxGoodInput = document.getElementById('uxGoodInput');
+  const uxGoodHint = document.getElementById('uxGoodHint');
+  const uxGoodBtn = document.getElementById('uxGoodBtn');
+  const uxGoodStatus = document.getElementById('uxGoodStatus');
+  uxGoodInput.addEventListener('input', ()=>{
+    const len = uxGoodInput.value.length;
+    const ok = len >= 8;
+    uxGoodBtn.disabled = !ok;
+    uxGoodHint.textContent = ok ? '✓ looks good' : `${len}/8 characters`;
+    uxGoodHint.style.color = ok ? 'var(--good)' : 'var(--muted)';
+  });
+  uxGoodBtn.addEventListener('click', ()=>{
+    uxGoodStatus.textContent = 'Password set.';
+    uxGoodStatus.className = 'status ok';
+  });
+
+  // matrix cards: click to simulate
+  document.querySelectorAll('#matrix .card').forEach(card=>{
+    card.style.cursor='pointer';
+    card.addEventListener('click', ()=>{
+      card.style.transform = card.style.transform ? '' : 'scale(0.98)';
+    });
+  });
+</script>
+
+</body>
+</html>

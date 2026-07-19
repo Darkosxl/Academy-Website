@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Paket Yöneticisi Nedir? — Görsel Demo</title>
+<style>
+  :root{
+    --bg:#0f1117; --panel:#171a23; --border:#2a2e3a; --text:#e8e9ee;
+    --muted:#8b8fa3; --good:#3ecf8e; --bad:#ef5b5b; --accent:#6c8cff; --accent2:#f5a623;
+  }
+  *{box-sizing:border-box}
+  body{margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; background:var(--bg); color:var(--text); line-height:1.5}
+  header{padding:24px 20px 0; text-align:center}
+  h1{margin:0 0 4px; font-size:1.6rem}
+  header p{color:var(--muted); margin:0 0 20px}
+
+  nav{display:flex; gap:8px; justify-content:center; flex-wrap:wrap; padding:0 20px 20px; border-bottom:1px solid var(--border)}
+  nav button{background:var(--panel); color:var(--text); border:1px solid var(--border); padding:10px 18px; border-radius:8px; cursor:pointer; font-size:0.95rem}
+  nav button.active{background:var(--accent); border-color:var(--accent); color:#fff}
+
+  main{max-width:1060px; margin:0 auto; padding:28px 20px 60px}
+  .page{display:none}
+  .page.active{display:block}
+  .card{background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:20px}
+  .lede{color:var(--muted); margin-top:0}
+  code{background:#0d0f16; padding:2px 6px; border-radius:4px; font-size:0.85em}
+
+  /* ===== page 1: install ===== */
+  .install-stage{position:relative; display:grid; grid-template-columns:1fr auto 1fr; gap:20px; align-items:stretch; min-height:340px}
+  @media(max-width:820px){.install-stage{grid-template-columns:1fr; min-height:0}}
+  .zone{border:2px solid var(--border); border-radius:12px; padding:16px; background:var(--panel)}
+  .zone h4{margin:0 0 12px; font-size:0.95rem}
+  .zone.lit{border-color:var(--accent2); box-shadow:0 0 24px rgba(245,166,35,.2)}
+  .registry-shelf{display:flex; flex-wrap:wrap; gap:8px}
+  .pkg{padding:8px 12px; border-radius:8px; background:#252a38; border:1px solid var(--border); font-size:0.8rem; font-family:ui-monospace,Menlo,Consolas,monospace; transition:all .3s}
+  .pkg .ver{color:var(--muted); font-size:0.7rem}
+  .pkg.flying{border-color:var(--accent2); background:rgba(245,166,35,.15)}
+  .pkg.installed{border-color:var(--good); background:rgba(62,207,142,.1)}
+  .courier{display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; min-width:120px}
+  .courier .icon{font-size:2.2rem}
+  .courier .label{font-size:0.75rem; color:var(--muted); text-align:center}
+  #truck{transition:transform .8s ease-in-out; display:inline-block}
+  .terminal{background:#0a0c10; border:1px solid var(--border); border-radius:8px; padding:12px 14px; font-family:ui-monospace,Menlo,Consolas,monospace; font-size:0.8rem; color:#9be8c5; margin-bottom:16px; min-height:110px; white-space:pre-wrap}
+  .terminal .dim{color:#3e5a4c}
+  .terminal .warn{color:var(--accent2)}
+  .cmd-row{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px}
+  .cmd-row button{background:var(--panel); border:1px solid var(--border); color:var(--text); padding:9px 16px; border-radius:8px; cursor:pointer; font-family:ui-monospace,Menlo,Consolas,monospace; font-size:0.82rem}
+  .cmd-row button:hover{border-color:var(--accent)}
+  .cmd-row button:disabled{opacity:.4; cursor:wait}
+  .proj-files{font-family:ui-monospace,Menlo,Consolas,monospace; font-size:0.8rem; line-height:1.8}
+  .proj-files .new{color:var(--good)}
+
+  /* ===== page 2: dependency tree ===== */
+  .tree{font-family:ui-monospace,Menlo,Consolas,monospace; font-size:0.85rem; line-height:2}
+  .tree .node{cursor:pointer; padding:2px 8px; border-radius:6px; transition:background .2s}
+  .tree .node:hover{background:#252a38}
+  .tree .node.direct{color:var(--accent)}
+  .tree .node.transitive{color:var(--muted)}
+  .tree .node.revealed{color:var(--accent2)}
+  .tree-note{margin-top:14px; padding:12px; background:#0d0f16; border-radius:8px; font-size:0.85rem; color:var(--muted); min-height:2.8em}
+  .count-pill{display:inline-block; padding:3px 12px; border-radius:99px; background:rgba(245,166,35,.15); color:var(--accent2); font-weight:700; font-size:0.85rem}
+
+  /* ===== page 3: managers ===== */
+  .mgr-grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:16px}
+  .mgr{border:1px solid var(--border); border-radius:12px; padding:18px; background:var(--panel); transition:transform .15s, border-color .15s}
+  .mgr:hover{transform:translateY(-3px); border-color:var(--accent)}
+  .mgr h4{margin:0 0 2px; display:flex; align-items:center; gap:8px; font-size:1.05rem}
+  .mgr .eco{font-size:0.72rem; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; margin-bottom:10px}
+  .mgr p{font-size:0.85rem; color:var(--muted); margin:0 0 10px}
+  .mgr code{display:block; padding:8px 10px; font-size:0.75rem; color:#9be8c5}
+
+  footer{text-align:center; color:var(--muted); font-size:0.8rem; padding:20px}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>📦 Paket Yöneticileri</h1>
+  <p>Kod için bir uygulama mağazası, teslimat hizmeti de dahil.</p>
+</header>
+
+<nav>
+  <button data-page="install" class="active">1. Bir Yüklemeyi İzleyin</button>
+  <button data-page="tree">2. Buzdağı</button>
+  <button data-page="mgrs">3. Popüler Olanlar</button>
+</nav>
+
+<main>
+
+  <!-- PAGE 1: INSTALL -->
+  <section class="page active" id="install">
+    <p class="lede">Projeniz için başka birinin yazdığı koda mı ihtiyacınız var? Bir komut çalıştırın, kamyonu izleyin.</p>
+    <div class="terminal" id="term">$ <span style="opacity:.6">Aşağıdaki komutlardan birini seçin…</span></div>
+    <div class="cmd-row">
+      <button data-pkg="lodash" data-ver="4.17.21">npm install lodash</button>
+      <button data-pkg="axios" data-ver="1.7.2">npm install axios</button>
+      <button data-pkg="dayjs" data-ver="1.11.11">npm install dayjs</button>
+    </div>
+    <div class="install-stage">
+      <div class="zone" id="zoneRegistry">
+        <h4>🌐 Kayıt defteri (npmjs.com) — 3 milyon paket</h4>
+        <div class="registry-shelf" id="shelf">
+          <span class="pkg">react <span class="ver">18.3</span></span>
+          
+          <span class="pkg" data-pkg="lodash">lodash <span class="ver">4.17</span></span>
+          
+          <span class="pkg">express <span class="ver">4.19</span></span>
+          
+          <span class="pkg" data-pkg="axios">axios <span class="ver">1.7</span></span>
+          
+          <span class="pkg">vue <span class="ver">3.4</span></span>
+          
+          <span class="pkg" data-pkg="dayjs">dayjs <span class="ver">1.11</span></span>
+          
+          <span class="pkg">chalk <span class="ver">5.3</span></span>
+          
+          <span class="pkg">zod <span class="ver">3.23</span></span>
+        </div>
+      </div>
+      <div class="courier">
+        <span class="icon" id="truck">🚚</span>
+        
+        <span class="label">Paket yöneticisi<br>: indir · doğrula · aç</span>
+      </div>
+      <div class="zone" id="zoneProject">
+        <h4>💻 Projeniz</h4>
+        <div class="proj-files" id="projFiles">my-app/
+├── index.js
+├── package.json
+└── node_modules/ <span style="color:var(--muted)">(boş)</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- PAGE 2: ICEBERG -->
+  <section class="page" id="tree">
+    <p class="lede"><strong>1</strong> paket talep ettiniz. <code>express</code> tıklayın ve gerçekte nelerin geldiğini görün.</p>
+    <div class="card">
+      <div class="tree" id="depTree"></div>
+      <div class="tree-note" id="treeNote">Bir paketi tıklayarak kendi bağımlılıklarını genişletin. İşte bu yüzden <code>node_modules</code> ağırdır — ve paket yöneticilerinin var olma nedeni budur: kimse bunu elle takip edemez.</div>
+    </div>
+  </section>
+
+  <!-- PAGE 3: MANAGERS -->
+  <section class="page" id="mgrs">
+    <p class="lede">Her dil kendi paket yöneticisini geliştirdi. Her yerde iş aynı: paketleri indir, sürümleri çözümle, kilit dosyasında takip et.</p>
+    <div class="mgr-grid">
+      <div class="mgr">
+        <h4>📦 npm</h4><div class="eco">JavaScript / Node.js</div>
+        <p>Varsayılan seçenektir — Node ile birlikte gelir. Dünyanın en büyük kayıt defteri (~3 milyon paket). JS dünyasındaki diğer her şey buna bir tepki niteliğindedir.</p>
+        <code>npm install express</code>
+      </div>
+      <div class="mgr">
+        <h4>⚡ pnpm</h4><div class="eco">JavaScript / Node.js</div>
+        <p>npm&#x27;nin her projeye aynı dosyaları kopyalaması nedeniyle ortaya çıkmıştır. pnpm tek bir global kopya saklar ve buna sabit bağlantı kurar — daha hızlı yükleme, büyük disk tasarrufu sağlar.</p>
+        <code>pnpm add express</code>
+      </div>
+      <div class="mgr">
+        <h4>🧶 Yarn</h4><div class="eco">JavaScript / Node.js</div>
+        <p>npm&#x27;nin yavaş ve belirsiz olduğu dönemde Facebook&#x27;ta ortaya çıkmıştır. npm&#x27;nin daha sonra benimsediği kilit dosyası fikrini icat etmiştir. Eski kod tabanlarında hâlâ yaygındır.</p>
+        <code>yarn add express</code>
+      </div>
+      <div class="mgr">
+        <h4>🐍 pip</h4><div class="eco">Python</div>
+        <p>Python&#x27;un standart yükleyicisi, PyPI&#x27;dan indirir. Genellikle sanal ortamlarla birlikte kullanılır, böylece projeler sürümler konusunda çatışmaz.</p>
+        <code>pip install requests</code>
+      </div>
+      <div class="mgr">
+        <h4>🦀 Cargo</h4><div class="eco">Rust</div>
+        <p>Genel olarak en iyi tasarlanmış olanı olarak kabul edilir: tek bir tutarlı komutta paket yöneticisi, derleme aracı ve test çalıştırıcısı bir arada bulunur.</p>
+        <code>cargo add serde</code>
+      </div>
+      <div class="mgr">
+        <h4>🍺 Homebrew</h4><div class="eco">macOS / Linux sistem uygulamaları</div>
+        <p>Aynı fikir, farklı hedef: bir projeye kütüphaneler yüklemek yerine, makinenize programların tamamını yükler.</p>
+        <code>brew install ffmpeg</code>
+      </div>
+      <div class="mgr">
+        <h4>💎 Bundler / gem</h4><div class="eco">Ruby</div>
+        <p>Ruby&#x27;nin eşi: <code>gem</code> yükler, Bundler ise proje başına tam sürümleri sabitler. Gemfile.lock dosyası, kilit dosyalarını her yerde yaygınlaştırdı.</p>
+        <code>bundle add rails</code>
+      </div>
+      <div class="mgr">
+        <h4>☕ Maven / Gradle</h4><div class="eco">Java / JVM</div>
+        <p>Kurumsal ağır toplar — bağımlılık yönetimi ve eksiksiz bir derleme boru hattı. Gradle, daha yeni, daha hızlı ve daha az XML kullanan seçenektir.</p>
+        <code>gradle build</code>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer>Etkileşimli demo · çerçeve yok, derleme adımı yok</footer>
+
+<script>
+  // nav
+  document.querySelectorAll('nav button').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      document.querySelectorAll('nav button').forEach(b=>b.classList.remove('active'));
+      document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById(btn.dataset.page).classList.add('active');
+    });
+  });
+
+  // ---------- page 1: install animation ----------
+  const term = document.getElementById('term');
+  const truck = document.getElementById('truck');
+  const projFiles = document.getElementById('projFiles');
+  const zoneRegistry = document.getElementById('zoneRegistry');
+  const zoneProject = document.getElementById('zoneProject');
+  const installed = [];
+
+  document.querySelectorAll('.cmd-row button').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const pkg = btn.dataset.pkg, ver = btn.dataset.ver;
+      if(installed.includes(pkg)){
+        term.innerHTML = `$ npm install ${pkg}\n<span class="dim">up to date, audited ${installed.length} packages</span>`;
+        return;
+      }
+      document.querySelectorAll('.cmd-row button').forEach(b=>b.disabled=true);
+      const shelfPkg = document.querySelector(`.registry-shelf .pkg[data-pkg="${pkg}"]`);
+
+      term.innerHTML = `$ npm install ${pkg}\n<span class="dim">resolving ${pkg}@${ver}…</span>`;
+      zoneRegistry.classList.add('lit');
+      if(shelfPkg) shelfPkg.classList.add('flying');
+
+      setTimeout(()=>{
+        truck.style.transform = 'translateX(30px) scaleX(-1)';
+        term.innerHTML += `\n<span class="dim">fetching tarball… <span class="warn">▓▓▓▓▓▓▓▓</span> 100%</span>`;
+      }, 600);
+
+      setTimeout(()=>{
+        zoneRegistry.classList.remove('lit');
+        zoneProject.classList.add('lit');
+        truck.style.transform = 'translateX(0) scaleX(-1)';
+        term.innerHTML += `\n<span class="dim">verifying integrity… ok\nunpacking into node_modules/</span>`;
+      }, 1500);
+
+      setTimeout(()=>{
+        installed.push(pkg);
+        if(shelfPkg){ shelfPkg.classList.remove('flying'); shelfPkg.classList.add('installed'); }
+        projFiles.innerHTML = `my-app/
+├── index.js
+├── package.json <span class="new">← "${pkg}": "^${ver}" added</span>
+├── package-lock.json <span class="new">← exact version pinned</span>
+└── node_modules/
+${installed.map((p,i)=>`    ${i===installed.length-1?'└──':'├──'} <span class="new">${p}/</span>`).join('\n')}`;
+        term.innerHTML += `\n\nadded 1 package in 1.2s ✓`;
+        zoneProject.classList.remove('lit');
+        truck.style.transform = '';
+        document.querySelectorAll('.cmd-row button').forEach(b=>b.disabled=false);
+      }, 2400);
+    });
+  });
+
+  // ---------- page 2: dependency iceberg ----------
+  // ponytail: hand-picked subset of express's real dep tree, not live data
+  const DEPS = {
+    'express': ['body-parser','cookie','send','qs','accepts'],
+    'body-parser': ['bytes','content-type','debug','iconv-lite'],
+    'send': ['destroy','etag','fresh','mime','range-parser'],
+    'accepts': ['mime-types','negotiator'],
+    'qs': ['side-channel'],
+    'cookie': [],
+    'bytes': [], 'content-type': [], 'debug': ['ms'], 'iconv-lite': ['safer-buffer'],
+    'destroy': [], 'etag': [], 'fresh': [], 'mime': [], 'range-parser': [],
+    'mime-types': ['mime-db'], 'negotiator': [], 'side-channel': ['get-intrinsic'],
+    'ms': [], 'safer-buffer': [], 'mime-db': [], 'get-intrinsic': [],
+  };
+  const depTree = document.getElementById('depTree');
+  const treeNote = document.getElementById('treeNote');
+  let revealed = 0;
+  const totalHidden = Object.values(DEPS).flat().length;
+
+  function makeNode(name, depth){
+    const div = document.createElement('div');
+    div.style.paddingLeft = (depth * 26) + 'px';
+    const kids = DEPS[name] || [];
+    const span = document.createElement('span');
+    span.className = 'node ' + (depth === 0 ? 'direct' : 'transitive');
+    span.textContent = (kids.length ? '▸ ' : '· ') + name + (kids.length ? `  (+${kids.length})` : '');
+    div.appendChild(span);
+    if(kids.length){
+      span.addEventListener('click', ()=>{
+        if(span.dataset.open) return;
+        span.dataset.open = '1';
+        span.textContent = '▾ ' + name;
+        span.classList.add('revealed');
+        let anchor = div;
+        kids.forEach(k=>{
+          const child = makeNode(k, depth+1);
+          anchor.parentNode.insertBefore(child, anchor.nextSibling);
+          anchor = child;
+          revealed++;
+        });
+        treeNote.innerHTML = `You installed <strong>1</strong> package. Hidden dependencies revealed so far: <span class="count-pill">${revealed} / ${totalHidden}</span> — each one fetched, version-matched, and deduplicated automatically.`;
+      });
+    }
+    return div;
+  }
+  depTree.appendChild(makeNode('express', 0));
+</script>
+
+</body>
+</html>

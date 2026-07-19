@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How Machines Learned to Learn — a timeline</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #fff;
+    color: #111;
+    font-family: 'Comic Sans MS', 'Segoe Print', 'Bradley Hand', cursive;
+    padding: 40px 16px 80px;
+  }
+  header { text-align: center; margin-bottom: 8px; }
+  h1 { font-size: 2rem; transform: rotate(-1deg); }
+  header p { margin-top: 8px; color: #444; transform: rotate(0.5deg); }
+  .timeline {
+    max-width: 640px;
+    margin: 40px auto 0;
+    position: relative;
+    padding-left: 40px;
+  }
+  /* the spine */
+  .timeline::before {
+    content: "";
+    position: absolute;
+    left: 14px; top: 0; bottom: 0;
+    width: 3px;
+    background: #111;
+    transform: rotate(0.3deg);
+  }
+  .stop {
+    position: relative;
+    margin-bottom: 34px;
+  }
+  .stop::before {
+    content: "";
+    position: absolute;
+    left: -34px; top: 6px;
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    background: #29ABE2;
+    border: 2px solid #111;
+  }
+  .stop .date { font-weight: bold; font-size: 1.15rem; }
+  .stop .what { color: #333; margin-top: 2px; }
+  a.card {
+    display: block;
+    text-decoration: none;
+    color: inherit;
+    border: 2px solid #111;
+    border-radius: 10px;
+    padding: 12px 16px;
+    background: #fff;
+    box-shadow: 3px 3px 0 #29ABE2;
+    transition: transform .12s ease, box-shadow .12s ease;
+  }
+  a.card:hover {
+    transform: translate(-2px, -2px) rotate(-0.6deg);
+    box-shadow: 6px 6px 0 #F5A623;
+  }
+  a.card .go { color: #F5A623; font-weight: bold; margin-top: 6px; display: block; }
+  .plain { padding: 4px 2px; }
+  .odd  { transform: rotate(-0.6deg); }
+  .even { transform: rotate(0.5deg); }
+  .era {
+    margin: 6px 0 26px;
+    font-size: .95rem;
+    color: #777;
+    border-top: 2px dashed #bbb;
+    padding-top: 10px;
+    transform: rotate(-0.3deg);
+  }
+  footer { text-align: center; margin-top: 50px; color: #666; }
+</style>
+</head>
+<body>
+<header>
+  <h1>How Machines Learned to Learn</h1>
+  <p>eight dates, four playgrounds — click a card, poke the demos</p>
+</header>
+
+<div class="timeline">
+
+  <div class="stop odd">
+    <a class="card" href="01-origins.html">
+      <span class="date">1943 · 1955 · 1958</span>
+      <div class="what">A fake neuron made of math, the summer project that named "AI", and the first machine that learned its own settings — until 4 dots broke it.</div>
+      <span class="go">open the playground →</span>
+    </a>
+  </div>
+
+  <div class="stop even">
+    <a class="card" href="02-learning.html">
+      <span class="date">1974 · 1986</span>
+      <div class="what">A student's ignored thesis on learning from blame, and the Nature paper where everything clicked: hidden layers crack XOR, loops give networks memory.</div>
+      <span class="go">open the playground →</span>
+    </a>
+  </div>
+
+  <div class="stop odd">
+    <a class="card" href="03-dropout.html">
+      <span class="date">2012</span>
+      <div class="what">Networks that memorize instead of learn — and the coin-flip trick that fixes it by randomly knocking out half the neurons.</div>
+      <span class="go">open the playground →</span>
+    </a>
+  </div>
+
+  <div class="stop even">
+    <a class="card" href="04-generative.html">
+      <span class="date">1985 · 2014</span>
+      <div class="what">Physics-inspired machines that dream by rolling downhill, and two networks locked in a forger-vs-detective duel until fakes look real.</div>
+      <span class="go">open the playground →</span>
+    </a>
+  </div>
+
+  <div class="era">…the story continues: transformers, LLMs, and whatever you build next.</div>
+</div>
+
+<footer>drawn from a whiteboard · no libraries, just HTML</footer>
+</body>
+</html>

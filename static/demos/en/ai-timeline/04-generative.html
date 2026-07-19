@@ -1,0 +1,863 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>1985–2014 — Machines That Dream</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #ffffff;
+    color: #1a1a1a;
+    font-family: 'Comic Sans MS', 'Segoe Print', 'Bradley Hand', cursive;
+    line-height: 1.5;
+    padding: 24px 14px 60px;
+  }
+  .page { max-width: 780px; margin: 0 auto; }
+  h1 {
+    font-size: 1.9em;
+    transform: rotate(-1.2deg);
+    margin-bottom: 4px;
+  }
+  .subtitle { font-size: 1.05em; color: #555; transform: rotate(-0.4deg); margin-bottom: 30px; }
+  .sketchbox {
+    border: 2.5px solid #1a1a1a;
+    border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
+    padding: 18px 16px 20px;
+    margin: 34px 0;
+    background: #fff;
+  }
+  .sketchbox h2 {
+    font-size: 1.25em;
+    margin-bottom: 12px;
+    transform: rotate(-0.8deg);
+    display: inline-block;
+    border-bottom: 3px solid #29ABE2;
+    padding-bottom: 2px;
+  }
+  canvas.board {
+    display: block;
+    width: 100%;
+    height: auto;
+    touch-action: manipulation;
+  }
+  .caption {
+    font-size: 0.98em;
+    margin-top: 14px;
+    padding-left: 12px;
+    border-left: 4px solid #29ABE2;
+    transform: rotate(-0.3deg);
+  }
+  .caption.orange { border-left-color: #F5A623; }
+  .controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-top: 12px; }
+  button {
+    font-family: inherit;
+    font-size: 1.05em;
+    padding: 12px 22px;
+    background: #fff;
+    color: #1a1a1a;
+    border: 2.5px solid #1a1a1a;
+    border-radius: 225px 15px 255px 15px / 15px 255px 15px 225px;
+    cursor: pointer;
+    transform: rotate(-0.6deg);
+    min-height: 48px;
+  }
+  button:hover { background: #eaf7fd; }
+  button:active { transform: rotate(0.4deg) scale(0.97); }
+  button.orange:hover { background: #fdf3e0; }
+  .status { font-size: 1em; color: #333; min-height: 1.4em; margin-top: 10px; }
+  input[type=range] { width: 180px; accent-color: #29ABE2; min-height: 40px; }
+  label { font-size: 0.95em; }
+  /* --- spot the fakes game --- */
+  .tilegrid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-top: 14px;
+  }
+  .tile {
+    position: relative;
+    cursor: pointer;
+    border: 2.5px solid #1a1a1a;
+    border-radius: 8px 12px 7px 11px / 11px 7px 12px 8px;
+    padding: 3px;
+    background: #fff;
+    transform: rotate(0deg);
+  }
+  .tile:nth-child(odd) { transform: rotate(0.7deg); }
+  .tile:nth-child(3n) { transform: rotate(-0.8deg); }
+  .tile canvas { display: block; width: 100%; height: auto; border-radius: 4px; }
+  .tile.flagged { border-color: #F5A623; border-style: dashed; border-width: 4px; padding: 1.5px; }
+  .tile.flagged::after {
+    content: "fake?";
+    position: absolute; top: -12px; right: -6px;
+    background: #F5A623; color: #fff;
+    font-size: 0.7em; padding: 1px 7px;
+    border-radius: 8px; transform: rotate(6deg);
+  }
+  .tile.reveal-fake { border-color: #F5A623; border-style: solid; border-width: 4px; padding: 1.5px; }
+  .tile.reveal-real { border-color: #29ABE2; border-style: solid; border-width: 4px; padding: 1.5px; }
+  .tile .verdict {
+    position: absolute; bottom: -10px; left: 50%;
+    transform: translateX(-50%) rotate(-3deg);
+    font-size: 0.85em; padding: 0 8px;
+    background: #fff; border-radius: 8px; white-space: nowrap;
+  }
+  .verdict.good { color: #1e8a3c; }
+  .verdict.bad { color: #c0392b; }
+  .hidden { display: none; }
+  .bigscore { font-size: 1.5em; margin-top: 14px; transform: rotate(-1deg); }
+  .finale {
+    margin-top: 20px; padding: 14px;
+    border: 2.5px dashed #F5A623;
+    border-radius: 15px 225px 15px 255px / 255px 15px 225px 15px;
+  }
+  .quote { font-style: italic; color: #444; margin-top: 10px; padding-left: 12px; }
+  footer {
+    margin-top: 50px; padding-top: 18px;
+    border-top: 2.5px solid #1a1a1a;
+    font-size: 1em;
+  }
+  footer a { color: #29ABE2; }
+  footer .continues { margin-top: 12px; color: #777; transform: rotate(-0.5deg); display: inline-block; }
+  .readout { font-size: 1.25em; margin-top: 10px; transform: rotate(-0.5deg); }
+  .readout b { color: #F5A623; }
+  .legend { font-size: 0.9em; margin-top: 6px; color: #444; }
+  .legend .blue, .decoder .blue { color: #1a86bb; font-weight: bold; }
+  .legend .org, .decoder .org { color: #d18d0f; font-weight: bold; }
+  /* --- framing: intro, hero vs warm-up, try-this, takeaways --- */
+  .storyintro {
+    font-size: 1.05em;
+    margin-bottom: 30px;
+    padding: 12px 16px;
+    border-left: 5px solid #F5A623;
+    transform: rotate(-0.3deg);
+  }
+  .tag {
+    display: inline-block; font-size: 0.72em; font-weight: bold;
+    padding: 3px 12px; margin-left: 10px; vertical-align: 6px;
+    border-radius: 12px 4px 10px 5px / 5px 10px 4px 12px;
+    transform: rotate(-2deg);
+  }
+  .tag.warm { background: #f0f0f0; color: #666; border: 1.5px solid #bbb; }
+  .tag.star { background: #F5A623; color: #fff; border: 1.5px solid #1a1a1a; font-size: 0.8em; }
+  .warmup { max-width: 660px; }
+  .hero { border-width: 5px; box-shadow: 7px 7px 0 rgba(245,166,35,0.3); }
+  .hero h2 { font-size: 1.5em; border-bottom-color: #F5A623; }
+  .setup { margin-bottom: 8px; }
+  .decoder {
+    font-size: 0.92em; color: #555; font-style: italic;
+    margin: 0 0 12px; padding-left: 10px;
+    border-left: 3px dotted #999;
+  }
+  .trythis {
+    border: 2px solid #29ABE2;
+    border-radius: 12px 60px 12px 70px / 70px 12px 60px 12px;
+    background: #f4fbfe; padding: 10px 16px 12px; margin: 12px 0;
+  }
+  .trythis ol { margin: 4px 0 0 22px; }
+  .trythis li { margin-top: 4px; }
+  .takeaway {
+    margin-top: 16px; padding: 12px 14px;
+    border: 2.5px solid #1a1a1a;
+    border-radius: 15px 225px 15px 255px / 255px 15px 225px 15px;
+    background: #fffdf5;
+  }
+  .takeaway .tlabel {
+    display: block; font-size: 0.78em; font-weight: bold;
+    color: #b07708; margin-bottom: 4px; transform: rotate(-1deg);
+  }
+  .bigplay {
+    display: block; margin: 14px auto 4px;
+    font-size: 1.35em; padding: 16px 34px;
+    border-width: 3.5px; background: #fdf3e0;
+  }
+  .bigplay:hover { background: #fbe8c8; }
+</style>
+</head>
+<body>
+<div class="page">
+
+<h1>Machines That Dream</h1>
+<div class="subtitle">1985 → 2014 · how computers learned to make things up — not just recognize them</div>
+
+<div class="storyintro">
+  <b>1985:</b> two scientists borrow a trick from physics and build machines that <i>dream</i> — by rolling a ball downhill.
+  <b>2014:</b> a young researcher gets into an argument in a Montreal bar, goes home, and by morning has invented machines that forge reality.
+  This page walks that road: two quick warm-ups, then the main event — a forgery game where <b>you</b> play the detective, and finally the same duel fought machine-vs-machine.
+</div>
+
+<!-- ============ DEMO 1 : ENERGY LANDSCAPE ============ -->
+<div class="sketchbox warmup">
+  <h2>① a ball, a landscape</h2><span class="tag warm">warm-up #1</span>
+  <p class="setup">Before any forging — how does a machine <i>imagine</i> anything at all? The 1985 trick: turn "making things up" into rolling downhill.</p>
+  <p class="decoder">decoder: <b>valleys = things that look real</b>, hills = things that look fake, and the <b>ball = the machine dreaming up one sample</b>.</p>
+  <canvas id="energyCanvas" class="board" width="700" height="340"></canvas>
+  <div class="trythis"><b>try this</b>
+    <ol>
+      <li>tap anywhere on the hills to drop the ball → watch it roll down and settle in a valley</li>
+      <li>press "poke the ball" → wherever it lands, it finds its way to something real-looking</li>
+      <li>drag temperature to hot → watch the ball get too jumpy to commit, hopping between valleys</li>
+    </ol>
+  </div>
+  <div class="controls">
+    <button id="pokeBtn">poke the ball</button>
+    <label>temperature: cold
+      <input type="range" id="tempSlider" min="0" max="100" value="22"> hot</label>
+  </div>
+  <div class="status" id="energyStatus">the ball is rolling…</div>
+  <div class="takeaway"><span class="tlabel">what you just saw</span>
+    This is the <b>Boltzmann Machine</b> idea — 1985, Geoffrey Hinton &amp; Terrence Sejnowski, borrowed straight from
+    <b>statistical physics</b>: give real data <b style="color:#1a86bb">LOW energy</b> (valleys) and fakes
+    <b style="color:#d18d0f">HIGH energy</b> (hills), then generate by letting it roll downhill with a little thermal shaking.
+    That landing <i>is</i> the machine generating a sample.
+  </div>
+</div>
+
+<!-- ============ DEMO 2 : THE BOLTZMANN MACHINE ============ -->
+<div class="sketchbox warmup">
+  <h2>② the machine itself</h2><span class="tag warm">warm-up #2</span>
+  <p class="setup">Here is the whole 1985 machine doing that downhill roll: 7 units, every one wired to every other, flipping at random and slowly cooling until they agree.</p>
+  <p class="decoder">decoder: each circle = one on/off switch, and the whole flickering pattern = the ball from ① — settling = landing in a valley.</p>
+  <canvas id="bmCanvas" class="board" width="560" height="370"></canvas>
+  <div class="controls">
+    <button id="shakeBtn">shake it up (add heat)</button>
+    <span class="legend">press it → watch the temperature fall and the pattern lock into a different "memory"</span>
+  </div>
+  <div class="status" id="bmStatus"></div>
+  <div class="takeaway"><span class="tlabel">what you just saw</span>
+    A real <b>Boltzmann Machine</b> (named after the physicist) settling into a low-energy state — and
+    <b>nobody told the hidden <span style="color:#1a86bb">blue</span> units what to look for</b>: the white units v₁…v₄ touch
+    the data, the blue h₁…h₃ never do, yet they discover features on their own.
+    Grandchildren of this idea: VAEs and today's <b>diffusion</b> image generators.
+  </div>
+</div>
+
+<!-- ============ DEMO 3 : YOU ARE THE DISCRIMINATOR ============ -->
+<div class="sketchbox hero">
+  <h2>③ spot the fakes — a game</h2><span class="tag star">★ the main event</span>
+  <p class="setup">2014's big idea — a <b>GAN</b> — is two networks playing a game: a <b>forger</b> and a <b>detective</b>. You're about to <b>BE</b> the detective, against a forger that improves every round.</p>
+  <p class="decoder">decoder: pretend the smooth stripes are real photos and the blocky mess is a bad forgery.</p>
+  <div class="trythis"><b>try this</b>
+    <ol>
+      <li>round 1: tap the pictures you think are fake, then "check my answers" → easy, the forger is brand new</li>
+      <li>round 2: the forger has trained in between → look much closer before you tap</li>
+      <li>round 3: watch your score fall toward 50% → that's a coin flip</li>
+    </ol>
+  </div>
+  <p id="roundTitle" style="margin-bottom:4px"></p>
+  <p style="margin-bottom:6px;color:#555">8 of these 16 pictures follow the true rule (smooth stripes). 8 are forgeries. Tap the ones you think are fake, then check.</p>
+  <div class="tilegrid" id="tileGrid"></div>
+  <div class="controls">
+    <button id="checkBtn" class="orange">check my answers</button>
+    <button id="nextBtn" class="hidden">next round →</button>
+  </div>
+  <div class="bigscore" id="scoreLine"></div>
+  <div class="finale hidden" id="gameFinale">
+    <b>You just played the discriminator.</b> In every round the fakes came from a
+    <b>generator</b> — and each round it got better at imitating the real rule, so your
+    accuracy slid toward 50%… a coin flip. <b>When the best detector is reduced to guessing,
+    the generator has won</b> — its fakes are, for all practical purposes, real.
+    <div id="scoreHistory" style="margin-top:8px"></div>
+  </div>
+  <div class="takeaway"><span class="tlabel">what you just saw</span>
+    You were the <b>DISCRIMINATOR</b>. When the best detective is reduced to guessing, the forger —
+    the <b>GENERATOR</b> — has won: that is exactly the moment a GAN is done training.
+  </div>
+</div>
+
+<!-- ============ DEMO 4 : THE DUEL, AUTOMATED ============ -->
+<div class="sketchbox">
+  <h2>④ the duel, automated</h2><span class="tag warm">the closer</span>
+  <p class="setup">The game you just played — but now <b>both sides are machines</b>, playing thousands of rounds per second.</p>
+  <p class="decoder">decoder: <span class="blue">blue bumps = the real data</span> · <span class="org">orange = the forger's fakes</span> (starting way off) · gray dashes = what the detector believes. THE number to watch: detector accuracy, 95% → 50%.</p>
+  <canvas id="ganCanvas" class="board" width="680" height="320"></canvas>
+  <button id="ganWatchBtn" class="bigplay orange">▶ watch the duel</button>
+  <div class="readout" id="ganReadout"></div>
+  <div class="controls hidden" id="ganControls">
+    <button id="ganPauseBtn">pause</button>
+    <button id="ganRestartBtn">restart the duel</button>
+  </div>
+  <div class="takeaway"><span class="tlabel">what you just saw</span>
+    That was a <b>GAN</b> — a <b>Generative Adversarial Network</b> (Ian Goodfellow, 2014): a <b>generator</b> forges data,
+    a <b>discriminator</b> calls real-or-fake, and they train <i>against each other</i> — the forger improves to fool the
+    detector, the detector improves to catch it — until the orange sits exactly on the blue and the detector is flipping coins.
+  </div>
+  <div class="caption orange">
+    <div class="quote">Famous origin story: Goodfellow dreamed it up after an argument in a
+    Montreal bar — and coded the first working version that same night.</div>
+    <div style="margin-top:8px">GANs powered the first wave of hyper-realistic image synthesis —
+    the "this person does not exist" faces and the first deepfakes were GAN babies.</div>
+    <div class="quote">Yann LeCun called adversarial training "the most interesting idea
+    in machine learning in the last twenty years."</div>
+  </div>
+</div>
+
+<footer>
+  <div><a href="03-dropout.html">← prev: 2012 — Dropout</a></div>
+  <div style="margin-top:6px"><a href="index.html">index.html (timeline)</a></div>
+  <div class="continues">the story continues: transformers, LLMs… but that's a story the whole world is living in now.</div>
+</footer>
+
+</div>
+<script>
+"use strict";
+/* ---------- shared helpers ---------- */
+function mulberry32(seed){
+  return function(){
+    seed |= 0; seed = seed + 0x6D2B79F5 | 0;
+    let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+function wobblyLine(ctx, x1, y1, x2, y2, seed){
+  const dx = x2 - x1, dy = y2 - y1, len = Math.hypot(dx, dy) || 1;
+  const n = Math.max(2, Math.round(len / 16));
+  ctx.moveTo(x1, y1);
+  for (let i = 1; i <= n; i++){
+    const t = i / n;
+    const off = Math.sin(t * 7 + seed) * 1.2 + Math.sin(t * 13 + seed * 2.3) * 0.7;
+    ctx.lineTo(x1 + dx * t - dy / len * off, y1 + dy * t + dx / len * off);
+  }
+}
+function canvasPos(cv, ev){
+  const r = cv.getBoundingClientRect();
+  const cx = (ev.touches ? ev.touches[0].clientX : ev.clientX);
+  const cy = (ev.touches ? ev.touches[0].clientY : ev.clientY);
+  return { x: (cx - r.left) * cv.width / r.width, y: (cy - r.top) * cv.height / r.height };
+}
+const FONT = '"Comic Sans MS","Segoe Print","Bradley Hand",cursive';
+
+/* ================================================================
+   DEMO 1 — energy landscape with a rolling ball
+   ================================================================ */
+const D1 = (function(){
+  const cv = document.getElementById('energyCanvas');
+  const ctx = cv.getContext('2d');
+  const W = cv.width, H = cv.height;
+  const statusEl = document.getElementById('energyStatus');
+  const tempSlider = document.getElementById('tempSlider');
+
+  // double-well energy, x in [0,1], E roughly in [0.24, 0.80]
+  function E(x){
+    const u = (x - 0.5) / 0.28;
+    const base = Math.min(Math.pow(u * u - 1, 2), 1.9);
+    return 0.25 + 0.5 * base / 1.9 + 0.045 * x + 0.012 * Math.sin(9 * x);
+  }
+  function dE(x){ return (E(x + 0.004) - E(x - 0.004)) / 0.008; }
+  const PX = x => 42 + x * (W - 76);
+  const PY = e => (H - 42) - (e - 0.2) / 0.72 * (H - 108);
+
+  // curve points with baked-in hand wobble
+  const pts = [];
+  for (let i = 0; i <= 190; i++){
+    const x = i / 190;
+    pts.push([PX(x) + Math.sin(i * 0.9) * 0.6,
+              PY(E(x)) + Math.sin(i * 0.53) * 1.4 + Math.sin(i * 1.7) * 0.6]);
+  }
+  const V1 = 0.222, V2 = 0.775;  // valley bottoms (approx)
+
+  const ball = { x: 0.5, v: 0 };
+  let xAvg = 0.5, wobble = 1;   // position-stability tracker
+
+  function drawGlyphStripes(gx, gy){       // tiny "real pattern" sketch: stripes
+    ctx.save();
+    ctx.strokeStyle = '#1a1a1a'; ctx.lineWidth = 1.6;
+    ctx.strokeRect(gx - 13, gy - 13, 26, 26);
+    ctx.strokeStyle = '#29ABE2'; ctx.lineWidth = 2.5;
+    for (let k = -1; k <= 1; k++){
+      ctx.beginPath();
+      ctx.moveTo(gx + k * 7 - 2, gy - 10); ctx.lineTo(gx + k * 7 + 2, gy + 10);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+  function drawGlyphBlob(gx, gy){          // tiny "real pattern" sketch: blob
+    ctx.save();
+    ctx.strokeStyle = '#1a1a1a'; ctx.lineWidth = 1.6;
+    ctx.strokeRect(gx - 13, gy - 13, 26, 26);
+    ctx.fillStyle = '#29ABE2';
+    ctx.beginPath();
+    ctx.ellipse(gx, gy, 7.5, 6, 0.4, 0, 7);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function draw(){
+    ctx.clearRect(0, 0, W, H);
+    // energy axis
+    ctx.strokeStyle = '#1a1a1a'; ctx.lineWidth = 2;
+    ctx.beginPath();
+    wobblyLine(ctx, 26, H - 20, 26, 26, 3);
+    ctx.stroke();
+    ctx.beginPath();  // little arrowhead
+    ctx.moveTo(21, 36); ctx.lineTo(26, 25); ctx.lineTo(31, 36); ctx.stroke();
+    ctx.save();
+    ctx.translate(14, H / 2); ctx.rotate(-Math.PI / 2);
+    ctx.fillStyle = '#1a1a1a'; ctx.font = '15px ' + FONT;
+    ctx.textAlign = 'center'; ctx.fillText('energy', 0, 0);
+    ctx.restore();
+
+    // the landscape curve
+    ctx.strokeStyle = '#1a1a1a'; ctx.lineWidth = 3; ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(pts[0][0], pts[0][1]);
+    for (const p of pts) ctx.lineTo(p[0], p[1]);
+    ctx.stroke();
+
+    // valley labels: tiny sketches of REAL data patterns
+    drawGlyphStripes(PX(V1), PY(E(V1)) + 34);
+    drawGlyphBlob(PX(V2), PY(E(V2)) + 34);
+    ctx.fillStyle = '#1a86bb'; ctx.font = '14px ' + FONT; ctx.textAlign = 'center';
+    ctx.fillText('real ✓', PX(V1), PY(E(V1)) + 62);
+    ctx.fillText('real ✓', PX(V2), PY(E(V2)) + 62);
+    // hills = fakes
+    ctx.fillStyle = '#d18d0f';
+    ctx.fillText('fakes ✗ (high energy)', PX(0.5), PY(E(0.5)) - 14);
+    ctx.fillText('✗', PX(0.045), PY(E(0.045)) - 10);
+    ctx.fillText('✗', PX(0.965), PY(E(0.965)) - 10);
+
+    // the ball
+    const bx = PX(ball.x), by = PY(E(ball.x)) - 10;
+    ctx.beginPath();
+    ctx.arc(bx, by, 10, 0, 7);
+    ctx.fillStyle = '#fff'; ctx.fill();
+    ctx.strokeStyle = '#1a1a1a'; ctx.lineWidth = 2.6; ctx.stroke();
+    ctx.beginPath();                       // highlight squiggle on ball
+    ctx.arc(bx - 3, by - 3, 3.5, 3.5, 5.5);
+    ctx.lineWidth = 1.4; ctx.stroke();
+  }
+
+  function tick(){
+    const T = tempSlider.value / 100;
+    const jitter = (Math.random() * 2 - 1) * 1.5 * T * 0.0075;
+    ball.v = ball.v * 0.93 - dE(ball.x) * 0.00055 + jitter;
+    ball.v = Math.max(-0.06, Math.min(0.06, ball.v));
+    ball.x += ball.v;
+    if (ball.x < 0.02){ ball.x = 0.02; ball.v *= -0.4; }
+    if (ball.x > 0.98){ ball.x = 0.98; ball.v *= -0.4; }
+
+    xAvg += (ball.x - xAvg) * 0.05;
+    wobble += (Math.abs(ball.x - xAvg) - wobble) * 0.05;
+    if (T > 0.6) statusEl.textContent = 'HOT — the ball has too much energy to commit, it hops between valleys…';
+    else if (wobble < 0.028){
+      const which = xAvg < 0.5 ? 'stripes' : 'blob';
+      statusEl.textContent = 'settled in the ' + which + ' valley → the machine just dreamed up a ' + which + '-like sample ✓';
+    } else if (T > 0.3) statusEl.textContent = 'warm — jittering around, not quite committing…';
+    else statusEl.textContent = 'rolling downhill…';
+    draw();
+  }
+
+  function drop(x, kick){
+    ball.x = Math.max(0.03, Math.min(0.97, x));
+    ball.v = kick || 0;
+    xAvg = ball.x; wobble = 1;
+  }
+  cv.addEventListener('pointerdown', ev => {
+    const p = canvasPos(cv, ev);
+    drop((p.x - 42) / (W - 76), 0);
+  });
+  document.getElementById('pokeBtn').addEventListener('click', () =>
+    drop(0.06 + Math.random() * 0.88, (Math.random() - 0.5) * 0.02));
+
+  return { tick };
+})();
+
+/* ================================================================
+   DEMO 2 — the Boltzmann machine graph, annealing via Gibbs flips
+   ================================================================ */
+const D2 = (function(){
+  const cv = document.getElementById('bmCanvas');
+  const ctx = cv.getContext('2d');
+  const statusEl = document.getElementById('bmStatus');
+
+  // node layout: 3 hidden (blue, top) + 4 visible (white, bottom)
+  const nodes = [
+    { x: 150, y: 84,  label: 'h₁', hidden: true  },
+    { x: 282, y: 66,  label: 'h₂', hidden: true  },
+    { x: 410, y: 88,  label: 'h₃', hidden: true  },
+    { x: 92,  y: 286, label: 'v₁', hidden: false },
+    { x: 212, y: 302, label: 'v₂', hidden: false },
+    { x: 334, y: 294, label: 'v₃', hidden: false },
+    { x: 456, y: 282, label: 'v₄', hidden: false },
+  ];
+  const N = nodes.length;
+  // fixed random symmetric weights (seeded, so the machine has stable "memories")
+  const rng = mulberry32(1985);
+  const Wt = [];
+  for (let i = 0; i < N; i++){
+    Wt.push([]);
+    for (let j = 0; j < N; j++) Wt[i][j] = 0;
+  }
+  for (let i = 0; i < N; i++)
+    for (let j = i + 1; j < N; j++){
+      const w = (rng() - 0.5) * 3.2;
+      Wt[i][j] = w; Wt[j][i] = w;
+    }
+
+  let s = [], T = 2.0, settled = false;
+  function reset(){
+    s = nodes.map(() => Math.random() < 0.5 ? 1 : 0);
+    T = 2.0; settled = false;
+  }
+  reset();
+
+  function energy(){
+    let e = 0;
+    for (let i = 0; i < N; i++)
+      for (let j = i + 1; j < N; j++) e -= Wt[i][j] * s[i] * s[j];
+    return e;
+  }
+  function gibbsStep(){                 // one real Boltzmann-machine update
+    const k = Math.floor(Math.random() * N);
+    let gap = 0;
+    for (let j = 0; j < N; j++) if (j !== k) gap += Wt[k][j] * s[j];
+    s[k] = Math.random() < 1 / (1 + Math.exp(-gap / T)) ? 1 : 0;
+  }
+
+  function draw(){
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    // edges — every unit connected to every other
+    for (let i = 0; i < N; i++)
+      for (let j = i + 1; j < N; j++){
+        const on = s[i] && s[j];
+        ctx.strokeStyle = on ? '#333' : '#bbb';
+        ctx.lineWidth = on ? 2 : 1.1;
+        ctx.beginPath();
+        wobblyLine(ctx, nodes[i].x, nodes[i].y, nodes[j].x, nodes[j].y, i * 7 + j);
+        ctx.stroke();
+      }
+    // nodes
+    for (let i = 0; i < N; i++){
+      const n = nodes[i], on = s[i] === 1;
+      ctx.globalAlpha = on ? 1 : 0.45;
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, 24, 0, 7);
+      if (n.hidden){
+        ctx.fillStyle = on ? '#29ABE2' : '#fff';
+        ctx.fill();
+        ctx.strokeStyle = on ? '#1a1a1a' : '#29ABE2';
+        ctx.lineWidth = 2.6; ctx.stroke();
+      } else {
+        ctx.fillStyle = '#fff'; ctx.fill();
+        ctx.strokeStyle = '#1a1a1a';
+        ctx.lineWidth = on ? 4 : 1.6; ctx.stroke();
+        if (on){
+          ctx.beginPath(); ctx.arc(n.x, n.y, 6, 0, 7);
+          ctx.fillStyle = '#1a1a1a'; ctx.fill();
+        }
+      }
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = n.hidden && on ? '#fff' : '#1a1a1a';
+      ctx.font = '16px ' + FONT; ctx.textAlign = 'center';
+      ctx.fillText(n.label, n.x, n.y + 6);
+    }
+    // row labels
+    ctx.fillStyle = '#1a86bb'; ctx.font = '14px ' + FONT; ctx.textAlign = 'left';
+    ctx.fillText('hidden units (see nothing directly)', 20, 24);
+    ctx.fillStyle = '#444';
+    ctx.fillText('visible units (touch the data)', 20, cv.height - 14);
+  }
+
+  function tick(){
+    if (!settled){
+      gibbsStep(); gibbsStep();
+      T *= 0.988;
+      if (T < 0.06){ settled = true; }
+    }
+    draw();
+    statusEl.textContent = settled
+      ? 'settled — energy ' + energy().toFixed(1) + '. This stable pattern is one of the machine\'s "memories".'
+      : 'cooling… temperature ' + T.toFixed(2) + ', energy ' + energy().toFixed(1) + ' (watch it fall)';
+  }
+  document.getElementById('shakeBtn').addEventListener('click', reset);
+  return { tick };
+})();
+
+/* ================================================================
+   DEMO 3 — spot-the-fakes game (you are the discriminator)
+   ================================================================ */
+const D3 = (function(){
+  const grid = document.getElementById('tileGrid');
+  const roundTitle = document.getElementById('roundTitle');
+  const scoreLine = document.getElementById('scoreLine');
+  const checkBtn = document.getElementById('checkBtn');
+  const nextBtn = document.getElementById('nextBtn');
+  const finale = document.getElementById('gameFinale');
+  const S = 90;
+  const seedBase = Math.floor(Math.random() * 1e6);
+
+  const roundDescr = [
+    'Round 1 — the forger is brand new at this.',
+    'Round 2 — the forger has been practicing…',
+    'Round 3 — the forger is very, very good now.',
+  ];
+  let round = 0, locked = false;
+  const scores = [];
+  let tiles = [];   // {isFake, el, flagged}
+
+  function stripeVal(x, y, a, f, ph){
+    return 0.5 + 0.5 * Math.sin((x * Math.cos(a) + y * Math.sin(a)) * f + ph);
+  }
+  function paintTile(cvEl, kind, rng){
+    const ctx = cvEl.getContext('2d');
+    const img = ctx.createImageData(S, S);
+    const a = 0.55 + (rng() - 0.5) * 0.14;
+    const f = 0.27 + (rng() - 0.5) * 0.05;
+    const ph = rng() * 6.28;
+    // pre-roll a block grid for round-1 fakes
+    const blocks = [];
+    if (kind === 'fake1')
+      for (let b = 0; b < 100; b++) blocks.push(rng() < 0.45 ? 0.85 : 0.08);
+    for (let y = 0; y < S; y++){
+      for (let x = 0; x < S; x++){
+        let v;
+        if (kind === 'real'){
+          v = stripeVal(x, y, a, f, ph);
+        } else if (kind === 'fake1'){          // crude: blocky noise, not stripes at all
+          v = blocks[Math.floor(y / 9) * 10 + Math.floor(x / 9)] + (rng() - 0.5) * 0.15;
+        } else if (kind === 'fake2'){          // better: wobbly bent stripes + salt
+          const aa = a + 0.55 * Math.sin(y * 0.09 + ph);
+          v = stripeVal(x, y, aa, f * 1.12, ph);
+          if (rng() < 0.05) v = rng();
+        } else {                               // fake3: nearly perfect, tiny extra noise
+          v = stripeVal(x, y, a, f * 1.03, ph) + (rng() - 0.5) * 0.22;
+        }
+        v = Math.max(0, Math.min(1, v));
+        const idx = (y * S + x) * 4;
+        img.data[idx] = 28; img.data[idx + 1] = 28; img.data[idx + 2] = 40;
+        img.data[idx + 3] = Math.round(v * 215);
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+  }
+
+  function buildRound(){
+    locked = false;
+    tiles = [];
+    grid.innerHTML = '';
+    scoreLine.textContent = '';
+    checkBtn.classList.remove('hidden');
+    nextBtn.classList.add('hidden');
+    roundTitle.innerHTML = '<b>' + roundDescr[round] + '</b>';
+    const fakeKind = ['fake1', 'fake2', 'fake3'][round];
+    const kinds = [];
+    for (let i = 0; i < 8; i++) kinds.push('real');
+    for (let i = 0; i < 8; i++) kinds.push(fakeKind);
+    // shuffle
+    const shuf = mulberry32(seedBase + round * 977);
+    for (let i = kinds.length - 1; i > 0; i--){
+      const j = Math.floor(shuf() * (i + 1));
+      [kinds[i], kinds[j]] = [kinds[j], kinds[i]];
+    }
+    kinds.forEach((kind, i) => {
+      const div = document.createElement('div');
+      div.className = 'tile';
+      const c = document.createElement('canvas');
+      c.width = S; c.height = S;
+      div.appendChild(c);
+      paintTile(c, kind, mulberry32(seedBase + round * 5000 + i * 37 + 11));
+      const t = { isFake: kind !== 'real', el: div, flagged: false };
+      div.addEventListener('click', () => {
+        if (locked) return;
+        t.flagged = !t.flagged;
+        div.classList.toggle('flagged', t.flagged);
+      });
+      tiles.push(t);
+      grid.appendChild(div);
+    });
+  }
+
+  checkBtn.addEventListener('click', () => {
+    if (locked || !tiles.length) return;
+    locked = true;
+    let correct = 0;
+    tiles.forEach(t => {
+      const right = t.flagged === t.isFake;
+      if (right) correct++;
+      t.el.classList.remove('flagged');
+      t.el.classList.add(t.isFake ? 'reveal-fake' : 'reveal-real');
+      const v = document.createElement('div');
+      v.className = 'verdict ' + (right ? 'good' : 'bad');
+      v.textContent = (t.isFake ? 'fake' : 'real') + (right ? ' ✓' : ' ✗');
+      t.el.appendChild(v);
+    });
+    const pct = Math.round(100 * correct / 16);
+    scores.push(pct);
+    scoreLine.textContent = 'Round ' + (round + 1) + ' accuracy: ' + pct + '%' +
+      (pct >= 85 ? ' — sharp eyes!' : pct >= 65 ? ' — getting tricky…' : ' — that\'s barely better than coin flipping.');
+    checkBtn.classList.add('hidden');
+    if (round < 2){
+      nextBtn.classList.remove('hidden');
+    } else {
+      finale.classList.remove('hidden');
+      document.getElementById('scoreHistory').innerHTML =
+        'Your accuracy across rounds: <b>' + scores.join('% → ') + '%</b>' +
+        (scores[2] <= 65 ? ' — sliding toward the coin flip, exactly as the theory predicts.' : ' — even good eyes eventually lose this game.');
+      finale.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  });
+  nextBtn.addEventListener('click', () => { round++; buildRound(); });
+
+  buildRound();
+  return {};
+})();
+
+/* ================================================================
+   DEMO 4 — 1D distribution-matching "GAN" toy, trains on load.
+   Honest simplification: real dist = two Gaussians; the generator is
+   its own little 2-Gaussian model nudged downhill on an adversarial
+   divergence; the detector's accuracy is computed per-bin.
+   ================================================================ */
+const D4 = (function(){
+  const cv = document.getElementById('ganCanvas');
+  const ctx = cv.getContext('2d');
+  const W = cv.width, H = cv.height;
+  const readout = document.getElementById('ganReadout');
+  const NB = 44;
+  const centers = Array.from({ length: NB }, (_, i) => (i + 0.5) / NB);
+  const g = (x, m, s) => Math.exp(-0.5 * ((x - m) / s) ** 2) / (s * Math.sqrt(2 * Math.PI));
+  const norm = h => { const t = h.reduce((a, b) => a + b, 0); return h.map(v => v / t); };
+  const sigm = z => 1 / (1 + Math.exp(-z));
+  const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+
+  const PR = norm(centers.map(x => 0.55 * g(x, 0.32, 0.055) + 0.45 * g(x, 0.68, 0.05)));
+
+  let p, vel, frame, startAcc, dispAcc, paused = false, started = false;
+  const lr = [0.005, 0.005, 0.0035, 0.0035, 0.002], mom = 0.9, eps = 1e-4;
+  const lo = [0.02, 0.02, Math.log(0.03), Math.log(0.03), -1.2];
+  const hi = [0.98, 0.98, Math.log(0.30), Math.log(0.30), 1.2];
+
+  function fakeHist(q){
+    const s1 = Math.exp(q[2]), s2 = Math.exp(q[3]), w = sigm(q[4]);
+    return norm(centers.map(x => w * g(x, q[0], s1) + (1 - w) * g(x, q[1], s2)));
+  }
+  function jsdiv(pr, pf){
+    let d = 0;
+    for (let i = 0; i < NB; i++){
+      const m = (pr[i] + pf[i]) / 2;
+      if (pr[i] > 1e-12) d += 0.5 * pr[i] * Math.log(pr[i] / m);
+      if (pf[i] > 1e-12) d += 0.5 * pf[i] * Math.log(pf[i] / m);
+    }
+    return d;
+  }
+  function accuracy(pf){          // best-possible detector accuracy, per bin
+    let a = 0;
+    for (let i = 0; i < NB; i++) a += 0.5 * Math.max(PR[i], pf[i]);
+    return 100 * a;
+  }
+  function restart(){
+    p = [0.08 + (Math.random() - 0.5) * 0.03,
+         0.93 + (Math.random() - 0.5) * 0.03,
+         Math.log(0.09), Math.log(0.09), 0.15];
+    vel = [0, 0, 0, 0, 0];
+    frame = 0;
+    startAcc = Math.round(accuracy(fakeHist(p)));
+    dispAcc = startAcc;
+  }
+  restart();
+
+  function trainStep(){           // generator nudged downhill against the detector
+    for (let k = 0; k < 5; k++){
+      const a = p.slice(), b = p.slice();
+      a[k] += eps; b[k] -= eps;
+      const gr = (jsdiv(PR, fakeHist(a)) - jsdiv(PR, fakeHist(b))) / (2 * eps);
+      vel[k] = mom * vel[k] - lr[k] * gr;
+      p[k] = clamp(p[k] + vel[k] + (Math.random() - 0.5) * 0.0004, lo[k], hi[k]);
+    }
+  }
+
+  const X = i => 34 + (i + 0.5) / NB * (W - 56);
+  const YMAX = 0.085;             // histogram value that reaches near top
+  const Y = v => (H - 36) - Math.min(v / YMAX, 1) * (H - 78);
+
+  function drawHist(h, color, fill, seed){
+    ctx.beginPath();
+    ctx.moveTo(X(0), H - 36);
+    for (let i = 0; i < NB; i++)
+      ctx.lineTo(X(i), Y(h[i]) + Math.sin(i * 1.3 + seed) * 1.2);
+    ctx.lineTo(X(NB - 1), H - 36);
+    ctx.closePath();
+    ctx.fillStyle = fill; ctx.fill();
+    ctx.strokeStyle = color; ctx.lineWidth = 3; ctx.lineJoin = 'round';
+    ctx.stroke();
+  }
+
+  function draw(){
+    ctx.clearRect(0, 0, W, H);
+    // baseline
+    ctx.strokeStyle = '#1a1a1a'; ctx.lineWidth = 2;
+    ctx.beginPath();
+    wobblyLine(ctx, 22, H - 36, W - 16, H - 36, 5);
+    ctx.stroke();
+
+    const pf = fakeHist(p);
+    drawHist(PR, '#29ABE2', 'rgba(41,171,226,0.10)', 2);
+    drawHist(pf, '#F5A623', 'rgba(245,166,35,0.16)', 9);
+
+    // detector confidence curve D(x) = pReal / (pReal + pFake), dashed gray
+    ctx.strokeStyle = '#999'; ctx.lineWidth = 1.8;
+    ctx.setLineDash([7, 6]);
+    ctx.beginPath();
+    for (let i = 0; i < NB; i++){
+      const d = PR[i] / (PR[i] + pf[i] + 1e-12);
+      const y = (H - 36) - d * (H - 78);
+      i === 0 ? ctx.moveTo(X(i), y) : ctx.lineTo(X(i), y);
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = '#999'; ctx.font = '13px ' + FONT; ctx.textAlign = 'left';
+    ctx.fillText('"probably real" ↑', 26, 22);
+    ctx.fillText('"probably fake" ↓', 26, H - 44);
+
+    ctx.fillStyle = '#1a86bb'; ctx.font = '15px ' + FONT; ctx.textAlign = 'right';
+    ctx.fillText('real data', W - 22, 24);
+    ctx.fillStyle = '#d18d0f';
+    ctx.fillText('the forger\'s fakes', W - 22, 44);
+  }
+
+  function tick(){
+    if (!started){       // static first frame until the ▶ button is pressed
+      draw();
+      readout.innerHTML = 'detector accuracy: <b>' + startAcc + '%</b> — the fakes are miles off. press ▶ to let the forger train';
+      return;
+    }
+    if (!paused && frame % 2 === 0) trainStep();
+    frame++;
+    const acc = accuracy(fakeHist(p));
+    dispAcc += (acc - dispAcc) * 0.06;   // detector "keeps up" with a lag
+    const shown = Math.round(dispAcc);
+    let mood;
+    if (shown > 85) mood = 'the fakes are easy to spot';
+    else if (shown > 65) mood = 'hmm, the forger is improving…';
+    else if (shown > 53) mood = 'the detector is struggling…';
+    else mood = 'coin flip — the forger has won';
+    readout.innerHTML = 'detector accuracy: <b>' + startAcc + '% → ' + shown + '%</b> — ' + mood;
+    draw();
+  }
+  document.getElementById('ganWatchBtn').addEventListener('click', function(){
+    started = true; paused = false;
+    this.classList.add('hidden');
+    document.getElementById('ganControls').classList.remove('hidden');
+  });
+  document.getElementById('ganPauseBtn').addEventListener('click', function(){
+    paused = !paused;
+    this.textContent = paused ? 'resume' : 'pause';
+  });
+  document.getElementById('ganRestartBtn').addEventListener('click', () => {
+    restart();
+    paused = false;
+    document.getElementById('ganPauseBtn').textContent = 'pause';
+  });
+  return { tick };
+})();
+
+/* ---------- one master animation loop ---------- */
+(function loop(){
+  D1.tick(); D2.tick(); D4.tick();
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
