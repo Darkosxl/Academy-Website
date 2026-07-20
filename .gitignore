@@ -1,2 +1,5 @@
 /target
 .env
+
+# applicant exports — PII (names, emails, phones, essays), never commit
+academy-applicants-*.csv
