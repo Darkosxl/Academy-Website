@@ -47,6 +47,25 @@ pub struct SubmissionView {
     pub task_title: String,
 }
 
+/// One student's standing. Points: 20 per completed video, 50 per passed project.
+#[derive(FromRow)]
+pub struct LeaderRow {
+    pub id: Uuid,
+    pub display_name: String,
+    pub email: String,
+    pub videos: i64,
+    pub projects: i64,
+}
+
+pub const PTS_VIDEO: i64 = 20;
+pub const PTS_PROJECT: i64 = 50;
+
+impl LeaderRow {
+    pub fn points(&self) -> i64 {
+        self.videos * PTS_VIDEO + self.projects * PTS_PROJECT
+    }
+}
+
 #[derive(FromRow)]
 pub struct StatRow {
     pub display_name: String,

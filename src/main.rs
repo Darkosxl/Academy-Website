@@ -3,8 +3,9 @@ mod model;
 
 use axum::{
     Form, Json, Router,
-    extract::{Path, Query, State},
-    http::{HeaderMap, StatusCode, header},
+    extract::{Path, Query, Request, State},
+    http::{HeaderMap, HeaderValue, StatusCode, header},
+    middleware::{self, Next},
     response::{Html, IntoResponse, Redirect, Response},
     routing::{get, post},
 };
@@ -64,6 +65,7 @@ async fn main() {
         .route("/demos", get(demos))
         .route("/watch/{id}", get(watch))
         .route("/api/progress", post(progress))
+        .route("/leaderboard", get(leaderboard))
         .route("/board", get(board))
         .route("/board/submit", post(board_submit))
         .route("/admin", get(admin_page))
@@ -74,6 +76,9 @@ async fn main() {
         .route("/admin/invite", post(admin_rotate_invite))
         .route("/api/worker/pending", get(worker_pending))
         .route("/api/worker/result", post(worker_result))
+        // rolling session refresh — applies to the routes above only; static assets
+        // are mounted after the layer so they don't each cost a session write
+        .layer(middleware::from_fn_with_state(app.clone(), rolling_session))
         .nest_service("/static", tower_http::services::ServeDir::new("static"))
         .with_state(app);
 
@@ -169,6 +174,18 @@ async fn send_magic_link_email(app: &App, to: &str, link: &str) {
 
 // ---- session helpers ----
 
+/// Session lifetime. Kept in one place so the DB row's `expires_at`, the cookie's
+/// Max-Age and the rolling refresh below can never drift apart.
+const SESSION_DAYS: i64 = 30;
+const SESSION_MAX_AGE: i64 = SESSION_DAYS * 24 * 60 * 60;
+/// Refresh once the session drops below this — one extra write per user per day,
+/// not one per request.
+const SESSION_REFRESH_BELOW_DAYS: i64 = SESSION_DAYS - 1;
+
+fn session_cookie(token: &str) -> String {
+    format!("session={token}; HttpOnly; Secure; Path=/; Max-Age={SESSION_MAX_AGE}; SameSite=Lax")
+}
+
 fn cookie_token(headers: &HeaderMap) -> Option<String> {
     headers.get(header::COOKIE)?.to_str().ok()?
         .split(';').map(str::trim)
@@ -185,13 +202,44 @@ async fn current_user(app: &App, headers: &HeaderMap) -> Option<User> {
 /// insert a 30-day session row and build the matching Set-Cookie + redirect to /app
 async fn issue_session(app: &App, uid: Uuid) -> Response {
     let session_token = random_token();
-    sqlx::query("insert into sessions_exposure_academy (token, user_id, expires_at) values ($1,$2, now() + interval '30 days')")
-        .bind(&session_token).bind(uid).execute(&app.pool).await.unwrap();
+    sqlx::query("insert into sessions_exposure_academy (token, user_id, expires_at) values ($1,$2, now() + make_interval(days => $3))")
+        .bind(&session_token).bind(uid).bind(SESSION_DAYS as i32).execute(&app.pool).await.unwrap();
     (
-        // 2592000s = 30 days, matches the row's expires_at; the DB check is the one that counts
-        [(header::SET_COOKIE, format!("session={session_token}; HttpOnly; Secure; Path=/; Max-Age=2592000; SameSite=Lax"))],
+        // cookie Max-Age mirrors the row's expires_at; the DB check is the one that counts
+        [(header::SET_COOKIE, session_cookie(&session_token))],
         Redirect::to("/app"),
     ).into_response()
+}
+
+/// Rolling window: every request carrying a live session pushes its expiry back out
+/// to the full 30 days, so an active user is never logged out mid-use — only 30 days
+/// of *inactivity* ends the session.
+///
+/// Two things that matter here, both learned the hard way in the Next.js version:
+/// the DB row and the browser cookie must be extended *together* (extending only the
+/// row leaves the cookie to expire out from under a still-valid session), and the
+/// refresh must run after the handler so /logout's delete wins — a deleted row
+/// matches nothing below, so no Set-Cookie is appended and the logout sticks.
+async fn rolling_session(State(app): State<App>, req: Request, next: Next) -> Response {
+    let token = cookie_token(req.headers());
+    let mut res = next.run(req).await;
+    let Some(token) = token else { return res };
+
+    let rolled: Option<(Uuid,)> = sqlx::query_as(
+        "update sessions_exposure_academy set expires_at = now() + make_interval(days => $2)
+         where token = $1 and expires_at > now() and expires_at < now() + make_interval(days => $3)
+         returning user_id")
+        .bind(&token)
+        .bind(SESSION_DAYS as i32)
+        .bind(SESSION_REFRESH_BELOW_DAYS as i32)
+        .fetch_optional(&app.pool).await.ok().flatten();
+
+    if rolled.is_some() {
+        if let Ok(v) = HeaderValue::from_str(&session_cookie(&token)) {
+            res.headers_mut().append(header::SET_COOKIE, v);
+        }
+    }
+    res
 }
 
 fn require(user: Option<User>) -> Result<User, Response> {
@@ -372,6 +420,31 @@ async fn progress(State(app): State<App>, headers: HeaderMap, Json(r): Json<Prog
         .bind(user.id).bind(r.video_id).bind(delta).bind(r.position.max(0.0)).bind(r.duration.max(0.0))
         .execute(&app.pool).await.unwrap();
     Ok(StatusCode::NO_CONTENT)
+}
+
+// ---- leaderboard ----
+
+async fn leaderboard(State(app): State<App>, headers: HeaderMap) -> Result<Html<String>, Response> {
+    let user = require(current_user(&app, &headers).await)?;
+    // A video counts once it is ≥90% watched — same threshold the grid calls "Tamamlanmış".
+    // A project counts once per task, and only when the submission passed, so resubmits
+    // of the same task don't stack points.
+    let rows = sqlx::query_as::<_, LeaderRow>(
+        "select u.id, u.display_name, u.email,
+                coalesce(w.videos, 0) as videos, coalesce(p.projects, 0) as projects
+         from users_exposure_academy u
+         left join (select user_id, count(*) as videos
+                    from watch_progress_exposure_academy
+                    where duration > 0 and max_position >= duration * 0.9
+                    group by user_id) w on w.user_id = u.id
+         left join (select user_id, count(distinct task_id) as projects
+                    from submissions_exposure_academy where status = 'passed'
+                    group by user_id) p on p.user_id = u.id
+         where not u.is_admin
+         order by coalesce(w.videos,0) * $1 + coalesce(p.projects,0) * $2 desc, u.created_at")
+        .bind(PTS_VIDEO).bind(PTS_PROJECT)
+        .fetch_all(&app.pool).await.unwrap();
+    Ok(Html(html::leaderboard(&user, &rows)))
 }
 
 // ---- board ----

@@ -44,7 +44,8 @@ create table if not exists sessions_exposure_academy (
   created_at timestamptz not null default now()
 );
 
--- fixed 30-day sessions; default backfills pre-existing rows instead of logging everyone out
+-- rolling 30-day sessions (extended on each request, see rolling_session in main.rs);
+-- default backfills pre-existing rows instead of logging everyone out
 alter table sessions_exposure_academy
   add column if not exists expires_at timestamptz not null default now() + interval '30 days';
 
