@@ -65,9 +65,10 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
   </div>
   <nav class="sb-nav">
     {home}
-    {demos}
+    {videos}
     {board}
     {leaderboard}
+    {demos}
     {admin_block}
   </nav>
   <div class="sb-footer">
@@ -88,7 +89,8 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
                 leaderboard = nav_link("/leaderboard", active, "leaderboard", &ico(P_TROPHY), "Puan Tablosu"),
                 // Haftalar (Agentic Harness / AI Monopoly) geçici olarak gizli — rotalar duruyor,
                 // geri getirmek için bu iki satırı {harness}/{monopoly} olarak nav'a ekle.
-                demos = nav_link("/demos", active, "demos", &ico(P_DEMO), "Videolar"),
+                videos = nav_link("/videos", active, "videos", &ico(P_PLAY), "Videolar"),
+                demos = nav_link("/demos", active, "demos", &ico(P_DEMO), "İnteraktif Demolar"),
                 admin_block = admin_block,
                 profile_active = if active == "profile" { "active" } else { "" },
                 initial = esc(&u.label().chars().next().unwrap_or('?').to_uppercase().to_string()),
@@ -295,11 +297,11 @@ pub fn demos(user: &User, lang: &str) -> String {
         format!(r#"<a class="chip {active}" href="/demos?lang={k}">{label}</a>"#)
     }).collect();
     let content = format!(
-        r##"<h1 class="pagetitle">Video Demoları</h1>
-<p class="muted">Derslerde kullanılan interaktif demolar. Yeni sekmede açılır.</p>
+        r##"<h1 class="pagetitle">İnteraktif Demolar</h1>
+<p class="muted">Derslerde kullanılan interaktif anlatımlar. Yeni sekmede açılır.</p>
 <div class="chips">{chips}</div>
 <div class="admingrid">{cards}</div>"##);
-    layout("Video Demoları", Some(user), "demos", &content)
+    layout("İnteraktif Demolar", Some(user), "demos", &content)
 }
 
 /// Ana Sayfa — portalın giriş kapısı. İçerik yok, yalnızca üç büyük hedef:
@@ -327,18 +329,27 @@ pub fn home(user: &User, videos_done: i64, videos_total: i64, open_tasks: i64, p
     <span class="hubstat">{open_tasks} açık görev</span>
     <span class="hubgo">Görev panosuna git →</span>
   </a>
-  <a class="hubcard wide" href="/leaderboard">
+  <a class="hubcard" href="/leaderboard">
     <span class="hubico">{ico_trophy}</span>
     <h2>Puan Tablosu</h2>
     <p>Her tamamlanan video {PTS_VIDEO} puan, kabul edilen her proje {PTS_PROJECT} puan.</p>
     <span class="hubstat">{points} puan · {rank_line}</span>
     <span class="hubgo">Sıralamayı gör →</span>
   </a>
+  <a class="hubcard" href="/demos">
+    <span class="hubico">{ico_demo}</span>
+    <h2>İnteraktif Demolar</h2>
+    <p>Derslerde kullanılan interaktif anlatımlar — kendi hızında keşfet.</p>
+    <span class="hubstat">{demo_count} demo</span>
+    <span class="hubgo">Demolara git →</span>
+  </a>
 </div>"##,
         name = esc(u_first_name(user)),
         ico_video = ico(P_PLAY),
         ico_board = ico(P_BOARD),
         ico_trophy = ico(P_TROPHY),
+        ico_demo = ico(P_DEMO),
+        demo_count = DEMOS.len(),
     );
     layout("Ana Sayfa", Some(user), "home", &content)
 }
@@ -379,7 +390,8 @@ pub fn video_grid(user: &User, videos: &[VideoWithProgress], level: Option<&str>
             )
         }).collect()
     };
-    layout("Videolar", Some(user), level.unwrap_or("videos"), &format!(
+    // seviye filtresi açıkken de nav'da Videolar seçili kalsın
+    layout("Videolar", Some(user), "videos", &format!(
         r##"<h1 class="pagetitle">Videolar</h1>
 <p class="muted">Ders videoları. Bir videoyu %90'ına kadar izlediğinde tamamlanmış sayılır.</p>
 <div class="chips">{chips}</div><div class="grid">{cards}</div>"##))

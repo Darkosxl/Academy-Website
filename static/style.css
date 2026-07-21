@@ -259,14 +259,6 @@ body:not(.portal) .btn-dark.big { padding:14px 32px; }
   background:var(--bg-card); border:1px solid var(--border-card); border-radius:var(--r-2xl);
   padding:26px 24px 22px; color:inherit; transition:border-color 200ms, background 200ms, transform 200ms;
 }
-/* Puan tablosu: tam genişlik, ama satır düzeni — dikey kartın boşluğu olmasın */
-.hubcard.wide {
-  grid-column:1 / -1; flex-direction:row; align-items:center; gap:18px; padding:22px 24px; flex-wrap:wrap;
-}
-.hubcard.wide .hubico { margin-bottom:0; }
-.hubcard.wide h2 { flex:0 0 auto; }
-.hubcard.wide p { flex:1; min-width:220px; }
-.hubcard.wide .hubstat, .hubcard.wide .hubgo { margin-top:0; }
 .hubcard:hover {
   border-color:var(--blue-40); background:var(--bg-card-solid); transform:translateY(-2px);
 }
@@ -289,10 +281,6 @@ body:not(.portal) .btn-dark.big { padding:14px 32px; }
 /* 768px: sidebar zaten drawer'a düşüyor — hub da tek sütuna insin */
 @media (max-width:768px) {
   .hubgrid { grid-template-columns:1fr; }
-  .hubcard.wide { flex-direction:column; align-items:flex-start; gap:6px; padding:26px 24px 22px; }
-  .hubcard.wide .hubico { margin-bottom:8px; }
-  .hubcard.wide .hubstat { margin-top:10px; }
-  .hubcard.wide .hubgo { margin-top:14px; }
 }
 
 /* ---- Level filter chips (pick-chip pattern) ---- */
