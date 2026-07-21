@@ -409,19 +409,142 @@ form.inline { display:flex; gap:6px; align-items:center; }
 form.inline input, form.inline select { margin-top:0; width:auto; }
 
 /* ============================================================================
-   RESPONSIVE
+   MOBILE NAV — the drawer chrome. Hidden on desktop; the @media block below is
+   the only place it becomes visible, so desktop rendering is untouched.
+   Pure CSS: #navtoggle is a hidden checkbox, the hamburger and the scrim are
+   both <label for="navtoggle">, and `:checked ~` slides the rail in. No JS, and
+   navigating to a new page resets the checkbox, so the drawer closes on tap.
+   ============================================================================ */
+/* The drawer is built from a checkbox and two <label>s, which the portal form
+   styles above would otherwise claim (`.portal input` forces display:block +
+   width:100%, `.portal label` adds uppercase and margins). Re-specify here. */
+.portal .navtoggle { display:none; }
+.portal .mobilebar, .portal .nav-scrim,
+.mobilebar, .nav-scrim { display:none; }
+.portal .hamburger, .hamburger {
+  display:inline-flex; align-items:center; justify-content:center;
+  width:44px; height:44px; margin:0 0 0 -10px;   /* 44px = iOS minimum tap target */
+  border-radius:var(--r-xl); color:var(--text-body); cursor:pointer;
+  font-size:inherit; text-transform:none; letter-spacing:normal;
+  -webkit-tap-highlight-color:transparent;
+}
+.hamburger:active { background:var(--border); }
+.hamburger .ico { width:1.5rem; height:1.5rem; }
+.hamburger .i-close { display:none; }
+.navtoggle:checked ~ .mobilebar .hamburger .i-menu { display:none; }
+.navtoggle:checked ~ .mobilebar .hamburger .i-close { display:block; }
+
+/* ============================================================================
+   RESPONSIVE — phone/tablet only. Everything above this line is the desktop
+   design and stays exactly as it was.
    ============================================================================ */
 @media (max-width:768px) {
-  .portal { flex-direction:column; }
-  .sidebar { position:static; width:100%; height:auto; }
+
+  /* ---- Portal shell: fixed top bar + off-canvas rail ---- */
+  /* Clipped rather than display:none, so the checkbox stays focusable and Space
+     opens the drawer. Only on mobile — on desktop it stays display:none so it
+     never becomes a stray tab stop there. */
+  .portal .navtoggle {
+    display:block; position:absolute; width:1px; height:1px;
+    margin:0; padding:0; opacity:0; border:0;
+  }
+  .portal .navtoggle:focus-visible ~ .mobilebar .hamburger {
+    outline:2px solid var(--blue-text); outline-offset:-4px;
+  }
+
+  .portal .mobilebar, .mobilebar {
+    display:flex; align-items:center; gap:10px;
+    position:fixed; top:0; left:0; right:0; z-index:30; height:56px; padding:0 16px;
+    background:var(--bg-chrome); border-bottom:1px solid var(--border);
+    margin:0;
+  }
+  .mb-brand { display:inline-flex; align-items:center; height:44px; padding:0 4px; }
+  .mb-logo { height:18px; width:auto; display:block; }
+
+  .sidebar {
+    width:17rem; max-width:82vw; z-index:40;
+    transform:translateX(-100%); transition:transform 220ms ease;
+  }
+  .navtoggle:checked ~ .sidebar { transform:translateX(0); }
   .sb-brand { padding:1.25rem 1.5rem 1rem; }
-  .portal-main { margin-left:0; }
-  .portal-inner { padding:1.5rem 1rem; }
-  .watchwrap { flex-direction:column; }
+  /* roomier rows — 12px is a fine mouse target and a poor thumb one */
+  .sb-nav a { padding:12px; font-size:var(--fs-body); }
+  .sb-nav .ico { width:1.125rem; height:1.125rem; }
+  .sb-me { min-height:44px; }
+  .sb-logout { width:40px; height:40px; }
+  .portal .chip { padding:9px 14px; }   /* ~38px tall instead of 32px */
+
+  .portal .navtoggle:checked ~ .nav-scrim, .navtoggle:checked ~ .nav-scrim {
+    display:block; position:fixed; inset:0; z-index:35; margin:0;
+    background:rgba(0,0,0,0.55);
+  }
+
+  .portal-main { margin-left:0; padding-top:56px; }   /* clears the fixed bar */
+  /* flex items default to min-width:auto, which would let a wide table stretch
+     the whole main column and scroll the page sideways */
+  .portal-main { min-width:0; }
+  .portal-inner { padding:1.5rem 1rem 3rem; }
+
+  /* ---- Inputs: iOS zooms the whole page on focus below 16px ---- */
+  .portal input, .portal select, .portal textarea,
+  .loginbox input, .loginbox select { font-size:1rem; }
+
+  /* ---- Grids collapse to one column ---- */
+  .grid, .tasks, .admingrid { grid-template-columns:1fr; }
+  /* grid items default to min-width:auto, so a wide table inside one would push
+     the whole column past the viewport instead of scrolling within its card */
+  .grid > *, .tasks > *, .admingrid > * { min-width:0; }
+
+  /* ---- Tables scroll inside their card instead of widening the page ---- */
+  .panel { padding:16px; overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  .portal table { min-width:34rem; }
+
+  /* ---- Forms stack ---- */
+  .subform { flex-direction:column; align-items:stretch; }
+  .subform .btn-dark { width:100%; }
+  form.inline { flex-wrap:wrap; }
+  form.inline input, form.inline select { width:100%; margin-top:6px; }
+
+  /* ---- Watch page ---- */
+  /* align-items:flex-start is what keeps the playlist from stretching tall on
+     desktop; once stacked it would shrink the player to its content width, so
+     the cross axis has to go back to stretch here */
+  .watchwrap { flex-direction:column; align-items:stretch; gap:20px; }
+  .playlist { width:100%; }
+  .plthumb { width:88px; }
+  /* there is no `.plthumb img` rule, so the 320px YouTube still renders at its
+     natural size and gets cropped to the top-left corner. Same on desktop —
+     left alone there deliberately, since desktop was to stay untouched. */
+  .plthumb img { width:100%; height:100%; object-fit:cover; display:block; }
+
+  /* ---- Leaderboard ---- */
   .me-stats { width:100%; justify-content:space-between; text-align:left; gap:12px; }
   .lbmeta { display:none; }
-  .playlist { width:100%; }
+  .mecard { gap:12px; }
+
+  /* ---- Board card head: badge drops under a long title ---- */
+  .taskhead { flex-wrap:wrap; }
+
+  /* ---- Public / auth pages ---- */
+  .topbar { padding:0 16px; gap:12px; }
+  .logo-tag { white-space:nowrap; }
+  body:not(.portal) .btn-dark { white-space:nowrap; padding:10px 16px; }
+  .hero { padding:64px 20px; }
   .hero h1 { font-size:40px; }
+  .loginbox { margin:40px 16px 64px; }
+  .auth-wrap { min-height:auto; }
+}
+
+/* Narrow phones — most of the range (iPhone 12/13/14/15 are 390pt). Trims the
+   last bits of horizontal pressure; the "AI ACADEMY" tag is the first thing to
+   go so the logo and the sign-in button each get a single line. */
+@media (max-width:480px) {
+  .logo-tag { display:none; }
+  .hero h1 { font-size:34px; }
+  .loginbox h1 { font-size:1.5rem; }
+  .portal-inner { padding:1.25rem 0.875rem 3rem; }
+  .chips { gap:6px; }
+  .portal .chip { padding:9px 11px; }   /* narrower, but keep the taller target */
 }
 
 /* ============================================================================
