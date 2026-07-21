@@ -21,6 +21,17 @@ do $$ begin
 end $$;
 alter table users_exposure_academy alter column email set not null;
 
+-- onboarding profile. `nickname` is the ONLY name shown publicly (leaderboard);
+-- display_name is the real name and stays admin-side. Null nickname = onboarding
+-- not finished yet, which is what require_onboarded in main.rs gates on — that also
+-- catches accounts the admin created by hand before this existed.
+alter table users_exposure_academy add column if not exists nickname text;
+alter table users_exposure_academy add column if not exists school text;
+alter table users_exposure_academy add column if not exists grade text;
+-- case-insensitive uniqueness, but only over the rows that have one
+create unique index if not exists users_exposure_academy_nickname_lower_key
+  on users_exposure_academy (lower(nickname)) where nickname is not null;
+
 create table if not exists magic_links_exposure_academy (
   token text primary key,
   email text not null,

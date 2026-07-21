@@ -11,7 +11,17 @@ Watch time is tracked per student per video.
 - **DB**: Supabase Postgres via `sqlx` (direct connection string, no Supabase SDK)
 - **Videos**: YouTube unlisted embeds; tracking via YouTube IFrame Player API
   (`static/tracker.js` heartbeats every 10s while playing → `POST /api/progress`)
-- **Auth**: session cookie, argon2 hashes, admin creates all accounts (no signup)
+- **Auth**: passwordless — session cookie + emailed magic link (Resend). Students self-register
+  at `/join/:code` with the invite code baked into the link; admin can also add them by hand.
+
+## Onboarding
+
+`/admin` → **Davet bağlantısı** gives you the link to paste in the WhatsApp group. A student
+fills in name / email / nickname / school / grade, gets a magic link, and clicking it opens the
+account. `nickname` is the *only* name shown on the leaderboard — `display_name` (the real name)
+stays admin-side, and the form says so. A null `nickname` means onboarding never finished, so
+`require_onboarded` in `main.rs` redirects those students to `/profile` until they pick one;
+that also catches accounts you created by hand from `/admin`. Admins are exempt from that gate.
 
 ## Setup
 
@@ -28,6 +38,8 @@ Watch time is tracked per student per video.
 | Route | What |
 |---|---|
 | `/` | public landing |
+| `/join/:code` | onboarding — the link you paste in the WhatsApp group (code is in the URL) |
+| `/profile` | student edits name / nickname / school / grade; reached from the sidebar chip |
 | `/app` | video grid, level chips |
 | `/watch/:id` | player + level playlist, resumes from last position |
 | `/board` | task board: tasks per level, GitHub repo submission, status + feedback + demo video |

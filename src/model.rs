@@ -1,4 +1,5 @@
 use chrono::{DateTime, Utc};
+use serde::Deserialize;
 use sqlx::FromRow;
 use uuid::Uuid;
 
@@ -6,7 +7,60 @@ use uuid::Uuid;
 pub struct User {
     pub id: Uuid,
     pub display_name: String,
+    /// Public handle. `None` means onboarding is unfinished — see `require_onboarded`.
+    pub nickname: Option<String>,
     pub is_admin: bool,
+}
+
+impl User {
+    /// What the sidebar shows: the handle they picked, else their real name.
+    pub fn label(&self) -> &str {
+        self.nickname.as_deref().unwrap_or(&self.display_name)
+    }
+}
+
+/// Everything the student can see and edit about themselves on /profile.
+#[derive(FromRow, Default)]
+pub struct Profile {
+    pub email: String,
+    pub display_name: String,
+    pub nickname: Option<String>,
+    pub school: Option<String>,
+    pub grade: Option<String>,
+}
+
+/// The onboarding form. Lives here so `html::join` can re-render what the student
+/// typed after a validation error without main.rs and html.rs disagreeing on shape.
+#[derive(Deserialize, Default)]
+pub struct JoinForm {
+    #[serde(default)]
+    pub code: String,
+    #[serde(default)]
+    pub email: String,
+    #[serde(default)]
+    pub display_name: String,
+    #[serde(default)]
+    pub nickname: String,
+    #[serde(default)]
+    pub school: String,
+    #[serde(default)]
+    pub grade: String,
+}
+
+pub const GRADES: [&str; 6] = ["9. sınıf", "10. sınıf", "11. sınıf", "12. sınıf", "Mezun", "Diğer"];
+
+/// Nickname rules, one place. Letters (Turkish included), digits, `_` and `-`; no
+/// spaces, so it always fits the leaderboard row.
+pub fn validate_nickname(n: &str) -> Result<String, &'static str> {
+    let n = n.trim();
+    let len = n.chars().count();
+    if len < 2 || len > 20 {
+        return Err("Nickname 2-20 karakter olmalı.");
+    }
+    if !n.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-') {
+        return Err("Nickname yalnızca harf, rakam, _ ve - içerebilir (boşluk yok).");
+    }
+    Ok(n.to_string())
 }
 
 #[derive(FromRow)]
@@ -51,8 +105,8 @@ pub struct SubmissionView {
 #[derive(FromRow)]
 pub struct LeaderRow {
     pub id: Uuid,
-    pub display_name: String,
-    pub email: String,
+    /// Non-null: the query filters to onboarded students, who by definition have one.
+    pub nickname: String,
     pub videos: i64,
     pub projects: i64,
 }

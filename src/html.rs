@@ -61,8 +61,10 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
   </nav>
   <div class="sb-footer">
     <div class="sb-user">
-      <span class="avatar-fb">{initial}</span>
-      <span class="sb-name">{name}</span>
+      <a class="sb-me {profile_active}" href="/profile" title="Profilim">
+        <span class="avatar-fb">{initial}</span>
+        <span class="sb-name">{name}</span>
+      </a>
       <form method="post" action="/logout"><button class="sb-logout" title="Oturumu kapat">{logout_ico}</button></form>
     </div>
   </div>
@@ -77,8 +79,9 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
                 monopoly = nav_link("/ai-monopoly", active, "ai-monopoly", &ico(P_MONOPOLY), "AI Monopoly (2. Hafta)"),
                 demos = nav_link("/demos", active, "demos", &ico(P_DEMO), "İnteraktif Demolar"),
                 admin_block = admin_block,
-                initial = esc(&u.display_name.chars().next().unwrap_or('?').to_string()),
-                name = esc(&u.display_name),
+                profile_active = if active == "profile" { "active" } else { "" },
+                initial = esc(&u.label().chars().next().unwrap_or('?').to_uppercase().to_string()),
+                name = esc(u.label()),
                 logout_ico = ico(P_LOGOUT),
             )
         }
@@ -103,7 +106,7 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/style.css?v=6">
+<link rel="stylesheet" href="/static/style.css?v=7">
 </head>
 <body class="{body_class}">
 {shell}
@@ -141,21 +144,107 @@ pub fn login(msg: Option<&str>) -> String {
 </div>"##))
 }
 
-pub fn join(error: Option<&str>) -> String {
+/// Onboarding. `code_locked` = the invite code arrived in the URL (/join/<code>), so it
+/// rides along as a hidden field instead of being something the student has to type.
+pub fn join(f: &JoinForm, code_locked: bool, error: Option<&str>) -> String {
     let err = error.map(|e| format!(r#"<p class="error">{}</p>"#, esc(e))).unwrap_or_default();
+    let code_field = if code_locked {
+        format!(r#"<input type="hidden" name="code" value="{}">"#, esc(&f.code))
+    } else {
+        format!(r#"<label>Davet kodu<input name="code" value="{}" required></label>"#, esc(&f.code))
+    };
+    let grade_opts: String = std::iter::once(String::from(r#"<option value="">Seç…</option>"#))
+        .chain(GRADES.iter().map(|g| {
+            let sel = if f.grade == *g { " selected" } else { "" };
+            format!(r#"<option value="{g}"{sel}>{g}</option>"#)
+        }))
+        .collect();
     layout("Katıl", None, "", &format!(r##"
 <div class="auth-wrap">
   <div class="auth-dots"></div><div class="auth-glow"></div>
   <div class="loginbox">
-    <h1>Davet koduyla katıl</h1>
+    <h1>Aramıza katıl</h1>
+    <p class="auth-sub">Birkaç bilgi al, hesabın hazır olsun.</p>
     {err}
     <form method="post" action="/join">
-      <label>E-posta<input name="email" type="email" required autofocus></label>
-      <label>Davet kodu<input name="code" required></label>
+      {code_field}
+      <label>Ad soyad<input name="display_name" value="{name}" required autofocus></label>
+      <label>E-posta<input name="email" type="email" value="{email}" required>
+        <span class="fieldnote">Giriş bağlantıların bu adrese gelecek — doğru yazdığından emin ol.</span>
+      </label>
+      <label><span lang="en">Nickname</span><input name="nickname" value="{nick}" placeholder="ör. kodcu_ayse" maxlength="20" required>
+        <span class="fieldnote"><b>Puan tablosunda yalnızca bu nickname görünür</b> — gerçek adın hiçbir zaman
+        diğer öğrencilere gösterilmez. Harf, rakam, _ ve - kullanabilirsin.</span>
+      </label>
+      <label>Okul<input name="school" value="{school}" placeholder="İsteğe bağlı"></label>
+      <label>Sınıf<select name="grade">{grade_opts}</select></label>
       <button class="btn-dark big">Katıl →</button>
     </form>
+    <p class="muted">Hesabın var mı? <a href="/login">Oturum aç</a></p>
   </div>
-</div>"##))
+</div>"##,
+        name = esc(&f.display_name), email = esc(&f.email), nick = esc(&f.nickname), school = esc(&f.school),
+    ))
+}
+
+/// Post-onboarding: the account exists but nothing is signed in yet — the magic link
+/// in their inbox is what proves the address is theirs.
+pub fn join_sent(email: &str) -> String {
+    layout("E-postanı kontrol et", None, "", &format!(r##"
+<div class="auth-wrap">
+  <div class="auth-dots"></div><div class="auth-glow"></div>
+  <div class="loginbox">
+    <h1>E-postanı kontrol et</h1>
+    <p class="auth-sub"><b>{email}</b> adresine bir giriş bağlantısı gönderdik.
+    Bağlantıya tıkladığında hesabın açılacak.</p>
+    <p class="notice">Bağlantı 15 dakika geçerli. Gelen kutunda yoksa spam klasörüne bak.</p>
+    <p class="muted">Yanlış adres mi yazdın? <a href="/join">Formu tekrar doldur</a></p>
+  </div>
+</div>"##, email = esc(email)))
+}
+
+pub fn profile(user: &User, p: &Profile, msg: Option<&str>, error: Option<&str>) -> String {
+    let first_time = user.nickname.is_none();
+    let banner = error.map(|e| format!(r#"<p class="error">{}</p>"#, esc(e)))
+        .or_else(|| msg.map(|m| format!(r#"<p class="notice">{}</p>"#, esc(m))))
+        .unwrap_or_default();
+    let intro = if first_time {
+        r#"<p class="muted">Devam etmeden önce profilini tamamla. Nickname'ini seçtiğinde derslere geçebilirsin.</p>"#
+    } else {
+        r#"<p class="muted">Bilgilerini dilediğin zaman güncelleyebilirsin.</p>"#
+    };
+    let grade_now = p.grade.as_deref().unwrap_or("");
+    let grade_opts: String = std::iter::once(String::from(r#"<option value="">Seç…</option>"#))
+        .chain(GRADES.iter().map(|g| {
+            let sel = if grade_now == *g { " selected" } else { "" };
+            format!(r#"<option value="{g}"{sel}>{g}</option>"#)
+        }))
+        .collect();
+    let content = format!(r##"<h1 class="pagetitle">Profilim</h1>
+{intro}
+<div class="profilewrap">
+<section class="panel">
+  <h2>Bilgilerim</h2>
+  {banner}
+  <form method="post" action="/profile">
+    <label>Ad soyad<input name="display_name" value="{name}" required></label>
+    <label><span lang="en">Nickname</span><input name="nickname" value="{nick}" placeholder="ör. kodcu_ayse" maxlength="20" required></label>
+    <p class="fieldnote">Puan tablosunda yalnızca nickname'in görünür; gerçek adını diğer öğrenciler görmez.</p>
+    <label>Okul<input name="school" value="{school}" placeholder="İsteğe bağlı"></label>
+    <label>Sınıf<select name="grade">{grade_opts}</select></label>
+    <label>E-posta<input value="{email}" disabled></label>
+    <p class="fieldnote">E-postan giriş kimliğin — değiştirmek için eğitmenine yaz.</p>
+    <button class="btn-dark">{save_label}</button>
+  </form>
+</section>
+</div>"##,
+        name = esc(&p.display_name),
+        nick = esc(p.nickname.as_deref().unwrap_or("")),
+        school = esc(p.school.as_deref().unwrap_or("")),
+        email = esc(&p.email),
+        save_label = if first_time { "Kaydet ve başla →" } else { "Kaydet" },
+    );
+    layout("Profilim", Some(user), "profile", &content)
 }
 
 
@@ -269,15 +358,6 @@ const VIDEO_ID = "{id}", YT_ID = "{yt}", RESUME_AT = {resume_at};
     layout(&video.title, Some(user), &video.level, &content)
 }
 
-/// Most students sign up with the invite code, which leaves display_name = their email.
-/// Show only the part before the @ so nobody's address is on a public board.
-/// (Once the profile onboarding lands, display_name will be a real name and this is a no-op.)
-pub fn student_name(display_name: &str, email: &str) -> String {
-    let n = display_name.trim();
-    let n = if n.is_empty() { email } else { n };
-    n.split('@').next().unwrap_or(n).to_string()
-}
-
 pub fn leaderboard(user: &User, rows: &[LeaderRow]) -> String {
     // dense ranking: equal points share a place
     let mut ranks: Vec<i64> = Vec::with_capacity(rows.len());
@@ -292,7 +372,7 @@ pub fn leaderboard(user: &User, rows: &[LeaderRow]) -> String {
     let my_card = match me {
         Some(i) => {
             let r = &rows[i];
-            let name = student_name(&r.display_name, &r.email);
+            let name = r.nickname.clone();
             format!(
                 r##"<section class="panel mecard">
   <div class="me-rank">#{rank}</div>
@@ -319,7 +399,7 @@ pub fn leaderboard(user: &User, rows: &[LeaderRow]) -> String {
         "<p class='muted'>Henüz kimse puan toplamadı — ilk sen ol.</p>".into()
     } else {
         rows.iter().zip(&ranks).map(|(r, rank)| {
-            let name = student_name(&r.display_name, &r.email);
+            let name = r.nickname.clone();
             format!(
                 r##"<div class="lbrow {mine} {medal}">
   <span class="lbrank">{rank}</span>
@@ -391,7 +471,8 @@ pub fn board(user: &User, tasks: &[Task], subs: &[SubmissionView]) -> String {
         r##"<h1 class="pagetitle">Görev Panosu</h1><p class="muted">Projenizi gönderin — GitHub deposu bağlantısı yeterli.</p><div class="tasks">{task_cards}</div>"##))
 }
 
-pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[Video], tasks: &[Task], invite_code: &str) -> String {
+pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[Video], tasks: &[Task], invite_code: &str, base_url: &str) -> String {
+    let invite_link = format!("{}/join/{}", base_url.trim_end_matches('/'), invite_code);
     let level_opts: String = LEVELS.iter().map(|(k, v)| format!(r#"<option value="{k}">{v}</option>"#)).collect();
     let stat_rows: String = stats.iter().map(|s| {
         let pct = if s.duration > 0.0 { (s.max_position / s.duration * 100.0).min(100.0) } else { 0.0 };
@@ -461,9 +542,11 @@ pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[
 </section>
 
 <section class="panel">
-  <h2>Davet kodu</h2>
-  <p class="muted">Öğrenciler bu kodu <a href="/join">/join</a> sayfasında e-postalarıyla girerek kendi hesaplarını açar.</p>
-  <input value="{invite_code}" readonly>
+  <h2>Davet bağlantısı</h2>
+  <p class="muted">WhatsApp grubuna bu bağlantıyı at — kod bağlantının içinde, öğrenciler
+  yalnızca kendi bilgilerini doldurur.</p>
+  <input value="{invite_link}" readonly onclick="this.select()">
+  <p class="fieldnote">Kod: <b>{invite_code}</b> · Kodu yenilersen eski bağlantı çalışmaz.</p>
   <form method="post" action="/admin/invite">
     <button class="btn-dark">Kodu yenile</button>
   </form>

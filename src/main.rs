@@ -58,7 +58,9 @@ async fn main() {
         .route("/login", get(login_page).post(login_post))
         .route("/magic/{token}", get(magic_consume))
         .route("/join", get(join_page).post(join_post))
+        .route("/join/{code}", get(join_page_code))
         .route("/logout", post(logout))
+        .route("/profile", get(profile_page).post(profile_post))
         .route("/app", get(video_grid))
         .route("/agentic-harness", get(agentic_harness))
         .route("/ai-monopoly", get(ai_monopoly))
@@ -195,7 +197,7 @@ fn cookie_token(headers: &HeaderMap) -> Option<String> {
 async fn current_user(app: &App, headers: &HeaderMap) -> Option<User> {
     let token = cookie_token(headers)?;
     sqlx::query_as::<_, User>(
-        "select u.id, u.display_name, u.is_admin from sessions_exposure_academy s join users_exposure_academy u on u.id = s.user_id where s.token = $1 and s.expires_at > now()")
+        "select u.id, u.display_name, u.nickname, u.is_admin from sessions_exposure_academy s join users_exposure_academy u on u.id = s.user_id where s.token = $1 and s.expires_at > now()")
         .bind(token).fetch_optional(&app.pool).await.ok()?
 }
 
@@ -246,6 +248,19 @@ fn require(user: Option<User>) -> Result<User, Response> {
     user.ok_or_else(|| Redirect::to("/login").into_response())
 }
 
+/// Same as `require`, plus: no nickname means onboarding never finished, so send them
+/// to /profile to pick one. Used by every student page except /profile itself, which
+/// would otherwise redirect to itself forever.
+fn require_onboarded(user: Option<User>) -> Result<User, Response> {
+    let u = require(user)?;
+    // admins never appear on the leaderboard, so a nickname is optional for them —
+    // gating them too would just lock you out of the portal after a fresh seed
+    if u.nickname.is_none() && !u.is_admin {
+        return Err(Redirect::to("/profile").into_response());
+    }
+    Ok(u)
+}
+
 fn require_admin(user: Option<User>) -> Result<User, Response> {
     match user {
         Some(u) if u.is_admin => Ok(u),
@@ -281,16 +296,7 @@ async fn login_post(State(app): State<App>, Form(f): Form<LoginForm>) -> Respons
     let allowed: Option<(Uuid,)> = sqlx::query_as("select id from users_exposure_academy where email = $1")
         .bind(&email).fetch_optional(&app.pool).await.unwrap();
     if allowed.is_some() {
-        let recent: Option<(i32,)> = sqlx::query_as(
-            "select 1 from magic_links_exposure_academy where email = $1 and used_at is null and created_at > now() - interval '60 seconds'")
-            .bind(&email).fetch_optional(&app.pool).await.unwrap();
-        if recent.is_none() {
-            let token = random_token();
-            sqlx::query("insert into magic_links_exposure_academy (token, email, expires_at) values ($1,$2, now() + interval '15 minutes')")
-                .bind(&token).bind(&email).execute(&app.pool).await.unwrap();
-            let link = format!("{}/magic/{}", app.base_url, token);
-            send_magic_link_email(&app, &email, &link).await;
-        }
+        send_login_link(&app, &email).await;
     }
     // same response whether or not the email is registered — avoids account enumeration
     Html(html::login(Some(CHECK_EMAIL_MSG))).into_response()
@@ -314,28 +320,138 @@ async fn magic_consume(State(app): State<App>, Path(token): Path<String>) -> Res
 }
 
 async fn join_page() -> Html<String> {
-    Html(html::join(None))
+    Html(html::join(&JoinForm::default(), false, None))
+}
+
+/// The link that goes in the WhatsApp group: /join/<invite code>. The code rides in
+/// the path so students only fill in their own details; it is still validated on POST.
+async fn join_page_code(Path(code): Path<String>) -> Html<String> {
+    let f = JoinForm { code, ..Default::default() };
+    Html(html::join(&f, true, None))
+}
+
+async fn invite_code(app: &App) -> String {
+    sqlx::query_scalar("select value from app_settings_exposure_academy where key = 'invite_code'")
+        .fetch_optional(&app.pool).await.unwrap().unwrap_or_default()
+}
+
+async fn join_post(State(app): State<App>, Form(f): Form<JoinForm>) -> Response {
+    let locked = !f.code.trim().is_empty();
+    let fail = |msg: &str| Html(html::join(&f, locked, Some(msg))).into_response();
+
+    if f.code.trim() != invite_code(&app).await {
+        return fail("Davet kodu geçersiz.");
+    }
+    let email = f.email.trim().to_lowercase();
+    if !email.contains('@') {
+        return fail("Geçerli bir e-posta gir.");
+    }
+    let name = f.display_name.trim();
+    if name.chars().count() < 2 {
+        return fail("Ad soyadını yaz.");
+    }
+    let nickname = match validate_nickname(&f.nickname) {
+        Ok(n) => n,
+        Err(e) => return fail(e),
+    };
+    let taken: Option<(Uuid,)> = sqlx::query_as(
+        "select id from users_exposure_academy where lower(nickname) = lower($1)")
+        .bind(&nickname).fetch_optional(&app.pool).await.unwrap();
+    if taken.is_some() {
+        return fail("Bu nickname alınmış, başka bir tane seç.");
+    }
+
+    // `do nothing` on an existing email: a returning student (or one the admin added
+    // by hand) just gets a login link, and their existing profile is left alone rather
+    // than being overwritten by whoever typed their address.
+    sqlx::query(
+        "insert into users_exposure_academy (email, display_name, nickname, school, grade)
+         values ($1,$2,$3,nullif($4,''),nullif($5,''))
+         on conflict (email) do nothing")
+        .bind(&email).bind(name).bind(&nickname).bind(f.school.trim()).bind(f.grade.trim())
+        .execute(&app.pool).await.unwrap();
+
+    send_login_link(&app, &email).await;
+    Html(html::join_sent(&email)).into_response()
+}
+
+/// Mint a magic link for an email that is known to have an account, unless one was
+/// already sent in the last minute.
+async fn send_login_link(app: &App, email: &str) {
+    let recent: Option<(i32,)> = sqlx::query_as(
+        "select 1 from magic_links_exposure_academy where email = $1 and used_at is null and created_at > now() - interval '60 seconds'")
+        .bind(email).fetch_optional(&app.pool).await.unwrap();
+    if recent.is_some() { return }
+    let token = random_token();
+    sqlx::query("insert into magic_links_exposure_academy (token, email, expires_at) values ($1,$2, now() + interval '15 minutes')")
+        .bind(&token).bind(email).execute(&app.pool).await.unwrap();
+    let link = format!("{}/magic/{}", app.base_url, token);
+    send_magic_link_email(app, email, &link).await;
+}
+
+// ---- profile ----
+
+async fn load_profile(app: &App, uid: Uuid) -> Profile {
+    sqlx::query_as::<_, Profile>(
+        "select email, display_name, nickname, school, grade from users_exposure_academy where id = $1")
+        .bind(uid).fetch_one(&app.pool).await.unwrap()
+}
+
+async fn profile_page(State(app): State<App>, headers: HeaderMap) -> Result<Html<String>, Response> {
+    let user = require(current_user(&app, &headers).await)?;
+    let p = load_profile(&app, user.id).await;
+    Ok(Html(html::profile(&user, &p, None, None)))
 }
 
 #[derive(Deserialize)]
-struct JoinForm { email: String, code: String }
+struct ProfileForm {
+    display_name: String,
+    nickname: String,
+    // optional fields: default so a missing one is an empty value, not a 422 with no
+    // error banner for the student to read
+    #[serde(default)] school: String,
+    #[serde(default)] grade: String,
+}
 
-async fn join_post(State(app): State<App>, Form(f): Form<JoinForm>) -> Response {
-    let email = f.email.trim().to_lowercase();
-    let current: Option<(String,)> = sqlx::query_as(
-        "select value from app_settings_exposure_academy where key = 'invite_code'")
-        .fetch_optional(&app.pool).await.unwrap();
-    let matches = current.map(|(v,)| v == f.code.trim()).unwrap_or(false);
-    if !matches {
-        return Html(html::join(Some("Davet kodu geçersiz."))).into_response();
+async fn profile_post(State(app): State<App>, headers: HeaderMap, Form(f): Form<ProfileForm>) -> Result<Response, Response> {
+    let user = require(current_user(&app, &headers).await)?;
+    let mut p = load_profile(&app, user.id).await;
+    // echo the attempted values back so a rejected edit isn't retyped from scratch
+    p.display_name = f.display_name.trim().to_string();
+    p.nickname = Some(f.nickname.trim().to_string());
+    p.school = Some(f.school.trim().to_string());
+    p.grade = Some(f.grade.trim().to_string());
+    let err = |p: &Profile, msg: &str| Html(html::profile(&user, p, None, Some(msg))).into_response();
+
+    if p.display_name.chars().count() < 2 {
+        return Ok(err(&p, "Ad soyadını yaz."));
     }
-    // upsert so re-joining with a valid code logs an existing kid straight back in
-    let (uid,): (Uuid,) = sqlx::query_as(
-        "insert into users_exposure_academy (email, display_name) values ($1,$2)
-         on conflict (email) do update set email = excluded.email
-         returning id")
-        .bind(&email).bind(&email).fetch_one(&app.pool).await.unwrap();
-    issue_session(&app, uid).await
+    let nickname = match validate_nickname(&f.nickname) {
+        Ok(n) => n,
+        Err(e) => return Ok(err(&p, e)),
+    };
+    let taken: Option<(Uuid,)> = sqlx::query_as(
+        "select id from users_exposure_academy where lower(nickname) = lower($1) and id <> $2")
+        .bind(&nickname).bind(user.id).fetch_optional(&app.pool).await.unwrap();
+    if taken.is_some() {
+        return Ok(err(&p, "Bu nickname alınmış, başka bir tane seç."));
+    }
+
+    sqlx::query(
+        "update users_exposure_academy
+         set display_name = $2, nickname = $3, school = nullif($4,''), grade = nullif($5,'')
+         where id = $1")
+        .bind(user.id).bind(&p.display_name).bind(&nickname)
+        .bind(p.school.as_deref().unwrap_or("")).bind(p.grade.as_deref().unwrap_or(""))
+        .execute(&app.pool).await.map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
+
+    // first save completes onboarding — drop them into the portal instead of sitting on /profile
+    if user.nickname.is_none() {
+        return Ok(Redirect::to("/app").into_response());
+    }
+    let user = current_user(&app, &headers).await.unwrap_or(user);
+    let p = load_profile(&app, user.id).await;
+    Ok(Html(html::profile(&user, &p, Some("Profilin güncellendi."), None)).into_response())
 }
 
 async fn logout(State(app): State<App>, headers: HeaderMap) -> Response {
@@ -352,12 +468,12 @@ async fn logout(State(app): State<App>, headers: HeaderMap) -> Response {
 struct LevelQ { level: Option<String> }
 
 async fn agentic_harness(State(app): State<App>, headers: HeaderMap) -> Result<Html<String>, Response> {
-    let user = require(current_user(&app, &headers).await)?;
+    let user = require_onboarded(current_user(&app, &headers).await)?;
     Ok(Html(html::agentic_harness(&user)))
 }
 
 async fn ai_monopoly(State(app): State<App>, headers: HeaderMap) -> Result<Html<String>, Response> {
-    let user = require(current_user(&app, &headers).await)?;
+    let user = require_onboarded(current_user(&app, &headers).await)?;
     Ok(Html(html::ai_monopoly(&user)))
 }
 
@@ -365,13 +481,13 @@ async fn ai_monopoly(State(app): State<App>, headers: HeaderMap) -> Result<Html<
 struct LangQ { lang: Option<String> }
 
 async fn demos(State(app): State<App>, headers: HeaderMap, Query(q): Query<LangQ>) -> Result<Html<String>, Response> {
-    let user = require(current_user(&app, &headers).await)?;
+    let user = require_onboarded(current_user(&app, &headers).await)?;
     let lang = if q.lang.as_deref() == Some("en") { "en" } else { "tr" };
     Ok(Html(html::demos(&user, lang)))
 }
 
 async fn video_grid(State(app): State<App>, headers: HeaderMap, Query(q): Query<LevelQ>) -> Result<Html<String>, Response> {
-    let user = require(current_user(&app, &headers).await)?;
+    let user = require_onboarded(current_user(&app, &headers).await)?;
     let level = q.level.as_deref().filter(|l| html::LEVELS.iter().any(|(k, _)| k == l));
     let videos = sqlx::query_as::<_, VideoWithProgress>(
         "select v.id, v.youtube_id, v.title, v.level,
@@ -386,7 +502,7 @@ async fn video_grid(State(app): State<App>, headers: HeaderMap, Query(q): Query<
 }
 
 async fn watch(State(app): State<App>, headers: HeaderMap, Path(id): Path<Uuid>) -> Result<Html<String>, Response> {
-    let user = require(current_user(&app, &headers).await)?;
+    let user = require_onboarded(current_user(&app, &headers).await)?;
     let video = sqlx::query_as::<_, Video>("select id, youtube_id, title, level from videos_exposure_academy where id = $1")
         .bind(id).fetch_optional(&app.pool).await.unwrap()
         .ok_or_else(|| StatusCode::NOT_FOUND.into_response())?;
@@ -425,12 +541,12 @@ async fn progress(State(app): State<App>, headers: HeaderMap, Json(r): Json<Prog
 // ---- leaderboard ----
 
 async fn leaderboard(State(app): State<App>, headers: HeaderMap) -> Result<Html<String>, Response> {
-    let user = require(current_user(&app, &headers).await)?;
+    let user = require_onboarded(current_user(&app, &headers).await)?;
     // A video counts once it is ≥90% watched — same threshold the grid calls "Tamamlanmış".
     // A project counts once per task, and only when the submission passed, so resubmits
     // of the same task don't stack points.
     let rows = sqlx::query_as::<_, LeaderRow>(
-        "select u.id, u.display_name, u.email,
+        "select u.id, u.nickname,
                 coalesce(w.videos, 0) as videos, coalesce(p.projects, 0) as projects
          from users_exposure_academy u
          left join (select user_id, count(*) as videos
@@ -440,7 +556,9 @@ async fn leaderboard(State(app): State<App>, headers: HeaderMap) -> Result<Html<
          left join (select user_id, count(distinct task_id) as projects
                     from submissions_exposure_academy where status = 'passed'
                     group by user_id) p on p.user_id = u.id
-         where not u.is_admin
+         -- nickname is null until onboarding is done: a student appears on the board
+         -- only once they have picked the handle the board is going to show
+         where not u.is_admin and u.nickname is not null
          order by coalesce(w.videos,0) * $1 + coalesce(p.projects,0) * $2 desc, u.created_at")
         .bind(PTS_VIDEO).bind(PTS_PROJECT)
         .fetch_all(&app.pool).await.unwrap();
@@ -450,7 +568,7 @@ async fn leaderboard(State(app): State<App>, headers: HeaderMap) -> Result<Html<
 // ---- board ----
 
 async fn board(State(app): State<App>, headers: HeaderMap) -> Result<Html<String>, Response> {
-    let user = require(current_user(&app, &headers).await)?;
+    let user = require_onboarded(current_user(&app, &headers).await)?;
     let tasks = sqlx::query_as::<_, Task>("select id, title, description, level from tasks_exposure_academy order by created_at desc")
         .fetch_all(&app.pool).await.unwrap();
     let subs = sqlx::query_as::<_, SubmissionView>(
@@ -466,7 +584,7 @@ async fn board(State(app): State<App>, headers: HeaderMap) -> Result<Html<String
 struct SubmitForm { task_id: Uuid, repo_url: String }
 
 async fn board_submit(State(app): State<App>, headers: HeaderMap, Form(f): Form<SubmitForm>) -> Result<Redirect, Response> {
-    let user = require(current_user(&app, &headers).await)?;
+    let user = require_onboarded(current_user(&app, &headers).await)?;
     if !f.repo_url.starts_with("https://github.com/") {
         return Err((StatusCode::BAD_REQUEST, "GitHub deposu bağlantısı gerekli").into_response());
     }
@@ -495,9 +613,8 @@ async fn admin_page(State(app): State<App>, headers: HeaderMap) -> Result<Html<S
         .fetch_all(&app.pool).await.unwrap();
     let tasks = sqlx::query_as::<_, Task>("select id, title, description, level from tasks_exposure_academy order by created_at desc")
         .fetch_all(&app.pool).await.unwrap();
-    let invite_code: String = sqlx::query_scalar("select value from app_settings_exposure_academy where key = 'invite_code'")
-        .fetch_optional(&app.pool).await.unwrap().unwrap_or_default();
-    Ok(Html(html::admin(&user, &stats, &subs, &videos, &tasks, &invite_code)))
+    let invite_code = invite_code(&app).await;
+    Ok(Html(html::admin(&user, &stats, &subs, &videos, &tasks, &invite_code, &app.base_url)))
 }
 
 fn parse_youtube_id(input: &str) -> String {

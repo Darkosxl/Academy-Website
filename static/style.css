@@ -423,3 +423,38 @@ form.inline input, form.inline select { margin-top:0; width:auto; }
   .playlist { width:100%; }
   .hero h1 { font-size:40px; }
 }
+
+/* ============================================================================
+   PROFILE — sidebar chip links here; also the forced stop for students whose
+   onboarding never finished (null nickname).
+   ============================================================================ */
+.sb-me {
+  display:flex; align-items:center; gap:10px; flex:1; min-width:0;
+  padding:4px 6px; margin:-4px -6px; border-radius:var(--r-lg);
+  color:inherit; text-decoration:none; transition:background 150ms;
+}
+.sb-me:hover { background:var(--border); }
+.sb-me:hover .sb-name { color:var(--text); }
+.sb-me.active .sb-name { color:var(--blue-text); }
+
+.profilewrap { max-width:32rem; margin-top:20px; }
+.fieldnote {
+  font-size:var(--fs-mini); line-height:1.6; color:var(--text-subtle);
+  margin:-10px 0 16px; text-transform:none; letter-spacing:normal; font-weight:400;
+}
+.portal label .fieldnote { display:block; margin:6px 0 0; }
+.portal input:disabled { opacity:0.55; cursor:not-allowed; }
+.profilewrap .btn-dark { margin-top:6px; }
+
+/* onboarding form runs long — the light auth card needs the same field-note
+   treatment plus a styled <select>, which only the portal had */
+.loginbox .fieldnote { display:block; color:var(--light-muted); margin:6px 0 0; }
+.loginbox select {
+  display:block; width:100%; margin-top:6px;
+  background:#fff; border:1px solid var(--light-border); border-radius:var(--r-xl);
+  padding:14px 16px; font:inherit; font-size:var(--fs-body); color:var(--light-ink);
+  box-shadow:0 1px 2px rgba(0,0,0,0.05); outline:none; transition:all 150ms;
+  text-transform:none; letter-spacing:normal;
+}
+.loginbox select:focus { border-color:var(--blue); box-shadow:0 0 0 2px rgba(3,57,166,0.10); }
+.loginbox .auth-sub b { font-weight:600; color:var(--light-ink); }
