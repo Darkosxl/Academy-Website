@@ -61,7 +61,8 @@ async fn main() {
         .route("/join/{code}", get(join_page_code))
         .route("/logout", post(logout))
         .route("/profile", get(profile_page).post(profile_post))
-        .route("/app", get(video_grid))
+        .route("/app", get(home))
+        .route("/videos", get(video_grid))
         .route("/agentic-harness", get(agentic_harness))
         .route("/ai-monopoly", get(ai_monopoly))
         .route("/demos", get(demos))
@@ -501,6 +502,30 @@ async fn demos(State(app): State<App>, headers: HeaderMap, Query(q): Query<LangQ
     Ok(Html(html::demos(&user, lang)))
 }
 
+/// Ana Sayfa. No content of its own — three doors (videolar / görevler / puan tablosu),
+/// each carrying the one number that tells the student where they stand.
+async fn home(State(app): State<App>, headers: HeaderMap) -> Result<Html<String>, Response> {
+    let user = require_onboarded(current_user(&app, &headers).await)?;
+    let videos_total: i64 = sqlx::query_scalar("select count(*) from videos_exposure_academy")
+        .fetch_one(&app.pool).await.unwrap();
+    let videos_done: i64 = sqlx::query_scalar(
+        "select count(*) from watch_progress_exposure_academy
+         where user_id = $1 and duration > 0 and max_position >= duration * 0.9")
+        .bind(user.id).fetch_one(&app.pool).await.unwrap();
+    // "Açık" = bu öğrencinin henüz geçmiş bir gönderimi olmayan görev.
+    let open_tasks: i64 = sqlx::query_scalar(
+        "select count(*) from tasks_exposure_academy t
+         where not exists (select 1 from submissions_exposure_academy s
+                           where s.task_id = t.id and s.user_id = $1 and s.status = 'passed')")
+        .bind(user.id).fetch_one(&app.pool).await.unwrap();
+    let rows = leader_rows(&app).await;
+    let ranks = html::dense_ranks(&rows);
+    let me = rows.iter().position(|r| r.id == user.id);
+    let points = me.map(|i| rows[i].points()).unwrap_or(0);
+    let rank = me.map(|i| ranks[i]);
+    Ok(Html(html::home(&user, videos_done, videos_total, open_tasks, points, rank)))
+}
+
 async fn video_grid(State(app): State<App>, headers: HeaderMap, Query(q): Query<LevelQ>) -> Result<Html<String>, Response> {
     let user = require_onboarded(current_user(&app, &headers).await)?;
     let level = q.level.as_deref().filter(|l| html::LEVELS.iter().any(|(k, _)| k == l));
@@ -557,10 +582,18 @@ async fn progress(State(app): State<App>, headers: HeaderMap, Json(r): Json<Prog
 
 async fn leaderboard(State(app): State<App>, headers: HeaderMap) -> Result<Html<String>, Response> {
     let user = require_onboarded(current_user(&app, &headers).await)?;
-    // A video counts once it is ≥90% watched — same threshold the grid calls "Tamamlanmış".
-    // A project counts once per task, and only when the submission passed, so resubmits
-    // of the same task don't stack points.
-    let rows = sqlx::query_as::<_, LeaderRow>(
+    let rows = leader_rows(&app).await;
+    Ok(Html(html::leaderboard(&user, &rows)))
+}
+
+/// The standings, ordered. Shared by /leaderboard and the Ana Sayfa summary card so
+/// the two can never disagree about a student's points or place.
+///
+/// A video counts once it is ≥90% watched — same threshold the grid calls "Tamamlanmış".
+/// A project counts once per task, and only when the submission passed, so resubmits
+/// of the same task don't stack points.
+async fn leader_rows(app: &App) -> Vec<LeaderRow> {
+    sqlx::query_as::<_, LeaderRow>(
         "select u.id, u.nickname,
                 coalesce(w.videos, 0) as videos, coalesce(p.projects, 0) as projects
          from users_exposure_academy u
@@ -576,8 +609,7 @@ async fn leaderboard(State(app): State<App>, headers: HeaderMap) -> Result<Html<
          where not u.is_admin and u.nickname is not null
          order by coalesce(w.videos,0) * $1 + coalesce(p.projects,0) * $2 desc, u.created_at")
         .bind(PTS_VIDEO).bind(PTS_PROJECT)
-        .fetch_all(&app.pool).await.unwrap();
-    Ok(Html(html::leaderboard(&user, &rows)))
+        .fetch_all(&app.pool).await.unwrap()
 }
 
 // ---- board ----
