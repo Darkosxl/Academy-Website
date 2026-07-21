@@ -7,7 +7,11 @@ pub fn esc(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
 }
 
-pub const LEVELS: [(&str, &str); 3] = [("PRESEED", "PRESEED"), ("SEED", "SEED"), ("SERIES_A", "SERIES A")];
+/// (database value, what students see). The keys stay as they are — they're baked
+/// into a CHECK constraint and into every existing video/task row — so renaming a
+/// level is a change to the right-hand side only, never a migration.
+pub const LEVELS: [(&str, &str); 3] =
+    [("PRESEED", "Seviye 1"), ("SEED", "Seviye 2"), ("SERIES_A", "Seviye 3")];
 
 pub fn level_name(l: &str) -> &'static str {
     LEVELS.iter().find(|(k, _)| *k == l).map(|(_, v)| *v).unwrap_or("?")
@@ -132,7 +136,7 @@ pub fn landing() -> String {
 <section class="hero">
   <div class="pill"><span class="dot"></span> Video Dersleri</div>
   <h1>Yapay Zekayı<br><em>Projelerle Öğren!</em></h1>
-  <p class="sub">PRESEED · SEED · SERIES A</p>
+  <p class="sub">Seviye 1 · Seviye 2 · Seviye 3</p>
   <a class="btn-dark big" href="/login">Oturum aç →</a>
 </section>"##)
 }

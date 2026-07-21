@@ -1,7 +1,8 @@
 # Exposure Academy
 
 Video learning portal for high school students. Rust (Axum) + Supabase (Postgres).
-Students log in, watch YouTube-embedded lessons split into **PRESEED / SEED / SERIES A** levels
+Students log in, watch YouTube-embedded lessons split into three levels — shown as
+**Seviye 1 / 2 / 3**, stored as `PRESEED` / `SEED` / `SERIES_A` (see `LEVELS` in `html.rs`) —
 (labels only — everyone can watch everything), and submit projects on the task board.
 Watch time is tracked per student per video.
 
