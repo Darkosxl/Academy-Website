@@ -360,15 +360,24 @@ async fn join_post(State(app): State<App>, Form(f): Form<JoinForm>) -> Response 
     if taken.is_some() {
         return fail("Bu nickname alınmış, başka bir tane seç.");
     }
+    let school = f.school.trim();
+    if school.chars().count() < 2 {
+        return fail("Okulunu yaz.");
+    }
+    // the browser enforces `required`, but the grade must also be one we offer — a
+    // hand-rolled POST could otherwise put anything in the column
+    if !GRADES.contains(&f.grade.trim()) {
+        return fail("Sınıfını seç.");
+    }
 
     // `do nothing` on an existing email: a returning student (or one the admin added
     // by hand) just gets a login link, and their existing profile is left alone rather
     // than being overwritten by whoever typed their address.
     sqlx::query(
         "insert into users_exposure_academy (email, display_name, nickname, school, grade)
-         values ($1,$2,$3,nullif($4,''),nullif($5,''))
+         values ($1,$2,$3,$4,$5)
          on conflict (email) do nothing")
-        .bind(&email).bind(name).bind(&nickname).bind(f.school.trim()).bind(f.grade.trim())
+        .bind(&email).bind(name).bind(&nickname).bind(school).bind(f.grade.trim())
         .execute(&app.pool).await.unwrap();
 
     send_login_link(&app, &email).await;
@@ -436,13 +445,19 @@ async fn profile_post(State(app): State<App>, headers: HeaderMap, Form(f): Form<
     if taken.is_some() {
         return Ok(err(&p, "Bu nickname alınmış, başka bir tane seç."));
     }
+    let school = f.school.trim();
+    if school.chars().count() < 2 {
+        return Ok(err(&p, "Okulunu yaz."));
+    }
+    if !GRADES.contains(&f.grade.trim()) {
+        return Ok(err(&p, "Sınıfını seç."));
+    }
 
     sqlx::query(
         "update users_exposure_academy
-         set display_name = $2, nickname = $3, school = nullif($4,''), grade = nullif($5,'')
+         set display_name = $2, nickname = $3, school = $4, grade = $5
          where id = $1")
-        .bind(user.id).bind(&p.display_name).bind(&nickname)
-        .bind(p.school.as_deref().unwrap_or("")).bind(p.grade.as_deref().unwrap_or(""))
+        .bind(user.id).bind(&p.display_name).bind(&nickname).bind(school).bind(f.grade.trim())
         .execute(&app.pool).await.map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
 
     // first save completes onboarding — drop them into the portal instead of sitting on /profile

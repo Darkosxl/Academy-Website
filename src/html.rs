@@ -159,12 +159,11 @@ pub fn join(f: &JoinForm, code_locked: bool, error: Option<&str>) -> String {
             format!(r#"<option value="{g}"{sel}>{g}</option>"#)
         }))
         .collect();
-    layout("Katıl", None, "", &format!(r##"
+    layout("Oluştur", None, "", &format!(r##"
 <div class="auth-wrap">
   <div class="auth-dots"></div><div class="auth-glow"></div>
   <div class="loginbox">
-    <h1>Aramıza katıl</h1>
-    <p class="auth-sub">Birkaç bilgi al, hesabın hazır olsun.</p>
+    <h1>Profilini oluştur</h1>
     {err}
     <form method="post" action="/join">
       {code_field}
@@ -172,15 +171,14 @@ pub fn join(f: &JoinForm, code_locked: bool, error: Option<&str>) -> String {
       <label>E-posta<input name="email" type="email" value="{email}" required>
         <span class="fieldnote">Giriş bağlantıların bu adrese gelecek — doğru yazdığından emin ol.</span>
       </label>
-      <label><span lang="en">Nickname</span><input name="nickname" value="{nick}" placeholder="ör. kodcu_ayse" maxlength="20" required>
+      <label><span lang="en">Nickname</span><input name="nickname" value="{nick}" placeholder="ör. onur_maker" maxlength="20" required>
         <span class="fieldnote"><b>Puan tablosunda yalnızca bu nickname görünür</b> — gerçek adın hiçbir zaman
         diğer öğrencilere gösterilmez. Harf, rakam, _ ve - kullanabilirsin.</span>
       </label>
-      <label>Okul<input name="school" value="{school}" placeholder="İsteğe bağlı"></label>
-      <label>Sınıf<select name="grade">{grade_opts}</select></label>
-      <button class="btn-dark big">Katıl →</button>
+      <label>Okul<input name="school" value="{school}" required></label>
+      <label>Sınıf<select name="grade" required>{grade_opts}</select></label>
+      <button class="btn-dark big">Oluştur →</button>
     </form>
-    <p class="muted">Hesabın var mı? <a href="/login">Oturum aç</a></p>
   </div>
 </div>"##,
         name = esc(&f.display_name), email = esc(&f.email), nick = esc(&f.nickname), school = esc(&f.school),
@@ -228,10 +226,10 @@ pub fn profile(user: &User, p: &Profile, msg: Option<&str>, error: Option<&str>)
   {banner}
   <form method="post" action="/profile">
     <label>Ad soyad<input name="display_name" value="{name}" required></label>
-    <label><span lang="en">Nickname</span><input name="nickname" value="{nick}" placeholder="ör. kodcu_ayse" maxlength="20" required></label>
+    <label><span lang="en">Nickname</span><input name="nickname" value="{nick}" placeholder="ör. onur_maker" maxlength="20" required></label>
     <p class="fieldnote">Puan tablosunda yalnızca nickname'in görünür; gerçek adını diğer öğrenciler görmez.</p>
-    <label>Okul<input name="school" value="{school}" placeholder="İsteğe bağlı"></label>
-    <label>Sınıf<select name="grade">{grade_opts}</select></label>
+    <label>Okul<input name="school" value="{school}" required></label>
+    <label>Sınıf<select name="grade" required>{grade_opts}</select></label>
     <label>E-posta<input value="{email}" disabled></label>
     <p class="fieldnote">E-postan giriş kimliğin — değiştirmek için eğitmenine yaz.</p>
     <button class="btn-dark">{save_label}</button>

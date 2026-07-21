@@ -47,7 +47,7 @@ pub struct JoinForm {
     pub grade: String,
 }
 
-pub const GRADES: [&str; 6] = ["9. sınıf", "10. sınıf", "11. sınıf", "12. sınıf", "Mezun", "Diğer"];
+pub const GRADES: [&str; 4] = ["9'a geçiyor", "10'a geçiyor", "11'e geçiyor", "12'ye geçiyor"];
 
 /// Nickname rules, one place. Letters (Turkish included), digits, `_` and `-`; no
 /// spaces, so it always fits the leaderboard row.
