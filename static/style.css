@@ -243,6 +243,9 @@ body:not(.portal) .btn-dark.big { padding:14px 32px; }
 .portal .btn-dark:hover { background:var(--blue-hover); }
 .portal .btn-dark.big { padding:12px 28px; }
 .portal .btn-dark.small { padding:6px 14px; font-size:var(--fs-xs); }
+.portal .btn-dark:disabled { opacity:0.6; cursor:default; }
+/* /admin: transient success state after a no-reload Kaydet save — see static/admin.js */
+.portal .btn-dark.btn-saved, .portal .btn-dark.btn-saved:hover { background:var(--ok); }
 .portal .btn-outline {
   display:inline-flex; align-items:center; gap:6px;
   background:var(--bg-raised); color:var(--text-body); border:none; border-radius:var(--r-xl);

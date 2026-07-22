@@ -731,5 +731,5 @@ pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[
   <table><tr><th>Öğrenci</th><th>E-posta</th><th>Görev</th><th>Repo</th><th>Plan</th><th>Gönderim</th><th></th></tr>{sub_rows}</table>
 </section>
 </div>
-<script src="/static/admin.js?v=2" defer></script>"##))
+<script src="/static/admin.js?v=4" defer></script>"##))
 }
