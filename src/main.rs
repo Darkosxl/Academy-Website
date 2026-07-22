@@ -38,6 +38,7 @@ async fn main() {
     sqlx::raw_sql(include_str!("../migrations/001_init.sql")).execute(&pool).await.expect("migration failed");
     seed_admin(&pool).await;
     seed_invite_code(&pool).await;
+    seed_videos(&pool).await;
     // opportunistic cleanup of stale magic links and sessions, no scheduler needed
     let _ = sqlx::query("delete from magic_links_exposure_academy where expires_at < now() - interval '1 day'")
         .execute(&pool).await;
@@ -106,6 +107,31 @@ async fn seed_admin(pool: &PgPool) {
             sqlx::query("update users_exposure_academy set is_admin = true where email = $1")
                 .bind(&email).execute(pool).await.unwrap();
         }
+    }
+}
+
+/// Lesson video youtube-IDs live hex-encoded in videos.dat (committed) so the raw
+/// URLs aren't sitting in the repo as plaintext; video_links.md (the readable
+/// source) is git-ignored. Line order in the decoded blob IS the playlist order:
+/// positions 1..=8 are Seviye 1 (PRESEED), 9..=15 Seviye 2 (SEED). Insert-once by
+/// youtube_id, so title/level/position edits made later in the admin panel survive
+/// restarts. Regenerate videos.dat after editing video_links.md:
+///   python3 -c "import sys;d={};[d.__setitem__(int(o),u.strip().rsplit('/',1)[-1]) for l in open('video_links.md') if l.strip() for u,o in [l.rsplit(' - ',1)]];open('videos.dat','w').write('\n'.join(d[k] for k in sorted(d)).encode().hex())"
+async fn seed_videos(pool: &PgPool) {
+    let hex = include_str!("../videos.dat").trim();
+    let bytes: Vec<u8> = (0..hex.len()).step_by(2)
+        .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).expect("videos.dat not valid hex"))
+        .collect();
+    let blob = String::from_utf8(bytes).expect("videos.dat not valid utf-8");
+    for (i, yt) in blob.lines().filter(|l| !l.is_empty()).enumerate() {
+        let pos = (i + 1) as i32;
+        let level = if pos <= 8 { "PRESEED" } else { "SEED" };
+        sqlx::query(
+            "insert into videos_exposure_academy (youtube_id, title, level, position)
+             select $1,$2,$3,$4
+             where not exists (select 1 from videos_exposure_academy where youtube_id = $1)")
+            .bind(yt).bind(format!("Ders {pos}")).bind(level).bind(pos)
+            .execute(pool).await.unwrap();
     }
 }
 
