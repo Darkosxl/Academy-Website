@@ -17,6 +17,15 @@ pub fn level_name(l: &str) -> &'static str {
     LEVELS.iter().find(|(k, _)| *k == l).map(|(_, v)| *v).unwrap_or("?")
 }
 
+/// `<option>` list for a level `<select>`; `current` gets the `selected` attribute
+/// (pass "" for a fresh form — no match, browser defaults to the first).
+fn level_options(current: &str) -> String {
+    LEVELS.iter().map(|(k, v)| format!(
+        r#"<option value="{k}"{sel}>{v}</option>"#,
+        sel = if *k == current { " selected" } else { "" },
+    )).collect()
+}
+
 // Heroicons v2 (outline, 24x24, 1.5 stroke) — sized/colored via CSS (currentColor).
 fn ico(path: &str) -> String {
     format!(r##"<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="{path}"/></svg>"##)
@@ -122,7 +131,7 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/style.css?v=9">
+<link rel="stylesheet" href="/static/style.css?v=10">
 </head>
 <body class="{body_class}">
 {shell}
@@ -516,6 +525,13 @@ pub fn board(user: &User, tasks: &[Task], subs: &[SubmissionView]) -> String {
     } else {
         tasks.iter().map(|t| {
             let my_sub = subs.iter().find(|s| s.task_id == t.id);
+            // live preview of the example project; interaction goes through the link
+            // below it (the iframe itself is pointer-events:none in CSS)
+            let example = t.example_url.as_deref().filter(|u| !u.is_empty()).map(|u| format!(
+                r##"<div class="example-preview"><iframe src="{url}" loading="lazy" sandbox="allow-scripts allow-same-origin" tabindex="-1" title="Örnek proje önizlemesi"></iframe></div>
+  <p><a class="btn-outline" href="{url}" target="_blank" rel="noopener">Örnek projeyi aç →</a></p>"##,
+                url = esc(u),
+            )).unwrap_or_default();
             let sub_html = match my_sub {
                 Some(s) => {
                     let (label, class) = status_tr(&s.status);
@@ -525,7 +541,10 @@ pub fn board(user: &User, tasks: &[Task], subs: &[SubmissionView]) -> String {
                     let demo = s.demo_video_url.as_deref().filter(|d| !d.is_empty())
                         .map(|d| format!(r#"<p><a class="btn-outline" href="{}" target="_blank">Tanıtım videosu →</a></p>"#, esc(d)))
                         .unwrap_or_default();
-                    format!(r#"<div class="substatus {class}">{label}</div>{fb}{demo}"#)
+                    let plan_ok = if s.plan_md.as_deref().is_some_and(|p| !p.trim().is_empty()) {
+                        r#"<p class="fieldnote">plan.md yüklendi ✓</p>"#
+                    } else { "" };
+                    format!(r#"<div class="substatus {class}">{label}</div>{fb}{demo}{plan_ok}"#)
                 }
                 None => String::new(),
             };
@@ -533,10 +552,14 @@ pub fn board(user: &User, tasks: &[Task], subs: &[SubmissionView]) -> String {
                 r##"<div class="taskcard">
   <div class="taskhead"><h3>{title}</h3><span class="badge">{level}</span></div>
   <p class="desc">{desc}</p>
+  {example}
   {sub_html}
-  <form method="post" action="/board/submit" class="subform">
+  <form method="post" action="/board/submit" enctype="multipart/form-data" class="subform">
     <input type="hidden" name="task_id" value="{id}">
-    <input name="repo_url" type="url" placeholder="" required>
+    <input name="repo_url" type="url" placeholder="https://github.com/..." required>
+    <label class="planfile">plan.md (mimari planınız)
+      <input name="plan" type="file" accept=".md,.markdown,text/markdown" required>
+    </label>
     <button class="btn-dark">Gönder →</button>
   </form>
 </div>"##,
@@ -550,7 +573,7 @@ pub fn board(user: &User, tasks: &[Task], subs: &[SubmissionView]) -> String {
 
 pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[Video], tasks: &[Task], invite_code: &str, base_url: &str) -> String {
     let invite_link = format!("{}/join/{}", base_url.trim_end_matches('/'), invite_code);
-    let level_opts: String = LEVELS.iter().map(|(k, v)| format!(r#"<option value="{k}">{v}</option>"#)).collect();
+    let level_opts = level_options("");
     let stat_rows: String = stats.iter().map(|s| {
         let pct = if s.duration > 0.0 { (s.max_position / s.duration * 100.0).min(100.0) } else { 0.0 };
         format!(
@@ -560,29 +583,64 @@ pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[
         )
     }).collect();
     let sub_rows: String = subs.iter().map(|s| {
+        // preselect the submission's actual status so saving without touching the
+        // dropdown doesn't silently reset it to "pending"
+        let status_opts: String = [
+            ("pending", "İnceleme bekleniyor"), ("reviewing", "İnceleniyor"),
+            ("passed", "Geçti"), ("failed", "Başarısız"),
+        ].iter().map(|(k, v)| format!(
+            r#"<option value="{k}"{sel}>{v}</option>"#,
+            sel = if *k == s.status { " selected" } else { "" },
+        )).collect();
+        let plan = s.plan_md.as_deref().filter(|p| !p.trim().is_empty())
+            .map(|p| format!(r#"<details class="plan-details"><summary>Plan</summary><pre class="plan-pre">{}</pre></details>"#, esc(p)))
+            .unwrap_or_else(|| "—".into());
         format!(
-            r##"<tr><td>{student}</td><td>{task}</td><td><a href="{url}" target="_blank">repo</a></td><td>{status}</td>
+            r##"<tr><td>{student}</td><td>{email}</td><td>{task}</td><td><a href="{url}" target="_blank">repo</a></td><td>{plan}</td><td>{date}</td>
 <td><form method="post" action="/admin/review" class="inline">
   <input type="hidden" name="id" value="{id}">
-  <select name="status">
-    <option value="pending">İnceleme bekleniyor</option>
-    <option value="reviewing">İnceleniyor</option>
-    <option value="passed">Geçti</option>
-    <option value="failed">Başarısız</option>
-  </select>
+  <select name="status">{status_opts}</select>
   <input name="feedback" placeholder="Geri bildirim" value="{fb}">
   <button class="btn-dark small">Kaydet</button>
 </form></td></tr>"##,
-            student = esc(&s.display_name), task = esc(&s.task_title), url = esc(&s.repo_url),
-            status = esc(&s.status), id = s.id, fb = esc(s.feedback.as_deref().unwrap_or("")),
+            student = esc(&s.display_name), email = esc(&s.email), task = esc(&s.task_title),
+            url = esc(&s.repo_url), date = s.created_at.format("%d.%m.%Y %H:%M"),
+            id = s.id, fb = esc(s.feedback.as_deref().unwrap_or("")),
         )
     }).collect();
-    let video_rows: String = videos.iter().map(|v|
-        format!("<tr><td>{}</td><td>{}</td><td>{}</td></tr>", esc(&v.title), level_name(&v.level), esc(&v.youtube_id))
-    ).collect();
-    let task_rows: String = tasks.iter().map(|t|
-        format!("<tr><td>{}</td><td>{}</td></tr>", esc(&t.title), level_name(&t.level))
-    ).collect();
+    let video_rows: String = videos.iter().map(|v| format!(
+        r##"<tr><td>{title}</td>
+<td><form method="post" action="/admin/video/level" class="inline">
+  <input type="hidden" name="id" value="{id}">
+  <select name="level">{opts}</select>
+  <button class="btn-dark small">Kaydet</button>
+</form></td>
+<td>{yt}</td>
+<td><form method="post" action="/admin/video/delete" class="inline" onsubmit="return confirm('Bu videoyu silersen öğrencilerin izleme ilerlemesi ve bu videodan kazanılan puanlar da silinir. Emin misin?')">
+  <input type="hidden" name="id" value="{id}">
+  <button class="btn-dark small">Sil</button>
+</form></td></tr>"##,
+        title = esc(&v.title), id = v.id, opts = level_options(&v.level), yt = esc(&v.youtube_id),
+    )).collect();
+    let task_rows: String = tasks.iter().map(|t| format!(
+        r##"<tr><td>{title}</td>
+<td><form method="post" action="/admin/task/level" class="inline">
+  <input type="hidden" name="id" value="{id}">
+  <select name="level">{opts}</select>
+  <button class="btn-dark small">Kaydet</button>
+</form></td>
+<td><form method="post" action="/admin/task/example" class="inline">
+  <input type="hidden" name="id" value="{id}">
+  <input name="example_url" type="url" placeholder="https://…" value="{example}">
+  <button class="btn-dark small">Kaydet</button>
+</form></td>
+<td><form method="post" action="/admin/task/delete" class="inline" onsubmit="return confirm('Bu görevi silersen tüm gönderimler ve bu görevden kazanılan puanlar da silinir. Emin misin?')">
+  <input type="hidden" name="id" value="{id}">
+  <button class="btn-dark small">Sil</button>
+</form></td></tr>"##,
+        title = esc(&t.title), id = t.id, opts = level_options(&t.level),
+        example = esc(t.example_url.as_deref().unwrap_or("")),
+    )).collect();
     layout("Yönetici paneli", Some(user), "admin", &format!(
         r##"<h1 class="pagetitle">Yönetici paneli</h1>
 
@@ -595,7 +653,7 @@ pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[
     <label>Seviye<select name="level">{level_opts}</select></label>
     <button class="btn-dark">Kaydet</button>
   </form>
-  <table class="mini"><tr><th>Başlık</th><th>Seviye</th><th>YouTube</th></tr>{video_rows}</table>
+  <table class="mini"><tr><th>Başlık</th><th>Seviye</th><th>YouTube</th><th></th></tr>{video_rows}</table>
 </section>
 
 <section class="panel">
@@ -603,10 +661,11 @@ pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[
   <form method="post" action="/admin/task">
     <label>Başlık<input name="title" required></label>
     <label>Tanım<textarea name="description" rows="3" required></textarea></label>
+    <label>Örnek proje URL (opsiyonel)<input name="example_url" type="url" placeholder="https://ornek-proje.vercel.app"></label>
     <label>Seviye<select name="level">{level_opts}</select></label>
     <button class="btn-dark">Kaydet</button>
   </form>
-  <table class="mini"><tr><th>Başlık</th><th>Seviye</th></tr>{task_rows}</table>
+  <table class="mini"><tr><th>Başlık</th><th>Seviye</th><th>Örnek URL</th><th></th></tr>{task_rows}</table>
 </section>
 
 <section class="panel">
@@ -637,6 +696,6 @@ pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[
 
 <section class="panel wide">
   <h2>Gönderimler</h2>
-  <table><tr><th>Öğrenci</th><th>Görev</th><th>Repo</th><th>Durum</th><th></th></tr>{sub_rows}</table>
+  <table><tr><th>Öğrenci</th><th>E-posta</th><th>Görev</th><th>Repo</th><th>Plan</th><th>Gönderim</th><th></th></tr>{sub_rows}</table>
 </section>"##))
 }

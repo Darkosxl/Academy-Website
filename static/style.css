@@ -346,8 +346,22 @@ body:not(.portal) .btn-dark.big { padding:14px 32px; }
   padding:2px 10px; border-radius:var(--r-pill); white-space:nowrap;
 }
 .desc { font-size:var(--fs-xs); color:var(--text-muted); margin-bottom:12px; white-space:pre-wrap; line-height:1.6; }
-.subform { display:flex; gap:8px; margin-top:12px; }
+.subform { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
 .subform input { margin-top:0; flex:1; }
+.subform .planfile { flex-basis:100%; margin-bottom:0; }
+.subform .planfile input[type=file] { width:100%; font-size:var(--fs-xs); padding:8px 10px; }
+
+/* Örnek proje canlı önizlemesi — iframe 1280x800 render edilir, 0.25 ölçekle
+   320x200'e sığar; etkileşim alttaki "Örnek projeyi aç" bağlantısında */
+.example-preview {
+  height:200px; overflow:hidden; margin-bottom:12px;
+  border-radius:var(--r-xl); border:1px solid var(--border-card); background:var(--bg-card-solid);
+}
+.example-preview iframe {
+  width:1280px; height:800px; border:0;
+  transform:scale(0.25); transform-origin:0 0;
+  pointer-events:none;
+}
 
 /* Status pills — tinted, per the portal status-pill pattern */
 .substatus {
@@ -387,6 +401,15 @@ body:not(.portal) .btn-dark.big { padding:14px 32px; }
 .panel h2 {
   font-size:var(--fs-label); font-weight:600; text-transform:uppercase; letter-spacing:0.05em;
   color:var(--text-muted); margin-bottom:14px;
+}
+
+/* Gönderimler: öğrencinin yüklediği plan.md içeriği */
+.plan-details summary { cursor:pointer; font-size:var(--fs-xs); color:var(--blue-text); }
+.plan-pre {
+  max-height:320px; max-width:420px; overflow:auto; white-space:pre-wrap; margin-top:6px;
+  background:rgba(9,9,11,0.50); border:1px solid var(--border-subtle);
+  border-radius:var(--r-xl); padding:10px 12px; font-size:var(--fs-mini); line-height:1.55;
+  color:var(--text-body);
 }
 
 /* ---- Demo cards (interactive HTML demos) ---- */

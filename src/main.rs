@@ -3,7 +3,7 @@ mod model;
 
 use axum::{
     Form, Json, Router,
-    extract::{Path, Query, Request, State},
+    extract::{DefaultBodyLimit, Multipart, Path, Query, Request, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
     middleware::{self, Next},
     response::{Html, IntoResponse, Redirect, Response},
@@ -71,10 +71,15 @@ async fn main() {
         .route("/api/progress", post(progress))
         .route("/leaderboard", get(leaderboard))
         .route("/board", get(board))
-        .route("/board/submit", post(board_submit))
+        .route("/board/submit", post(board_submit).layer(DefaultBodyLimit::max(300 * 1024)))
         .route("/admin", get(admin_page))
         .route("/admin/video", post(admin_video))
+        .route("/admin/video/level", post(admin_video_level))
+        .route("/admin/video/delete", post(admin_video_delete))
         .route("/admin/task", post(admin_task))
+        .route("/admin/task/example", post(admin_task_example))
+        .route("/admin/task/level", post(admin_task_level))
+        .route("/admin/task/delete", post(admin_task_delete))
         .route("/admin/user", post(admin_user))
         .route("/admin/review", post(admin_review))
         .route("/admin/invite", post(admin_rotate_invite))
@@ -671,27 +676,54 @@ async fn leader_rows(app: &App) -> Vec<LeaderRow> {
 
 async fn board(State(app): State<App>, headers: HeaderMap) -> Result<Html<String>, Response> {
     let user = require_onboarded(current_user(&app, &headers).await)?;
-    let tasks = sqlx::query_as::<_, Task>("select id, title, description, level from tasks_exposure_academy order by created_at desc")
+    let tasks = sqlx::query_as::<_, Task>("select id, title, description, level, example_url from tasks_exposure_academy order by created_at desc")
         .fetch_all(&app.pool).await.unwrap();
     let subs = sqlx::query_as::<_, SubmissionView>(
-        "select distinct on (s.task_id) s.id, s.task_id, s.repo_url, s.status, s.feedback, s.demo_video_url,
-                u.display_name, t.title as task_title
+        "select distinct on (s.task_id) s.id, s.task_id, s.repo_url, s.status, s.feedback, s.demo_video_url, s.plan_md,
+                u.display_name, u.email, t.title as task_title, s.created_at
          from submissions_exposure_academy s join users_exposure_academy u on u.id = s.user_id join tasks_exposure_academy t on t.id = s.task_id
          where s.user_id = $1 order by s.task_id, s.created_at desc")
         .bind(user.id).fetch_all(&app.pool).await.unwrap();
     Ok(Html(html::board(&user, &tasks, &subs)))
 }
 
-#[derive(Deserialize)]
-struct SubmitForm { task_id: Uuid, repo_url: String }
+/// plan.md is stored inline in the DB as text, so it stays small.
+const PLAN_MAX_BYTES: usize = 200 * 1024;
 
-async fn board_submit(State(app): State<App>, headers: HeaderMap, Form(f): Form<SubmitForm>) -> Result<Redirect, Response> {
+async fn board_submit(State(app): State<App>, headers: HeaderMap, mut mp: Multipart) -> Result<Redirect, Response> {
     let user = require_onboarded(current_user(&app, &headers).await)?;
-    if !f.repo_url.starts_with("https://github.com/") {
-        return Err((StatusCode::BAD_REQUEST, "").into_response());
+    let bad = |msg: &str| (StatusCode::BAD_REQUEST, msg.to_string()).into_response();
+
+    let mut task_id: Option<Uuid> = None;
+    let mut repo_url = String::new();
+    let mut plan_md: Option<String> = None;
+    while let Some(field) = mp.next_field().await.map_err(|_| bad("Form okunamadı."))? {
+        // name() borrows the field, text()/bytes() consume it — copy the name out first
+        let name = field.name().unwrap_or("").to_string();
+        match name.as_str() {
+            "task_id" => task_id = field.text().await.ok().and_then(|t| t.parse().ok()),
+            "repo_url" => repo_url = field.text().await.map_err(|_| bad("Form okunamadı."))?.trim().to_string(),
+            "plan" => {
+                let bytes = field.bytes().await.map_err(|_| bad("plan.md okunamadı."))?;
+                if bytes.len() > PLAN_MAX_BYTES {
+                    return Err(bad("plan.md 200 KB'den büyük olamaz."));
+                }
+                let text = String::from_utf8(bytes.to_vec()).map_err(|_| bad("plan.md UTF-8 metin olmalı."))?;
+                if !text.trim().is_empty() {
+                    plan_md = Some(text);
+                }
+            }
+            _ => {}
+        }
     }
-    sqlx::query("insert into submissions_exposure_academy (task_id, user_id, repo_url) values ($1,$2,$3)")
-        .bind(f.task_id).bind(user.id).bind(&f.repo_url)
+
+    let Some(task_id) = task_id else { return Err(bad("Görev bulunamadı.")) };
+    if !repo_url.starts_with("https://github.com/") {
+        return Err(bad("Repo bağlantısı https://github.com/ ile başlamalı."));
+    }
+    let Some(plan_md) = plan_md else { return Err(bad("plan.md dosyası gerekli.")) };
+    sqlx::query("insert into submissions_exposure_academy (task_id, user_id, repo_url, plan_md) values ($1,$2,$3,$4)")
+        .bind(task_id).bind(user.id).bind(&repo_url).bind(&plan_md)
         .execute(&app.pool).await.unwrap();
     Ok(Redirect::to("/board"))
 }
@@ -706,14 +738,14 @@ async fn admin_page(State(app): State<App>, headers: HeaderMap) -> Result<Html<S
          order by w.updated_at desc limit 200")
         .fetch_all(&app.pool).await.unwrap();
     let subs = sqlx::query_as::<_, SubmissionView>(
-        "select s.id, s.task_id, s.repo_url, s.status, s.feedback, s.demo_video_url,
-                u.display_name, t.title as task_title
+        "select s.id, s.task_id, s.repo_url, s.status, s.feedback, s.demo_video_url, s.plan_md,
+                u.display_name, u.email, t.title as task_title, s.created_at
          from submissions_exposure_academy s join users_exposure_academy u on u.id = s.user_id join tasks_exposure_academy t on t.id = s.task_id
          order by s.created_at desc")
         .fetch_all(&app.pool).await.unwrap();
     let videos = sqlx::query_as::<_, Video>("select id, youtube_id, title, level from videos_exposure_academy order by level, position")
         .fetch_all(&app.pool).await.unwrap();
-    let tasks = sqlx::query_as::<_, Task>("select id, title, description, level from tasks_exposure_academy order by created_at desc")
+    let tasks = sqlx::query_as::<_, Task>("select id, title, description, level, example_url from tasks_exposure_academy order by created_at desc")
         .fetch_all(&app.pool).await.unwrap();
     let invite_code = invite_code(&app).await;
     Ok(Html(html::admin(&user, &stats, &subs, &videos, &tasks, &invite_code, &app.base_url)))
@@ -742,13 +774,79 @@ async fn admin_video(State(app): State<App>, headers: HeaderMap, Form(f): Form<V
     Ok(Redirect::to("/admin"))
 }
 
+fn valid_http_url(u: &str) -> bool {
+    u.starts_with("https://") || u.starts_with("http://")
+}
+
 #[derive(Deserialize)]
-struct TaskForm { title: String, description: String, level: String }
+struct TaskForm { title: String, description: String, level: String, #[serde(default)] example_url: String }
 
 async fn admin_task(State(app): State<App>, headers: HeaderMap, Form(f): Form<TaskForm>) -> Result<Redirect, Response> {
     require_admin(current_user(&app, &headers).await)?;
-    sqlx::query("insert into tasks_exposure_academy (title, description, level) values ($1,$2,$3)")
-        .bind(&f.title).bind(&f.description).bind(&f.level)
+    let example = f.example_url.trim();
+    if !example.is_empty() && !valid_http_url(example) {
+        return Err((StatusCode::BAD_REQUEST, "Örnek URL http:// veya https:// ile başlamalı.").into_response());
+    }
+    sqlx::query("insert into tasks_exposure_academy (title, description, level, example_url) values ($1,$2,$3, nullif($4,''))")
+        .bind(&f.title).bind(&f.description).bind(&f.level).bind(example)
+        .execute(&app.pool).await.map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
+    Ok(Redirect::to("/admin"))
+}
+
+#[derive(Deserialize)]
+struct TaskExampleForm { id: Uuid, example_url: String }
+
+async fn admin_task_example(State(app): State<App>, headers: HeaderMap, Form(f): Form<TaskExampleForm>) -> Result<Redirect, Response> {
+    require_admin(current_user(&app, &headers).await)?;
+    let url = f.example_url.trim();
+    if !url.is_empty() && !valid_http_url(url) {
+        return Err((StatusCode::BAD_REQUEST, "Örnek URL http:// veya https:// ile başlamalı.").into_response());
+    }
+    // saving an empty field removes the example
+    sqlx::query("update tasks_exposure_academy set example_url = nullif($2,'') where id = $1")
+        .bind(f.id).bind(url)
+        .execute(&app.pool).await.map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
+    Ok(Redirect::to("/admin"))
+}
+
+#[derive(Deserialize)]
+struct IdForm { id: Uuid }
+
+#[derive(Deserialize)]
+struct IdLevelForm { id: Uuid, level: String }
+
+async fn admin_task_level(State(app): State<App>, headers: HeaderMap, Form(f): Form<IdLevelForm>) -> Result<Redirect, Response> {
+    require_admin(current_user(&app, &headers).await)?;
+    // level is checked by the DB constraint; an invalid value just 400s
+    sqlx::query("update tasks_exposure_academy set level = $2 where id = $1")
+        .bind(f.id).bind(&f.level)
+        .execute(&app.pool).await.map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
+    Ok(Redirect::to("/admin"))
+}
+
+async fn admin_task_delete(State(app): State<App>, headers: HeaderMap, Form(f): Form<IdForm>) -> Result<Redirect, Response> {
+    require_admin(current_user(&app, &headers).await)?;
+    // cascades to submissions (FK) — points earned from this task go with it
+    sqlx::query("delete from tasks_exposure_academy where id = $1")
+        .bind(f.id)
+        .execute(&app.pool).await.map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
+    Ok(Redirect::to("/admin"))
+}
+
+async fn admin_video_level(State(app): State<App>, headers: HeaderMap, Form(f): Form<IdLevelForm>) -> Result<Redirect, Response> {
+    require_admin(current_user(&app, &headers).await)?;
+    sqlx::query("update videos_exposure_academy set level = $2 where id = $1")
+        .bind(f.id).bind(&f.level)
+        .execute(&app.pool).await.map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
+    Ok(Redirect::to("/admin"))
+}
+
+async fn admin_video_delete(State(app): State<App>, headers: HeaderMap, Form(f): Form<IdForm>) -> Result<Redirect, Response> {
+    require_admin(current_user(&app, &headers).await)?;
+    // cascades to watch progress (FK) — points earned from this video go with it.
+    // NOTE: seed_videos re-inserts any ID still listed in videos.dat on next restart.
+    sqlx::query("delete from videos_exposure_academy where id = $1")
+        .bind(f.id)
         .execute(&app.pool).await.map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
     Ok(Redirect::to("/admin"))
 }
