@@ -348,8 +348,31 @@ body:not(.portal) .btn-dark.big { padding:14px 32px; }
 .desc { font-size:var(--fs-xs); color:var(--text-muted); margin-bottom:12px; white-space:pre-wrap; line-height:1.6; }
 .subform { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
 .subform input { margin-top:0; flex:1; }
-.subform .planfile { flex-basis:100%; margin-bottom:0; }
-.subform .planfile input[type=file] { width:100%; font-size:var(--fs-xs); padding:8px 10px; }
+/* plan.md yükleme alanı — tıkla ya da sürükle-bırak. Görünmez input tüm alanı
+   kaplar: tıklama dosya seçiciyi açar, bırakılan dosya native olarak input'a düşer. */
+.dropzone {
+  position:relative; flex-basis:100%; margin-bottom:0;
+  display:flex; flex-direction:column; align-items:center; gap:2px;
+  padding:16px 12px; text-align:center; cursor:pointer;
+  background:rgba(9,9,11,0.50); border:1px dashed var(--border-input);
+  border-radius:var(--r-xl); transition:all 150ms;
+}
+.dropzone:hover, .dropzone.drag, .dropzone:focus-within {
+  border-color:var(--blue-50); background:var(--blue-10);
+}
+.dropzone input[type=file] {
+  position:absolute; inset:0; width:100%; height:100%;
+  margin:0; padding:0; opacity:0; cursor:pointer;
+}
+.dropzone .ico { width:1.25rem; height:1.25rem; color:var(--text-subtle); margin-bottom:4px; }
+.dropzone b {
+  font-size:var(--fs-xs); font-weight:600; color:var(--text-body);
+  text-transform:none; letter-spacing:normal;
+  max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.dropzone span { font-size:var(--fs-mini); color:var(--text-subtle); text-transform:none; letter-spacing:normal; }
+.dropzone.has-file { border-style:solid; border-color:var(--ok-border); background:var(--ok-bg); }
+.dropzone.has-file .ico, .dropzone.has-file b { color:var(--ok-text); }
 
 /* Örnek proje canlı önizlemesi — iframe 1280x800 render edilir, 0.25 ölçekle
    320x200'e sığar; etkileşim alttaki "Örnek projeyi aç" bağlantısında */
@@ -396,7 +419,10 @@ body:not(.portal) .btn-dark.big { padding:14px 32px; }
 
 /* ---- Admin panels: card + 10px eyebrow section titles ---- */
 .admingrid { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:16px; margin-top:20px; }
-.panel { background:var(--bg-card); border:1px solid var(--border-card); border-radius:var(--r-2xl); padding:20px; }
+/* grid items default to min-width:auto — wide row-forms would expand the track and
+   paint over the neighboring panel; min-width:0 + overflow makes them scroll inside */
+.admingrid > * { min-width:0; }
+.panel { background:var(--bg-card); border:1px solid var(--border-card); border-radius:var(--r-2xl); padding:20px; overflow-x:auto; }
 .panel.wide { margin-top:16px; }
 .panel h2 {
   font-size:var(--fs-label); font-weight:600; text-transform:uppercase; letter-spacing:0.05em;
@@ -461,7 +487,9 @@ body:not(.portal) .btn-dark.big { padding:14px 32px; }
 .portal th { font-size:var(--fs-label); font-weight:600; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-subtle); }
 .portal td { color:var(--text-body); }
 table.mini { margin-top:14px; }
-form.inline { display:flex; gap:6px; align-items:center; }
+/* one clean line per row; the panel scrolls horizontally when it doesn't fit */
+table.mini th, table.mini td { white-space:nowrap; }
+form.inline { display:flex; gap:6px; align-items:center; flex-wrap:nowrap; }
 form.inline input, form.inline select { margin-top:0; width:auto; }
 
 /* ============================================================================
