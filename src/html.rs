@@ -145,7 +145,7 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
 pub fn landing() -> String {
     layout("Akademi", None, "", r##"
 <section class="hero">
-  <div class="pill"><span class="dot"></span> Video Dersleri</div>
+  <div class="pill"><span class="dot"></span> Teorik Dersler</div>
   <h1>Yapay Zekayı<br><em>Projelerle Öğren!</em></h1>
   <p class="sub">Türkiye'nin En Seçkin Yapay Zeka Akademisi</p>
   <a class="btn-dark big" href="/login">Oturum aç →</a>
