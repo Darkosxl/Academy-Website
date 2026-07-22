@@ -77,6 +77,7 @@ async fn main() {
         .route("/admin/video/level", post(admin_video_level))
         .route("/admin/video/delete", post(admin_video_delete))
         .route("/admin/task", post(admin_task))
+        .route("/admin/task/edit", post(admin_task_edit))
         .route("/admin/task/example", post(admin_task_example))
         .route("/admin/task/level", post(admin_task_level))
         .route("/admin/task/delete", post(admin_task_delete))
@@ -789,6 +790,22 @@ async fn admin_task(State(app): State<App>, headers: HeaderMap, Form(f): Form<Ta
     }
     sqlx::query("insert into tasks_exposure_academy (title, description, level, example_url) values ($1,$2,$3, nullif($4,''))")
         .bind(&f.title).bind(&f.description).bind(&f.level).bind(example)
+        .execute(&app.pool).await.map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
+    Ok(Redirect::to("/admin"))
+}
+
+#[derive(Deserialize)]
+struct TaskEditForm { id: Uuid, title: String, description: String }
+
+async fn admin_task_edit(State(app): State<App>, headers: HeaderMap, Form(f): Form<TaskEditForm>) -> Result<Redirect, Response> {
+    require_admin(current_user(&app, &headers).await)?;
+    let title = f.title.trim();
+    let description = f.description.trim();
+    if title.is_empty() || description.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "Başlık ve tanım boş olamaz.").into_response());
+    }
+    sqlx::query("update tasks_exposure_academy set title = $2, description = $3 where id = $1")
+        .bind(f.id).bind(title).bind(description)
         .execute(&app.pool).await.map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
     Ok(Redirect::to("/admin"))
 }

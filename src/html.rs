@@ -132,7 +132,7 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/style.css?v=15">
+<link rel="stylesheet" href="/static/style.css?v=16">
 </head>
 <body class="{body_class}">
 {shell}
@@ -652,9 +652,19 @@ pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[
       <button class="btn-dark small">Kaydet</button>
     </form>
   </div>
+  <details class="edit-details">
+    <summary>Başlık / açıklamayı düzenle</summary>
+    <form method="post" action="/admin/task/edit" class="editform">
+      <input type="hidden" name="id" value="{id}">
+      <label>Başlık<input name="title" value="{title}" required></label>
+      <label>Tanım<textarea name="description" rows="3" required>{desc}</textarea></label>
+      <button class="btn-dark small">Kaydet</button>
+    </form>
+  </details>
 </div>"##,
         title = esc(&t.title), id = t.id, opts = level_options(&t.level),
         example = esc(t.example_url.as_deref().unwrap_or("")),
+        desc = esc(&t.description),
     )).collect();
     layout("Yönetici paneli", Some(user), "admin", &format!(
         r##"<h1 class="pagetitle">Yönetici paneli</h1>
