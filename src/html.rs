@@ -17,6 +17,16 @@ pub fn level_name(l: &str) -> &'static str {
     LEVELS.iter().find(|(k, _)| *k == l).map(|(_, v)| *v).unwrap_or("?")
 }
 
+/// Badge color modifier per level, so Seviye 1/2/3 read as distinct (blue → purple → orange,
+/// mirroring the brand hero gradient). Level 1 falls through to the base blue `.badge`.
+fn level_badge_class(l: &str) -> &'static str {
+    match l {
+        "SEED" => "badge-l2",
+        "SERIES_A" => "badge-l3",
+        _ => "",
+    }
+}
+
 /// `<option>` list for a level `<select>`; `current` gets the `selected` attribute
 /// (pass "" for a fresh form — no match, browser defaults to the first).
 fn level_options(current: &str) -> String {
@@ -568,7 +578,7 @@ pub fn board(user: &User, tasks: &[Task], subs: &[SubmissionView]) -> String {
             };
             format!(
                 r##"<div class="taskcard">
-  <div class="taskhead"><h3>{title}</h3><span class="badge">{level}</span></div>
+  <div class="taskhead"><h3>{title}</h3><span class="badge {badge_cls}">{level}</span></div>
   <p class="desc">{desc}</p>
   {example}
   {sub_html}
@@ -588,8 +598,8 @@ pub fn board(user: &User, tasks: &[Task], subs: &[SubmissionView]) -> String {
     <button class="btn-dark">Gönder →</button>
   </form>
 </div>"##,
-                title = esc(&t.title), level = level_name(&t.level), desc = esc(&t.description), id = t.id,
-                up = ico(P_UPLOAD),
+                title = esc(&t.title), level = level_name(&t.level), badge_cls = level_badge_class(&t.level),
+                desc = esc(&t.description), id = t.id, up = ico(P_UPLOAD),
             )
         }).collect()
     };
@@ -669,6 +679,14 @@ pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[
       <input name="example_url" type="url" placeholder="Örnek proje URL — https://…" value="{example}">
       <button class="btn-dark small">Kaydet</button>
     </form>
+    <form method="post" action="/admin/task/preview" class="inline" title="Canlı önizleme yalnızca iframe gömülmesine izin veren siteler için çalışır; izin vermeyen siteler boş görünür — o durumda Görsel seç.">
+      <input type="hidden" name="id" value="{id}">
+      <select name="mode">
+        <option value="image"{image_sel}>Görsel önizleme</option>
+        <option value="live"{live_sel}>Canlı önizleme</option>
+      </select>
+      <button class="btn-dark small">Kaydet</button>
+    </form>
   </div>
   <form method="post" action="/admin/task/edit" class="editform edit-details">
     <input type="hidden" name="id" value="{id}">
@@ -679,6 +697,8 @@ pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[
 </div>"##,
         title = esc(&t.title), id = t.id, opts = level_options(&t.level),
         example = esc(t.example_url.as_deref().unwrap_or("")),
+        image_sel = if t.example_embeddable == Some(true) { "" } else { " selected" },
+        live_sel = if t.example_embeddable == Some(true) { " selected" } else { "" },
         desc = esc(&t.description), desc_rows = textarea_rows(&t.description, 48),
     )).collect();
     layout("Yönetici paneli", Some(user), "admin", &format!(

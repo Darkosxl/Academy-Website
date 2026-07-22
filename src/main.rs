@@ -82,6 +82,7 @@ async fn main() {
         .route("/admin/task", post(admin_task))
         .route("/admin/task/edit", post(admin_task_edit))
         .route("/admin/task/example", post(admin_task_example))
+        .route("/admin/task/preview", post(admin_task_preview))
         .route("/admin/task/level", post(admin_task_level))
         .route("/admin/task/delete", post(admin_task_delete))
         .route("/admin/user", post(admin_user))
@@ -864,10 +865,23 @@ async fn admin_task_example(State(app): State<App>, headers: HeaderMap, Form(f):
     if !url.is_empty() && !valid_http_url(url) {
         return Err((StatusCode::BAD_REQUEST, "Örnek URL http:// veya https:// ile başlamalı.").into_response());
     }
-    let embeddable = if url.is_empty() { None } else { Some(check_embeddable(&app.http, url).await) };
-    // saving an empty field removes the example
-    sqlx::query("update tasks_exposure_academy set example_url = nullif($2,''), example_embeddable = $3 where id = $1")
-        .bind(f.id).bind(url).bind(embeddable)
+    // only update the URL — the live/image preview mode is the admin's manual choice
+    // (set via /admin/task/preview) and is preserved across URL edits
+    sqlx::query("update tasks_exposure_academy set example_url = nullif($2,'') where id = $1")
+        .bind(f.id).bind(url)
+        .execute(&app.pool).await.map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
+    Ok(Redirect::to("/admin"))
+}
+
+#[derive(Deserialize)]
+struct TaskPreviewForm { id: Uuid, mode: String }
+
+/// Admin's manual per-task choice: live iframe preview vs cached screenshot image.
+async fn admin_task_preview(State(app): State<App>, headers: HeaderMap, Form(f): Form<TaskPreviewForm>) -> Result<Redirect, Response> {
+    require_admin(current_user(&app, &headers).await)?;
+    let live = f.mode == "live";
+    sqlx::query("update tasks_exposure_academy set example_embeddable = $2 where id = $1")
+        .bind(f.id).bind(live)
         .execute(&app.pool).await.map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
     Ok(Redirect::to("/admin"))
 }
