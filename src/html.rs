@@ -132,7 +132,7 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/style.css?v=13">
+<link rel="stylesheet" href="/static/style.css?v=14">
 </head>
 <body class="{body_class}">
 {shell}
@@ -529,8 +529,7 @@ pub fn board(user: &User, tasks: &[Task], subs: &[SubmissionView]) -> String {
             // live preview of the example project; interaction goes through the link
             // below it (the iframe itself is pointer-events:none in CSS)
             let example = t.example_url.as_deref().filter(|u| !u.is_empty()).map(|u| format!(
-                r##"<div class="example-preview"><iframe src="{url}" loading="lazy" sandbox="allow-scripts allow-same-origin" tabindex="-1" title="Örnek proje önizlemesi"></iframe></div>
-  <p><a class="btn-outline" href="{url}" target="_blank" rel="noopener">Örnek projeyi aç →</a></p>"##,
+                r##"<a class="example-preview" href="{url}" target="_blank" rel="noopener" title="Örnek projeyi yeni sekmede aç"><iframe src="{url}" loading="lazy" sandbox="allow-scripts allow-same-origin" tabindex="-1" title="Örnek proje önizlemesi"></iframe></a>"##,
                 url = esc(u),
             )).unwrap_or_default();
             let sub_html = match my_sub {

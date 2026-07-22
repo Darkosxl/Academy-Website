@@ -374,12 +374,22 @@ body:not(.portal) .btn-dark.big { padding:14px 32px; }
 .dropzone.has-file { border-style:solid; border-color:var(--ok-border); background:var(--ok-bg); }
 .dropzone.has-file .ico, .dropzone.has-file b { color:var(--ok-text); }
 
-/* Örnek proje canlı önizlemesi — iframe 1280x800 render edilir, 0.25 ölçekle
-   320x200'e sığar; etkileşim alttaki "Örnek projeyi aç" bağlantısında */
+/* Örnek proje canlı önizlemesi — önizlemenin kendisi bağlantı: iframe tıklamaları
+   yutmasın diye pointer-events:none, tıklama <a>'ya düşer ve site yeni sekmede açılır */
 .example-preview {
-  height:200px; overflow:hidden; margin-bottom:12px;
+  display:block; position:relative; height:200px; overflow:hidden; margin-bottom:12px;
   border-radius:var(--r-xl); border:1px solid var(--border-card); background:var(--bg-card-solid);
+  cursor:pointer; transition:border-color 150ms;
 }
+.example-preview:hover { border-color:var(--blue-50); }
+.example-preview::after {
+  content:"Yeni sekmede aç ↗";
+  position:absolute; right:8px; bottom:8px; padding:4px 10px;
+  background:rgba(9,9,11,0.85); border:1px solid var(--border-card); border-radius:var(--r-pill);
+  font-size:var(--fs-mini); font-weight:600; color:var(--text-body);
+  opacity:0; transition:opacity 150ms; pointer-events:none;
+}
+.example-preview:hover::after { opacity:1; }
 .example-preview iframe {
   /* 400% + scale(0.25) = fills the container exactly, rendering the site at
      a 4x-container viewport — no dead space regardless of card width */
