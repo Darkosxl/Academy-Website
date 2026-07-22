@@ -87,6 +87,7 @@ pub struct Task {
     pub title: String,
     pub description: String,
     pub level: String,
+    pub example_url: Option<String>,
 }
 
 #[derive(FromRow)]
@@ -97,11 +98,15 @@ pub struct SubmissionView {
     pub status: String,
     pub feedback: Option<String>,
     pub demo_video_url: Option<String>,
+    /// Null on submissions made before plan.md became required.
+    pub plan_md: Option<String>,
     pub display_name: String,
+    pub email: String,
     pub task_title: String,
+    pub created_at: DateTime<Utc>,
 }
 
-/// One student's standing. Points: 20 per completed video, 50 per passed project.
+/// One student's standing. Points: 20 per completed video, 100 per passed project.
 #[derive(FromRow)]
 pub struct LeaderRow {
     pub id: Uuid,
@@ -112,7 +117,7 @@ pub struct LeaderRow {
 }
 
 pub const PTS_VIDEO: i64 = 20;
-pub const PTS_PROJECT: i64 = 50;
+pub const PTS_PROJECT: i64 = 100;
 
 impl LeaderRow {
     pub fn points(&self) -> i64 {

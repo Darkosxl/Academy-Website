@@ -1,5 +1,8 @@
 /target
 .env
 
+# lesson video source URLs — committed hex-encoded in videos.dat instead
+video_links.md
+
 # applicant exports — PII (names, emails, phones, essays), never commit
 academy-applicants-*.csv

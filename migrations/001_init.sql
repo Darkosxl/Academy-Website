@@ -97,3 +97,8 @@ create table if not exists submissions_exposure_academy (
   demo_video_url text,
   created_at timestamptz not null default now()
 );
+
+-- example project URL shown as a live preview on the task card
+alter table tasks_exposure_academy add column if not exists example_url text;
+-- plan.md content submitted with the repo; null on pre-feature submissions
+alter table submissions_exposure_academy add column if not exists plan_md text;
