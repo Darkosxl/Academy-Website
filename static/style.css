@@ -486,11 +486,19 @@ body:not(.portal) .btn-dark.big { padding:14px 32px; }
 .portal th, .portal td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--border-subtle); }
 .portal th { font-size:var(--fs-label); font-weight:600; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-subtle); }
 .portal td { color:var(--text-body); }
-table.mini { margin-top:14px; }
-/* one clean line per row; the panel scrolls horizontally when it doesn't fit */
-table.mini th, table.mini td { white-space:nowrap; }
 form.inline { display:flex; gap:6px; align-items:center; flex-wrap:nowrap; }
 form.inline input, form.inline select { margin-top:0; width:auto; }
+
+/* Panel içi öğe listeleri (video/görev) — tablo değil satır blokları: başlık üstte,
+   kontroller altta sarar, dar panelde yana taşma olmaz */
+.minilist { margin-top:14px; border-top:1px solid var(--border-subtle); }
+.itemrow { padding:12px 0; border-bottom:1px solid var(--border-subtle); }
+.item-title { display:flex; justify-content:space-between; align-items:baseline; gap:10px; margin-bottom:8px; }
+.item-title span:first-child { font-size:var(--fs-xs); font-weight:600; color:var(--text-body); }
+.item-meta { font-size:var(--fs-mini); color:var(--text-subtle); white-space:nowrap; }
+.item-controls { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+.item-controls .urlform { flex:1 1 100%; }
+.item-controls .urlform input { flex:1; min-width:0; }
 
 /* ============================================================================
    MOBILE NAV — the drawer chrome. Hidden on desktop; the @media block below is

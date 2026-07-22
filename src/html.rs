@@ -132,7 +132,7 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/style.css?v=12">
+<link rel="stylesheet" href="/static/style.css?v=13">
 </head>
 <body class="{body_class}">
 {shell}
@@ -618,35 +618,42 @@ pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[
         )
     }).collect();
     let video_rows: String = videos.iter().map(|v| format!(
-        r##"<tr><td>{title}</td>
-<td><form method="post" action="/admin/video/level" class="inline">
-  <input type="hidden" name="id" value="{id}">
-  <select name="level">{opts}</select>
-  <button class="btn-dark small">Kaydet</button>
-</form></td>
-<td>{yt}</td>
-<td><form method="post" action="/admin/video/delete" class="inline" onsubmit="return confirm('Bu videoyu silersen öğrencilerin izleme ilerlemesi ve bu videodan kazanılan puanlar da silinir. Emin misin?')">
-  <input type="hidden" name="id" value="{id}">
-  <button class="btn-dark small">Sil</button>
-</form></td></tr>"##,
+        r##"<div class="itemrow">
+  <div class="item-title"><span>{title}</span><span class="item-meta">{yt}</span></div>
+  <div class="item-controls">
+    <form method="post" action="/admin/video/level" class="inline">
+      <input type="hidden" name="id" value="{id}">
+      <select name="level">{opts}</select>
+      <button class="btn-dark small">Kaydet</button>
+    </form>
+    <form method="post" action="/admin/video/delete" class="inline" onsubmit="return confirm('Bu videoyu silersen öğrencilerin izleme ilerlemesi ve bu videodan kazanılan puanlar da silinir. Emin misin?')">
+      <input type="hidden" name="id" value="{id}">
+      <button class="btn-dark small">Sil</button>
+    </form>
+  </div>
+</div>"##,
         title = esc(&v.title), id = v.id, opts = level_options(&v.level), yt = esc(&v.youtube_id),
     )).collect();
     let task_rows: String = tasks.iter().map(|t| format!(
-        r##"<tr><td>{title}</td>
-<td><form method="post" action="/admin/task/level" class="inline">
-  <input type="hidden" name="id" value="{id}">
-  <select name="level">{opts}</select>
-  <button class="btn-dark small">Kaydet</button>
-</form></td>
-<td><form method="post" action="/admin/task/example" class="inline">
-  <input type="hidden" name="id" value="{id}">
-  <input name="example_url" type="url" placeholder="https://…" value="{example}">
-  <button class="btn-dark small">Kaydet</button>
-</form></td>
-<td><form method="post" action="/admin/task/delete" class="inline" onsubmit="return confirm('Bu görevi silersen tüm gönderimler ve bu görevden kazanılan puanlar da silinir. Emin misin?')">
-  <input type="hidden" name="id" value="{id}">
-  <button class="btn-dark small">Sil</button>
-</form></td></tr>"##,
+        r##"<div class="itemrow">
+  <div class="item-title"><span>{title}</span></div>
+  <div class="item-controls">
+    <form method="post" action="/admin/task/level" class="inline">
+      <input type="hidden" name="id" value="{id}">
+      <select name="level">{opts}</select>
+      <button class="btn-dark small">Kaydet</button>
+    </form>
+    <form method="post" action="/admin/task/delete" class="inline" onsubmit="return confirm('Bu görevi silersen tüm gönderimler ve bu görevden kazanılan puanlar da silinir. Emin misin?')">
+      <input type="hidden" name="id" value="{id}">
+      <button class="btn-dark small">Sil</button>
+    </form>
+    <form method="post" action="/admin/task/example" class="inline urlform">
+      <input type="hidden" name="id" value="{id}">
+      <input name="example_url" type="url" placeholder="Örnek proje URL — https://…" value="{example}">
+      <button class="btn-dark small">Kaydet</button>
+    </form>
+  </div>
+</div>"##,
         title = esc(&t.title), id = t.id, opts = level_options(&t.level),
         example = esc(t.example_url.as_deref().unwrap_or("")),
     )).collect();
@@ -662,7 +669,7 @@ pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[
     <label>Seviye<select name="level">{level_opts}</select></label>
     <button class="btn-dark">Kaydet</button>
   </form>
-  <table class="mini"><tr><th>Başlık</th><th>Seviye</th><th>YouTube</th><th></th></tr>{video_rows}</table>
+  <div class="minilist">{video_rows}</div>
 </section>
 
 <section class="panel">
@@ -674,7 +681,7 @@ pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[
     <label>Seviye<select name="level">{level_opts}</select></label>
     <button class="btn-dark">Kaydet</button>
   </form>
-  <table class="mini"><tr><th>Başlık</th><th>Seviye</th><th>Örnek URL</th><th></th></tr>{task_rows}</table>
+  <div class="minilist">{task_rows}</div>
 </section>
 
 <section class="panel">
