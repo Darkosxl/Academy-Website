@@ -117,6 +117,26 @@ async fn seed_admin(pool: &PgPool) {
 /// youtube_id, so title/level/position edits made later in the admin panel survive
 /// restarts. Regenerate videos.dat after editing video_links.md:
 ///   python3 -c "import sys;d={};[d.__setitem__(int(o),u.strip().rsplit('/',1)[-1]) for l in open('video_links.md') if l.strip() for u,o in [l.rsplit(' - ',1)]];open('videos.dat','w').write('\n'.join(d[k] for k in sorted(d)).encode().hex())"
+/// YouTube titles for the IDs in videos.dat, same order (fetched via oEmbed).
+/// Keep in sync when regenerating videos.dat.
+const VIDEO_TITLES: [&str; 15] = [
+    "AI Academy! Tanışmaca",
+    "AI Academy! Programlama Nedir?",
+    "AI Academy! Programlamaya Giriş I",
+    "AI Academy! Programlamaya Giriş II",
+    "AI Academy! Programlamaya Giriş III",
+    "AI Academy! Programlama IV",
+    "AI Academy! Programlama V",
+    "AI Academy! Yazılım Mühendisliği I",
+    "AI Academy! Yazılım Mühendisliği II",
+    "AI Academy! Git(hub)!",
+    "AI Academy! Web Geliştirme I",
+    "AI Academy! Web Geliştirme II",
+    "AI Academy! Web Geliştirme III",
+    "AI Academy! Yapay Zeka I",
+    "AI Academy! Yapay Zeka II",
+];
+
 async fn seed_videos(pool: &PgPool) {
     let hex = include_str!("../videos.dat").trim();
     let bytes: Vec<u8> = (0..hex.len()).step_by(2)
@@ -126,11 +146,20 @@ async fn seed_videos(pool: &PgPool) {
     for (i, yt) in blob.lines().filter(|l| !l.is_empty()).enumerate() {
         let pos = (i + 1) as i32;
         let level = if pos <= 8 { "PRESEED" } else { "SEED" };
+        let title = VIDEO_TITLES.get(i).map(|t| t.to_string())
+            .unwrap_or_else(|| format!("Ders {pos}"));
         sqlx::query(
             "insert into videos_exposure_academy (youtube_id, title, level, position)
              select $1,$2,$3,$4
              where not exists (select 1 from videos_exposure_academy where youtube_id = $1)")
-            .bind(yt).bind(format!("Ders {pos}")).bind(level).bind(pos)
+            .bind(yt).bind(&title).bind(level).bind(pos)
+            .execute(pool).await.unwrap();
+        // Rows seeded before real titles existed still say "Ders N" — rename those
+        // in place. Admin-edited titles don't match the default and are left alone.
+        sqlx::query(
+            "update videos_exposure_academy set title = $2
+             where youtube_id = $1 and title = $3")
+            .bind(yt).bind(&title).bind(format!("Ders {pos}"))
             .execute(pool).await.unwrap();
     }
 }
