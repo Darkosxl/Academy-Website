@@ -26,6 +26,15 @@ fn level_options(current: &str) -> String {
     )).collect()
 }
 
+/// How many `rows` a `<textarea>` needs to show `text` with no internal scrollbar,
+/// given it wraps at roughly `wrap_at` characters per line. Floors at 3.
+fn textarea_rows(text: &str, wrap_at: usize) -> usize {
+    text.lines()
+        .map(|line| (line.chars().count().max(1) + wrap_at - 1) / wrap_at)
+        .sum::<usize>()
+        .max(3)
+}
+
 // Heroicons v2 (outline, 24x24, 1.5 stroke) — sized/colored via CSS (currentColor).
 fn ico(path: &str) -> String {
     format!(r##"<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="{path}"/></svg>"##)
@@ -652,22 +661,20 @@ pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[
       <button class="btn-dark small">Kaydet</button>
     </form>
   </div>
-  <details class="edit-details">
-    <summary>Başlık / açıklamayı düzenle</summary>
-    <form method="post" action="/admin/task/edit" class="editform">
-      <input type="hidden" name="id" value="{id}">
-      <label>Başlık<input name="title" value="{title}" required></label>
-      <label>Tanım<textarea name="description" rows="3" required>{desc}</textarea></label>
-      <button class="btn-dark small">Kaydet</button>
-    </form>
-  </details>
+  <form method="post" action="/admin/task/edit" class="editform edit-details">
+    <input type="hidden" name="id" value="{id}">
+    <label>Başlık<input name="title" value="{title}" required></label>
+    <label>Tanım<textarea name="description" rows="{desc_rows}" required>{desc}</textarea></label>
+    <button class="btn-dark small">Kaydet</button>
+  </form>
 </div>"##,
         title = esc(&t.title), id = t.id, opts = level_options(&t.level),
         example = esc(t.example_url.as_deref().unwrap_or("")),
-        desc = esc(&t.description),
+        desc = esc(&t.description), desc_rows = textarea_rows(&t.description, 48),
     )).collect();
     layout("Yönetici paneli", Some(user), "admin", &format!(
-        r##"<h1 class="pagetitle">Yönetici paneli</h1>
+        r##"<div id="admin-root">
+<h1 class="pagetitle">Yönetici paneli</h1>
 
 <div class="admingrid stack">
 <section class="panel">
@@ -722,5 +729,7 @@ pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[
 <section class="panel wide">
   <h2>Gönderimler</h2>
   <table><tr><th>Öğrenci</th><th>E-posta</th><th>Görev</th><th>Repo</th><th>Plan</th><th>Gönderim</th><th></th></tr>{sub_rows}</table>
-</section>"##))
+</section>
+</div>
+<script src="/static/admin.js" defer></script>"##))
 }
