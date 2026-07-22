@@ -24,6 +24,8 @@ struct App {
     resend_key: String,
     mail_from: String,
     base_url: String,
+    /// Optional Microlink API key for screenshot generation; blank = free tier.
+    microlink_key: String,
 }
 
 #[tokio::main]
@@ -52,6 +54,7 @@ async fn main() {
         resend_key: std::env::var("RESEND_API_KEY").expect("RESEND_API_KEY missing (.env)"),
         mail_from: std::env::var("MAIL_FROM").expect("MAIL_FROM missing (.env)"),
         base_url: std::env::var("APP_BASE_URL").expect("APP_BASE_URL missing (.env)"),
+        microlink_key: std::env::var("MICROLINK_API_KEY").unwrap_or_default(),
     };
 
     let router = Router::new()
@@ -89,6 +92,9 @@ async fn main() {
         // rolling session refresh — applies to the routes above only; static assets
         // are mounted after the layer so they don't each cost a session write
         .layer(middleware::from_fn_with_state(app.clone(), rolling_session))
+        // cached example-URL screenshots: public cacheable assets like /static, mounted
+        // after the layer so they don't cost a session write and need no auth
+        .route("/preview/{id}", get(task_preview))
         .nest_service("/static", tower_http::services::ServeDir::new("static"))
         .with_state(app);
 
@@ -677,7 +683,7 @@ async fn leader_rows(app: &App) -> Vec<LeaderRow> {
 
 async fn board(State(app): State<App>, headers: HeaderMap) -> Result<Html<String>, Response> {
     let user = require_onboarded(current_user(&app, &headers).await)?;
-    let tasks = sqlx::query_as::<_, Task>("select id, title, description, level, example_url from tasks_exposure_academy order by created_at desc")
+    let tasks = sqlx::query_as::<_, Task>("select id, title, description, level, example_url, example_embeddable from tasks_exposure_academy order by created_at desc")
         .fetch_all(&app.pool).await.unwrap();
     let subs = sqlx::query_as::<_, SubmissionView>(
         "select distinct on (s.task_id) s.id, s.task_id, s.repo_url, s.status, s.feedback, s.demo_video_url, s.plan_md,
@@ -746,7 +752,7 @@ async fn admin_page(State(app): State<App>, headers: HeaderMap) -> Result<Html<S
         .fetch_all(&app.pool).await.unwrap();
     let videos = sqlx::query_as::<_, Video>("select id, youtube_id, title, level from videos_exposure_academy order by level, position")
         .fetch_all(&app.pool).await.unwrap();
-    let tasks = sqlx::query_as::<_, Task>("select id, title, description, level, example_url from tasks_exposure_academy order by created_at desc")
+    let tasks = sqlx::query_as::<_, Task>("select id, title, description, level, example_url, example_embeddable from tasks_exposure_academy order by created_at desc")
         .fetch_all(&app.pool).await.unwrap();
     let invite_code = invite_code(&app).await;
     Ok(Html(html::admin(&user, &stats, &subs, &videos, &tasks, &invite_code, &app.base_url)))
@@ -779,6 +785,44 @@ fn valid_http_url(u: &str) -> bool {
     u.starts_with("https://") || u.starts_with("http://")
 }
 
+/// GET the URL and decide whether it permits iframe embedding. Conservative:
+/// any framing restriction, or a network error/timeout, counts as NOT embeddable
+/// (so we fall back to a screenshot, which always renders).
+async fn check_embeddable(client: &reqwest::Client, url: &str) -> bool {
+    let Ok(resp) = client.get(url).timeout(std::time::Duration::from_secs(6)).send().await else { return false };
+    let h = resp.headers();
+    if let Some(xfo) = h.get("x-frame-options").and_then(|v| v.to_str().ok()) {
+        let x = xfo.to_ascii_lowercase();
+        if x.contains("deny") || x.contains("sameorigin") { return false; }
+    }
+    if let Some(csp) = h.get("content-security-policy").and_then(|v| v.to_str().ok()) {
+        let c = csp.to_ascii_lowercase();
+        // a frame-ancestors directive that isn't a blanket '*' means we're very likely blocked
+        if c.contains("frame-ancestors") && !c.contains('*') { return false; }
+    }
+    true
+}
+
+/// Fetch a hero (above-the-fold) screenshot via Microlink, returning (bytes, content_type).
+/// `embed=screenshot.url` makes Microlink respond with the image binary directly (one hop).
+async fn fetch_screenshot(client: &reqwest::Client, key: &str, url: &str) -> Option<(Vec<u8>, String)> {
+    let mut req = client.get("https://api.microlink.io/")
+        .query(&[
+            ("url", url), ("screenshot", "true"), ("meta", "false"),
+            ("embed", "screenshot.url"),
+            ("viewport.width", "1280"), ("viewport.height", "800"),
+        ])
+        .timeout(std::time::Duration::from_secs(25));
+    if !key.is_empty() { req = req.header("x-api-key", key); }
+    let resp = req.send().await.ok()?;
+    if !resp.status().is_success() { return None; }
+    let ct = resp.headers().get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok()).unwrap_or("image/png").to_string();
+    if !ct.starts_with("image/") { return None; } // Microlink returns JSON error on failure
+    let bytes = resp.bytes().await.ok()?;
+    Some((bytes.to_vec(), ct))
+}
+
 #[derive(Deserialize)]
 struct TaskForm { title: String, description: String, level: String, #[serde(default)] example_url: String }
 
@@ -788,8 +832,9 @@ async fn admin_task(State(app): State<App>, headers: HeaderMap, Form(f): Form<Ta
     if !example.is_empty() && !valid_http_url(example) {
         return Err((StatusCode::BAD_REQUEST, "Örnek URL http:// veya https:// ile başlamalı.").into_response());
     }
-    sqlx::query("insert into tasks_exposure_academy (title, description, level, example_url) values ($1,$2,$3, nullif($4,''))")
-        .bind(&f.title).bind(&f.description).bind(&f.level).bind(example)
+    let embeddable = if example.is_empty() { None } else { Some(check_embeddable(&app.http, example).await) };
+    sqlx::query("insert into tasks_exposure_academy (title, description, level, example_url, example_embeddable) values ($1,$2,$3, nullif($4,''), $5)")
+        .bind(&f.title).bind(&f.description).bind(&f.level).bind(example).bind(embeddable)
         .execute(&app.pool).await.map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
     Ok(Redirect::to("/admin"))
 }
@@ -819,11 +864,62 @@ async fn admin_task_example(State(app): State<App>, headers: HeaderMap, Form(f):
     if !url.is_empty() && !valid_http_url(url) {
         return Err((StatusCode::BAD_REQUEST, "Örnek URL http:// veya https:// ile başlamalı.").into_response());
     }
+    let embeddable = if url.is_empty() { None } else { Some(check_embeddable(&app.http, url).await) };
     // saving an empty field removes the example
-    sqlx::query("update tasks_exposure_academy set example_url = nullif($2,'') where id = $1")
-        .bind(f.id).bind(url)
+    sqlx::query("update tasks_exposure_academy set example_url = nullif($2,''), example_embeddable = $3 where id = $1")
+        .bind(f.id).bind(url).bind(embeddable)
         .execute(&app.pool).await.map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
     Ok(Redirect::to("/admin"))
+}
+
+// ---- example-project screenshot preview ----
+
+fn image_response(bytes: Vec<u8>, ct: &str) -> Response {
+    (
+        [(header::CONTENT_TYPE, ct.to_owned()),
+         (header::CACHE_CONTROL, "public, max-age=86400".to_string())],
+        bytes,
+    ).into_response()
+}
+
+/// Fallback shown when there's no cached image yet and generation failed. Short
+/// cache so the next view retries. Displays the URL's host, or a generic label.
+fn placeholder_svg(url: &str) -> Response {
+    let host = url.split("://").nth(1).unwrap_or(url).split('/').next().unwrap_or("");
+    let label = if host.is_empty() { "önizleme yok".to_string() } else { html::esc(host) };
+    let svg = format!(
+        r##"<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="800" viewBox="0 0 1280 800"><rect width="1280" height="800" fill="#18181b"/><text x="640" y="400" fill="#71717a" font-family="sans-serif" font-size="36" text-anchor="middle" dominant-baseline="middle">{label}</text></svg>"##,
+    );
+    (
+        [(header::CONTENT_TYPE, "image/svg+xml".to_string()),
+         (header::CACHE_CONTROL, "public, max-age=300".to_string())],
+        svg,
+    ).into_response()
+}
+
+/// Serve the cached hero screenshot for a task's example URL, generating it on
+/// first request. Keyed by task id (not raw URL) so only admin-set URLs are ever
+/// fetched — no open proxy. Public, no auth (it screenshots public sites).
+async fn task_preview(State(app): State<App>, Path(id): Path<Uuid>) -> Response {
+    let url: Option<String> = sqlx::query_scalar("select example_url from tasks_exposure_academy where id = $1")
+        .bind(id).fetch_optional(&app.pool).await.ok().flatten().flatten();
+    let Some(url) = url.filter(|u| !u.is_empty()) else { return placeholder_svg("") };
+
+    // cache hit?
+    if let Ok(Some((img, ct))) = sqlx::query_as::<_, (Vec<u8>, String)>(
+        "select image, content_type from screenshot_cache_exposure_academy where url = $1")
+        .bind(&url).fetch_optional(&app.pool).await {
+        return image_response(img, &ct);
+    }
+    // miss -> fetch from Microlink, cache, serve. On failure serve a non-cached placeholder.
+    match fetch_screenshot(&app.http, &app.microlink_key, &url).await {
+        Some((bytes, ct)) => {
+            let _ = sqlx::query("insert into screenshot_cache_exposure_academy (url, image, content_type) values ($1,$2,$3) on conflict (url) do nothing")
+                .bind(&url).bind(&bytes).bind(&ct).execute(&app.pool).await;
+            image_response(bytes, &ct)
+        }
+        None => placeholder_svg(&url),
+    }
 }
 
 #[derive(Deserialize)]

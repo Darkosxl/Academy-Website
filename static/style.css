@@ -400,6 +400,8 @@ body:not(.portal) .btn-dark.big { padding:14px 32px; }
   transform:scale(0.25); transform-origin:0 0;
   pointer-events:none;
 }
+/* cached screenshot fallback (non-embeddable sites): fill the card, cropped to the hero/top */
+.example-preview img { width:100%; height:100%; object-fit:cover; object-position:top; display:block; }
 
 /* Status pills — tinted, per the portal status-pill pattern */
 .substatus {

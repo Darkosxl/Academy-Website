@@ -88,6 +88,8 @@ pub struct Task {
     pub description: String,
     pub level: String,
     pub example_url: Option<String>,
+    /// true = site allows iframe embedding (live preview); false/null = show cached screenshot.
+    pub example_embeddable: Option<bool>,
 }
 
 #[derive(FromRow)]

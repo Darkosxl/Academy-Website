@@ -100,5 +100,16 @@ create table if not exists submissions_exposure_academy (
 
 -- example project URL shown as a live preview on the task card
 alter table tasks_exposure_academy add column if not exists example_url text;
+-- true = site allows iframe embedding (live preview); false/null = show cached screenshot instead
+alter table tasks_exposure_academy add column if not exists example_embeddable boolean;
 -- plan.md content submitted with the repo; null on pre-feature submissions
 alter table submissions_exposure_academy add column if not exists plan_md text;
+
+-- cached hero screenshots for example URLs that block iframe embedding, keyed by
+-- URL so tasks sharing a URL share one image; fetched once from Microlink then served from here
+create table if not exists screenshot_cache_exposure_academy (
+  url text primary key,
+  image bytea not null,
+  content_type text not null default 'image/png',
+  fetched_at timestamptz not null default now()
+);

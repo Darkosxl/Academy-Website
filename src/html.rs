@@ -535,12 +535,21 @@ pub fn board(user: &User, tasks: &[Task], subs: &[SubmissionView]) -> String {
     } else {
         tasks.iter().map(|t| {
             let my_sub = subs.iter().find(|s| s.task_id == t.id);
-            // live preview of the example project; interaction goes through the link
-            // below it (the iframe itself is pointer-events:none in CSS)
-            let example = t.example_url.as_deref().filter(|u| !u.is_empty()).map(|u| format!(
-                r##"<a class="example-preview" href="{url}" target="_blank" rel="noopener" title="Örnek projeyi yeni sekmede aç"><iframe src="{url}" loading="lazy" sandbox="allow-scripts allow-same-origin" tabindex="-1" title="Örnek proje önizlemesi"></iframe></a>"##,
-                url = esc(u),
-            )).unwrap_or_default();
+            // preview of the example project; interaction goes through the wrapping link
+            // (the iframe/img is pointer-events:none in CSS). Sites that allow iframe
+            // embedding get a live preview; the rest get a cached hero screenshot served
+            // from /preview/{id} (many sites send X-Frame-Options and can't be embedded).
+            let example = t.example_url.as_deref().filter(|u| !u.is_empty()).map(|u| {
+                let inner = if t.example_embeddable == Some(true) {
+                    format!(r##"<iframe src="{url}" loading="lazy" sandbox="allow-scripts allow-same-origin" tabindex="-1" title="Örnek proje önizlemesi"></iframe>"##, url = esc(u))
+                } else {
+                    format!(r##"<img src="/preview/{id}" loading="lazy" alt="Örnek proje önizlemesi">"##, id = t.id)
+                };
+                format!(
+                    r##"<a class="example-preview" href="{url}" target="_blank" rel="noopener" title="Örnek projeyi yeni sekmede aç">{inner}</a>"##,
+                    url = esc(u),
+                )
+            }).unwrap_or_default();
             let sub_html = match my_sub {
                 Some(s) => {
                     let (label, class) = status_tr(&s.status);
