@@ -381,7 +381,9 @@ body:not(.portal) .btn-dark.big { padding:14px 32px; }
   border-radius:var(--r-xl); border:1px solid var(--border-card); background:var(--bg-card-solid);
 }
 .example-preview iframe {
-  width:1280px; height:800px; border:0;
+  /* 400% + scale(0.25) = fills the container exactly, rendering the site at
+     a 4x-container viewport — no dead space regardless of card width */
+  width:400%; height:400%; border:0;
   transform:scale(0.25); transform-origin:0 0;
   pointer-events:none;
 }
