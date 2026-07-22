@@ -12,9 +12,12 @@
     if (!(form instanceof HTMLFormElement)) return;
     e.preventDefault();
 
+    // The server's Form extractor only accepts application/x-www-form-urlencoded,
+    // so send URLSearchParams (not a raw FormData, which fetch encodes as
+    // multipart/form-data) — fetch then sets the matching Content-Type on its own.
     let res;
     try {
-      res = await fetch(form.action, { method: 'POST', body: new FormData(form) });
+      res = await fetch(form.action, { method: 'POST', body: new URLSearchParams(new FormData(form)) });
     } catch {
       alert('Bağlantı hatası, sayfa yenileniyor.');
       location.reload();
