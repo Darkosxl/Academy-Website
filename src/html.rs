@@ -137,7 +137,7 @@ pub fn landing() -> String {
 <section class="hero">
   <div class="pill"><span class="dot"></span> Video Dersleri</div>
   <h1>Yapay Zekayı<br><em>Projelerle Öğren!</em></h1>
-  <p class="sub">Seviye 1 · Seviye 2 · Seviye 3</p>
+  <p class="sub">Türkiye'nin En Seçkin Yapay Zeka Akademisi</p>
   <a class="btn-dark big" href="/login">Oturum aç →</a>
 </section>"##)
 }
