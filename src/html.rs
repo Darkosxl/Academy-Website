@@ -132,7 +132,7 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/style.css?v=14">
+<link rel="stylesheet" href="/static/style.css?v=15">
 </head>
 <body class="{body_class}">
 {shell}
@@ -659,7 +659,7 @@ pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[
     layout("Yönetici paneli", Some(user), "admin", &format!(
         r##"<h1 class="pagetitle">Yönetici paneli</h1>
 
-<div class="admingrid">
+<div class="admingrid stack">
 <section class="panel">
   <h2>Video ekle</h2>
   <form method="post" action="/admin/video">

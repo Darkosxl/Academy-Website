@@ -505,6 +505,15 @@ form.inline input, form.inline select { margin-top:0; width:auto; }
    kontroller altta sarar, dar panelde yana taşma olmaz */
 .minilist { margin-top:14px; border-top:1px solid var(--border-subtle); }
 .itemrow { padding:12px 0; border-bottom:1px solid var(--border-subtle); }
+
+/* Yönetici paneli (.stack): paneller alt alta tam genişlik, her öğe tek satır —
+   başlık solda, kontroller sağda. Dar sütun yok, kırpılma yok. */
+.admingrid.stack { grid-template-columns:1fr; }
+.admingrid.stack .panel > form { max-width:28rem; }
+.admingrid.stack .itemrow { display:flex; align-items:center; gap:16px; flex-wrap:wrap; }
+.admingrid.stack .item-title { margin-bottom:0; flex:1 1 220px; min-width:0; }
+.admingrid.stack .item-controls .urlform { flex:1 1 auto; }
+.admingrid.stack .item-controls .urlform input { flex:1; min-width:180px; }
 .item-title { display:flex; justify-content:space-between; align-items:baseline; gap:10px; margin-bottom:8px; }
 .item-title span:first-child { font-size:var(--fs-xs); font-weight:600; color:var(--text-body); }
 .item-meta { font-size:var(--fs-mini); color:var(--text-subtle); white-space:nowrap; }
