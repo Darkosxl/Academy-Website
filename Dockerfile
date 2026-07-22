@@ -10,6 +10,7 @@ RUN cargo build --release && rm -rf src
 # real source
 COPY src ./src
 COPY migrations ./migrations
+COPY videos.dat ./
 RUN touch src/main.rs && cargo build --release
 
 # ---- runtime ----
