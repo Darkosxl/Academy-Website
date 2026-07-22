@@ -633,7 +633,7 @@ struct SubmitForm { task_id: Uuid, repo_url: String }
 async fn board_submit(State(app): State<App>, headers: HeaderMap, Form(f): Form<SubmitForm>) -> Result<Redirect, Response> {
     let user = require_onboarded(current_user(&app, &headers).await)?;
     if !f.repo_url.starts_with("https://github.com/") {
-        return Err((StatusCode::BAD_REQUEST, "GitHub deposu bağlantısı gerekli").into_response());
+        return Err((StatusCode::BAD_REQUEST, "").into_response());
     }
     sqlx::query("insert into submissions_exposure_academy (task_id, user_id, repo_url) values ($1,$2,$3)")
         .bind(f.task_id).bind(user.id).bind(&f.repo_url)

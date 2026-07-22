@@ -298,7 +298,7 @@ pub fn demos(user: &User, lang: &str) -> String {
     }).collect();
     let content = format!(
         r##"<h1 class="pagetitle">İnteraktif Demolar</h1>
-<p class="muted">Derslerde kullanılan interaktif anlatımlar. Yeni sekmede açılır.</p>
+<p class="muted">Derslerde kullanılan interaktif anlatımlar.</p>
 <div class="chips">{chips}</div>
 <div class="admingrid">{cards}</div>"##);
     layout("İnteraktif Demolar", Some(user), "demos", &content)
@@ -339,7 +339,7 @@ pub fn home(user: &User, videos_done: i64, videos_total: i64, open_tasks: i64, p
   <a class="hubcard" href="/demos">
     <span class="hubico">{ico_demo}</span>
     <h2>İnteraktif Demolar</h2>
-    <p>Derslerde kullanılan interaktif anlatımlar — kendi hızında keşfet.</p>
+    <p>Derslerde kullanılan interaktif anlatımlar.</p>
     <span class="hubstat">{demo_count} demo</span>
     <span class="hubgo">Demolara git →</span>
   </a>
@@ -497,7 +497,7 @@ pub fn leaderboard(user: &User, rows: &[LeaderRow]) -> String {
     layout("Puan Tablosu", Some(user), "leaderboard", &format!(
         r##"<h1 class="pagetitle">Puan Tablosu</h1>
 <p class="muted">Tamamlanan her video <b>{PTS_VIDEO} puan</b>, kabul edilen her proje <b>{PTS_PROJECT} puan</b>.
-Program sonunda ödüller bu sıralamaya göre verilecek.</p>
+</p>
 {my_card}
 <div class="lb">{list}</div>
 <p class="lbnote">Bir video, %90'ını izlediğinde tamamlanmış sayılır. Proje puanı, gönderimin durumu
@@ -536,7 +536,7 @@ pub fn board(user: &User, tasks: &[Task], subs: &[SubmissionView]) -> String {
   {sub_html}
   <form method="post" action="/board/submit" class="subform">
     <input type="hidden" name="task_id" value="{id}">
-    <input name="repo_url" type="url" placeholder="GitHub deposu bağlantısı" required>
+    <input name="repo_url" type="url" placeholder="" required>
     <button class="btn-dark">Gönder →</button>
   </form>
 </div>"##,
@@ -545,7 +545,7 @@ pub fn board(user: &User, tasks: &[Task], subs: &[SubmissionView]) -> String {
         }).collect()
     };
     layout("Görev Panosu", Some(user), "board", &format!(
-        r##"<h1 class="pagetitle">Görev Panosu</h1><p class="muted">Projenizi gönderin — GitHub deposu bağlantısı yeterli.</p><div class="tasks">{task_cards}</div>"##))
+        r##"<h1 class="pagetitle">Görev Panosu</h1><p class="muted">Projenizi yükleyin.</p><div class="tasks">{task_cards}</div>"##))
 }
 
 pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[Video], tasks: &[Task], invite_code: &str, base_url: &str) -> String {
