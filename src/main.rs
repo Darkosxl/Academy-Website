@@ -604,7 +604,11 @@ async fn video_grid(State(app): State<App>, headers: HeaderMap, Query(q): Query<
                 coalesce(w.max_position, 0) as max_position, coalesce(w.duration, 0) as duration
          from videos_exposure_academy v
          left join watch_progress_exposure_academy w on w.video_id = v.id and w.user_id = $1
-         where ($2::text is null or v.level = $2)
+         -- videos are presented as one Beginner-Intermediate tier, so either of those
+         -- filters shows the whole PRESEED+SEED set; Advanced (SERIES_A) stays separate.
+         where ($2::text is null
+             or ($2 in ('PRESEED','SEED') and v.level in ('PRESEED','SEED'))
+             or v.level = $2)
          order by v.level, v.position, v.created_at")
         .bind(user.id).bind(level)
         .fetch_all(&app.pool).await.unwrap();
