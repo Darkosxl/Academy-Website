@@ -65,7 +65,7 @@
     // multipart/form-data) — fetch then sets the matching Content-Type on its own.
     let res;
     try {
-      res = await fetch(form.action, { method: 'POST', body: new URLSearchParams(new FormData(form)) });
+      res = await fetch(form.action, { method: 'POST', body: new URLSearchParams(new FormData(form, submitter)) });
     } catch {
       alert('Bağlantı hatası, sayfa yenileniyor.');
       location.reload();

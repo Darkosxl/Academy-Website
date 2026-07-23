@@ -92,6 +92,15 @@ pub struct Task {
     pub example_embeddable: Option<bool>,
 }
 
+/// One "Bunu yapmak isterim" flip, joined to the student's public nickname, for the
+/// board's teammate list. `is_me` marks the current viewer's own row.
+#[derive(FromRow)]
+pub struct InterestRow {
+    pub task_id: Uuid,
+    pub nickname: String,
+    pub is_me: bool,
+}
+
 #[derive(FromRow)]
 pub struct SubmissionView {
     pub id: Uuid,

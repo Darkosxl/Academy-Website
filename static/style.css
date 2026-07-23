@@ -295,6 +295,8 @@ body:not(.portal) .btn-dark.big { padding:14px 32px; }
 }
 .portal .chip:hover { color:#fff; }
 .portal .chip.active { border-color:var(--blue); background:var(--blue); color:#fff; }
+/* teammate names under the "Bunu yapmak isterim" switch — tighter than filter chips */
+.portal .interest-names { margin:10px 0 4px; }
 
 /* ---- Video grid ---- */
 .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:20px; }

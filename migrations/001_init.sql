@@ -122,3 +122,11 @@ create table if not exists screenshot_cache_exposure_academy (
   content_type text not null default 'image/png',
   fetched_at timestamptz not null default now()
 );
+
+-- a student flipping "Bunu yapmak isterim" on a task; drives the teammate list on /board
+create table if not exists task_interest_exposure_academy (
+  task_id uuid not null references tasks_exposure_academy(id) on delete cascade,
+  user_id uuid not null references users_exposure_academy(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (task_id, user_id)
+);

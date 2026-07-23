@@ -75,6 +75,7 @@ async fn main() {
         .route("/leaderboard", get(leaderboard))
         .route("/board", get(board))
         .route("/board/submit", post(board_submit).layer(DefaultBodyLimit::max(300 * 1024)))
+        .route("/board/interest", post(board_interest))
         .route("/admin", get(admin_page))
         .route("/admin/video", post(admin_video))
         .route("/admin/video/level", post(admin_video_level))
@@ -693,7 +694,32 @@ async fn board(State(app): State<App>, headers: HeaderMap) -> Result<Html<String
          from submissions_exposure_academy s join users_exposure_academy u on u.id = s.user_id join tasks_exposure_academy t on t.id = s.task_id
          where s.user_id = $1 order by s.task_id, s.created_at desc")
         .bind(user.id).fetch_all(&app.pool).await.unwrap();
-    Ok(Html(html::board(&user, &tasks, &subs)))
+    let interests = sqlx::query_as::<_, InterestRow>(
+        "select ti.task_id, u.nickname, (u.id = $1) as is_me
+         from task_interest_exposure_academy ti
+         join users_exposure_academy u on u.id = ti.user_id
+         where u.nickname is not null
+         order by ti.created_at")
+        .bind(user.id).fetch_all(&app.pool).await.unwrap();
+    Ok(Html(html::board(&user, &tasks, &subs, &interests)))
+}
+
+#[derive(Deserialize)]
+struct InterestForm { task_id: Uuid }
+
+// toggle: delete my interest if present, else add it. Two idempotent statements,
+// no tx needed — worst case a double-click is a harmless no-op either way.
+async fn board_interest(State(app): State<App>, headers: HeaderMap, Form(f): Form<InterestForm>) -> Result<Redirect, Response> {
+    let user = require_onboarded(current_user(&app, &headers).await)?;
+    let deleted = sqlx::query("delete from task_interest_exposure_academy where task_id = $1 and user_id = $2")
+        .bind(f.task_id).bind(user.id).execute(&app.pool).await
+        .map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
+    if deleted.rows_affected() == 0 {
+        sqlx::query("insert into task_interest_exposure_academy (task_id, user_id) values ($1,$2) on conflict do nothing")
+            .bind(f.task_id).bind(user.id).execute(&app.pool).await
+            .map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
+    }
+    Ok(Redirect::to("/board"))
 }
 
 /// plan.md is stored inline in the DB as text, so it stays small.

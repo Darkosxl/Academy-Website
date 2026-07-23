@@ -533,7 +533,7 @@ pub fn leaderboard(user: &User, rows: &[LeaderRow]) -> String {
 <b>Geçti</b> olduğunda eklenir — aynı görev birden fazla kez puan getirmez.</p>"##))
 }
 
-pub fn board(user: &User, tasks: &[Task], subs: &[SubmissionView]) -> String {
+pub fn board(user: &User, tasks: &[Task], subs: &[SubmissionView], interests: &[InterestRow]) -> String {
     let status_tr = |s: &str| match s {
         "pending" => ("İnceleme bekleniyor", "st-pending"),
         "reviewing" => ("İnceleniyor", "st-reviewing"),
@@ -576,11 +576,36 @@ pub fn board(user: &User, tasks: &[Task], subs: &[SubmissionView]) -> String {
                 }
                 None => String::new(),
             };
+            // "Bunu yapmak isterim" switch. Names of everyone interested show only once
+            // the viewer has opted in (mine), nudging teammates to team up.
+            let card_interests: Vec<&InterestRow> = interests.iter().filter(|i| i.task_id == t.id).collect();
+            let mine = card_interests.iter().any(|i| i.is_me);
+            let interest_html = if mine {
+                let chips: String = card_interests.iter()
+                    .map(|i| format!(r#"<span class="chip">{}</span>"#, esc(&i.nickname)))
+                    .collect();
+                format!(
+                    r##"<form method="post" action="/board/interest" class="inline">
+    <input type="hidden" name="task_id" value="{id}">
+    <button class="btn-dark small btn-saved" title="Projelerde beraber çalışıp beraber tam puan alabilirsiniz">✓ Bunu yapıyorum</button>
+  </form>
+  <div class="chips interest-names">{chips}</div>
+  <p class="fieldnote">Birlikte yapmak için birbirinize ulaşın 🤝</p>"##,
+                    id = t.id)
+            } else {
+                format!(
+                    r##"<form method="post" action="/board/interest" class="inline">
+    <input type="hidden" name="task_id" value="{id}">
+    <button class="btn-outline small" title="Projelerde beraber çalışıp beraber tam puan alabilirsiniz">Bunu yapmak isterim</button>
+  </form>"##,
+                    id = t.id)
+            };
             format!(
                 r##"<div class="taskcard">
   <div class="taskhead"><h3>{title}</h3><span class="badge {badge_cls}">{level}</span></div>
   <p class="desc">{desc}</p>
   {example}
+  {interest_html}
   {sub_html}
   <form method="post" action="/board/submit" enctype="multipart/form-data" class="subform">
     <input type="hidden" name="task_id" value="{id}">
