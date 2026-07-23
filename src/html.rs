@@ -712,8 +712,8 @@ pub fn board_locked(user: &User, github: Option<&str>, linkedin: Option<&str>, e
 <section class="panel gate-panel">
   <div class="gate-lock">{lock}</div>
   <h2>Profillerini ekle</h2>
-  <p class="fieldnote">GitHub ve LinkedIn, yaptığın işi dünyaya gösterdiğin yer — projelerini paylaştıkça portföyün büyür.
-  Hesabın yoksa hemen ücretsiz aç:
+  <p class="fieldnote">GitHub ve LinkedIn, yaptığın işi dünyaya gösterdiğin yerdir.
+  Hesabın varsa aşağıya linkleri gir, yoksa hemen aç!
   <a href="https://github.com/signup" target="_blank" rel="noopener">GitHub</a> ·
   <a href="https://www.linkedin.com/signup" target="_blank" rel="noopener">LinkedIn</a>.</p>
   {err}
