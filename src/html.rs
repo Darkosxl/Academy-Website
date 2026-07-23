@@ -361,7 +361,7 @@ pub fn home(user: &User, videos_done: i64, videos_total: i64, open_tasks: i64, p
   <a class="hubcard" href="/leaderboard">
     <span class="hubico">{ico_trophy}</span>
     <h2>Puan Tablosu</h2>
-    <p>Her tamamlanan video {PTS_VIDEO} puan, kabul edilen her proje {PTS_PROJECT} puan.</p>
+    <p>Her görev ve videodan puan kazanın! Video {PTS_VIDEO}; proje Seviye 1 {PTS_PROJECT_L1}, Seviye 2 {PTS_PROJECT_L2}, Seviye 3 {PTS_PROJECT_L3}.</p>
     <span class="hubstat">{points} puan · {rank_line}</span>
     <span class="hubgo">Sıralamayı gör →</span>
   </a>
@@ -494,7 +494,7 @@ pub fn leaderboard(user: &User, rows: &[LeaderRow]) -> String {
                 initial = esc(&name.chars().next().unwrap_or('?').to_uppercase().to_string()),
                 name = esc(&name),
                 videos = r.videos, vpts = r.videos * PTS_VIDEO,
-                projects = r.projects, ppts = r.projects * PTS_PROJECT,
+                projects = r.projects, ppts = r.project_points,
                 total = r.points(),
             )
         }
@@ -525,7 +525,8 @@ pub fn leaderboard(user: &User, rows: &[LeaderRow]) -> String {
 
     layout("Puan Tablosu", Some(user), "leaderboard", &format!(
         r##"<h1 class="pagetitle">Puan Tablosu</h1>
-<p class="muted">Tamamlanan her video <b>{PTS_VIDEO} puan</b>, kabul edilen her proje <b>{PTS_PROJECT} puan</b>.
+<p class="muted">Her görev ve videodan puan kazanın! Video <b>{PTS_VIDEO}</b>; proje Seviye 1 <b>{PTS_PROJECT_L1}</b>,
+Seviye 2 <b>{PTS_PROJECT_L2}</b>, Seviye 3 <b>{PTS_PROJECT_L3}</b>.
 </p>
 {my_card}
 <div class="lb">{list}</div>

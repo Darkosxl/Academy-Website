@@ -665,20 +665,27 @@ async fn leaderboard(State(app): State<App>, headers: HeaderMap) -> Result<Html<
 async fn leader_rows(app: &App) -> Vec<LeaderRow> {
     sqlx::query_as::<_, LeaderRow>(
         "select u.id, u.nickname,
-                coalesce(w.videos, 0) as videos, coalesce(p.projects, 0) as projects
+                coalesce(w.videos, 0) as videos,
+                coalesce(p.projects, 0) as projects,
+                coalesce(p.project_points, 0) as project_points
          from users_exposure_academy u
          left join (select user_id, count(*) as videos
                     from watch_progress_exposure_academy
                     where duration > 0 and max_position >= duration * 0.9
                     group by user_id) w on w.user_id = u.id
-         left join (select user_id, count(distinct task_id) as projects
-                    from submissions_exposure_academy where status = 'passed'
-                    group by user_id) p on p.user_id = u.id
+         -- distinct (user, passed task) first so a task counts once, then weight by level
+         left join (select d.user_id,
+                           count(*) as projects,
+                           sum(case t.level when 'PRESEED' then 100 when 'SEED' then 400
+                                            when 'SERIES_A' then 700 else 0 end) as project_points
+                    from (select distinct user_id, task_id from submissions_exposure_academy where status = 'passed') d
+                    join tasks_exposure_academy t on t.id = d.task_id
+                    group by d.user_id) p on p.user_id = u.id
          -- nickname is null until onboarding is done: a student appears on the board
          -- only once they have picked the handle the board is going to show
          where not u.is_admin and u.nickname is not null
-         order by coalesce(w.videos,0) * $1 + coalesce(p.projects,0) * $2 desc, u.created_at")
-        .bind(PTS_VIDEO).bind(PTS_PROJECT)
+         order by coalesce(w.videos,0) * $1 + coalesce(p.project_points,0) desc, u.created_at")
+        .bind(PTS_VIDEO)
         .fetch_all(&app.pool).await.unwrap()
 }
 

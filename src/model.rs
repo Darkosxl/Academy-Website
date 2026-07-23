@@ -117,7 +117,9 @@ pub struct SubmissionView {
     pub created_at: DateTime<Utc>,
 }
 
-/// One student's standing. Points: 20 per completed video, 100 per passed project.
+/// One student's standing. Points: 20 per completed video; passed projects are
+/// level-weighted (Seviye 1/2/3 = 100/400/700) and summed server-side into
+/// `project_points`. `projects` is the plain count, kept for the "X proje" label.
 #[derive(FromRow)]
 pub struct LeaderRow {
     pub id: Uuid,
@@ -125,14 +127,19 @@ pub struct LeaderRow {
     pub nickname: String,
     pub videos: i64,
     pub projects: i64,
+    /// Level-weighted sum of passed projects, computed in `leader_rows`' SQL.
+    pub project_points: i64,
 }
 
 pub const PTS_VIDEO: i64 = 20;
-pub const PTS_PROJECT: i64 = 100;
+/// Passed-project points by level. Kept in sync with the CASE in `leader_rows`.
+pub const PTS_PROJECT_L1: i64 = 100; // Seviye 1 / PRESEED
+pub const PTS_PROJECT_L2: i64 = 400; // Seviye 2 / SEED
+pub const PTS_PROJECT_L3: i64 = 700; // Seviye 3 / SERIES_A
 
 impl LeaderRow {
     pub fn points(&self) -> i64 {
-        self.videos * PTS_VIDEO + self.projects * PTS_PROJECT
+        self.videos * PTS_VIDEO + self.project_points
     }
 }
 
