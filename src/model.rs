@@ -76,6 +76,7 @@ pub struct VideoWithProgress {
     pub id: Uuid,
     pub youtube_id: String,
     pub title: String,
+    #[allow(dead_code)] // selected by the query; videos now show a fixed combined label (VIDEO_LEVEL_LABEL)
     pub level: String,
     pub max_position: f32,
     pub duration: f32,

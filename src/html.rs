@@ -17,6 +17,11 @@ pub fn level_name(l: &str) -> &'static str {
     LEVELS.iter().find(|(k, _)| *k == l).map(|(_, v)| *v).unwrap_or("?")
 }
 
+/// Lesson videos are all presented as one combined tier, regardless of the level
+/// stored on the row (they stay PRESEED in the DB). ponytail: display-only label,
+/// no data migration — change the string here if the framing changes.
+const VIDEO_LEVEL_LABEL: &str = "Beginner-Intermediate";
+
 /// Badge color modifier per level, so Beginner/Intermediate/Advanced read as distinct (blue → purple → orange,
 /// mirroring the brand hero gradient). Beginner falls through to the base blue `.badge`.
 fn level_badge_class(l: &str) -> &'static str {
@@ -415,15 +420,19 @@ pub fn video_grid(user: &User, videos: &[VideoWithProgress], level: Option<&str>
   <p class="meta">{level} · {meta}</p>
 </a>"##,
                 done_class = if done { "done" } else { "" },
-                id = v.id, yt = esc(&v.youtube_id), title = esc(&v.title), level = level_name(&v.level),
+                id = v.id, yt = esc(&v.youtube_id), title = esc(&v.title), level = VIDEO_LEVEL_LABEL,
             )
         }).collect()
     };
+    // Advanced filtresinde: videolar açık ama asıl önerimiz projeler.
+    let advanced_note = if level == Some("SERIES_A") {
+        r#"<p class="fieldnote">Videoları izleyebilirsiniz ama projeleri sizin için şiddetle öneririz</p>"#
+    } else { "" };
     // seviye filtresi açıkken de nav'da Videolar seçili kalsın
     layout("Videolar", Some(user), "videos", &format!(
         r##"<h1 class="pagetitle">Videolar</h1>
 <p class="muted">Ders videoları. Bir videoyu %90'ına kadar izlediğinde tamamlanmış sayılır.</p>
-<div class="chips">{chips}</div><div class="grid">{cards}</div>"##))
+<div class="chips">{chips}</div>{advanced_note}<div class="grid">{cards}</div>"##))
 }
 
 pub fn watch(user: &User, video: &Video, playlist: &[VideoWithProgress], resume_at: f64) -> String {
@@ -454,7 +463,7 @@ const VIDEO_ID = "{id}", YT_ID = "{yt}", RESUME_AT = {resume_at};
 </script>
 <script src="/static/tracker.js"></script>
 <script src="https://www.youtube.com/iframe_api"></script>"##,
-        title = esc(&video.title), level = level_name(&video.level), id = video.id, yt = esc(&video.youtube_id),
+        title = esc(&video.title), level = VIDEO_LEVEL_LABEL, id = video.id, yt = esc(&video.youtube_id),
     );
     layout(&video.title, Some(user), &video.level, &content)
 }
