@@ -156,7 +156,7 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/style.css?v=18">
+<link rel="stylesheet" href="/static/style.css?v=19">
 </head>
 <body class="{body_class}">
 {shell}
@@ -424,15 +424,17 @@ pub fn video_grid(user: &User, videos: &[VideoWithProgress], level: Option<&str>
             )
         }).collect()
     };
-    // Advanced filtresinde: videolar açık ama asıl önerimiz projeler.
-    let advanced_note = if level == Some("SERIES_A") {
-        r#"<p class="fieldnote">Videoları izleyebilirsiniz ama projeleri sizin için şiddetle öneririz</p>"#
-    } else { "" };
+    // Advanced filtresinde video yok; kılavuz mesajı grid yerine büyük ve ortada.
+    let body = if level == Some("SERIES_A") {
+        r#"<div class="advanced-note">Videoları izleyebilirsiniz ama projeleri sizin için şiddetle öneririz</div>"#.to_string()
+    } else {
+        format!(r#"<div class="grid">{cards}</div>"#)
+    };
     // seviye filtresi açıkken de nav'da Videolar seçili kalsın
     layout("Videolar", Some(user), "videos", &format!(
         r##"<h1 class="pagetitle">Videolar</h1>
 <p class="muted">Ders videoları. Bir videoyu %90'ına kadar izlediğinde tamamlanmış sayılır.</p>
-<div class="chips">{chips}</div>{advanced_note}<div class="grid">{cards}</div>"##))
+<div class="chips">{chips}</div>{body}"##))
 }
 
 pub fn watch(user: &User, video: &Video, playlist: &[VideoWithProgress], resume_at: f64) -> String {
