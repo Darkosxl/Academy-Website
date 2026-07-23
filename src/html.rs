@@ -581,34 +581,39 @@ pub fn board(user: &User, tasks: &[Task], subs: &[SubmissionView], interests: &[
             // the viewer has opted in (mine), nudging teammates to team up.
             let card_interests: Vec<&InterestRow> = interests.iter().filter(|i| i.task_id == t.id).collect();
             let mine = card_interests.iter().any(|i| i.is_me);
-            let interest_html = if mine {
+            let (interest_btn, interest_extra) = if mine {
                 let chips: String = card_interests.iter()
                     .map(|i| format!(r#"<span class="chip">{}</span>"#, esc(&i.nickname)))
                     .collect();
-                format!(
-                    r##"<form method="post" action="/board/interest" class="inline">
+                (
+                    format!(
+                        r##"<form method="post" action="/board/interest" class="inline">
     <input type="hidden" name="task_id" value="{id}">
-    <button class="btn-dark small btn-saved" title="Projelerde beraber çalışıp beraber tam puan alabilirsiniz">✓ Bunu yapıyorum</button>
-  </form>
-  <div class="chips interest-names">{chips}</div>
-  <p class="fieldnote">Birlikte yapmak için birbirinize ulaşın 🤝</p>"##,
-                    id = t.id)
-            } else {
-                format!(
-                    r##"<form method="post" action="/board/interest" class="inline">
-    <input type="hidden" name="task_id" value="{id}">
-    <button class="btn-outline small" title="Projelerde beraber çalışıp beraber tam puan alabilirsiniz">Bunu yapmak isterim</button>
+    <button class="btn-interest on" aria-pressed="true" title="Projelerde beraber çalışıp beraber tam puan alabilirsiniz">✓ Bunu yapıyorum</button>
   </form>"##,
-                    id = t.id)
+                        id = t.id),
+                    format!(
+                        r##"<div class="chips interest-names">{chips}</div>
+  <p class="fieldnote">Birlikte yapmak için birbirinize ulaşın 🤝</p>"##),
+                )
+            } else {
+                (
+                    format!(
+                        r##"<form method="post" action="/board/interest" class="inline">
+    <input type="hidden" name="task_id" value="{id}">
+    <button class="btn-interest" aria-pressed="false" title="Projelerde beraber çalışıp beraber tam puan alabilirsiniz">Bunu yapmak isterim</button>
+  </form>"##,
+                        id = t.id),
+                    String::new(),
+                )
             };
             format!(
                 r##"<div class="taskcard">
   <div class="taskhead"><h3>{title}</h3><span class="badge {badge_cls}">{level}</span></div>
   <p class="desc">{desc}</p>
   {example}
-  {interest_html}
   {sub_html}
-  <form method="post" action="/board/submit" enctype="multipart/form-data" class="subform">
+  <form id="sub-{id}" method="post" action="/board/submit" enctype="multipart/form-data" class="subform">
     <input type="hidden" name="task_id" value="{id}">
     <input name="repo_url" type="url" placeholder="https://github.com/..." required>
     <label class="dropzone">
@@ -621,8 +626,12 @@ pub fn board(user: &User, tasks: &[Task], subs: &[SubmissionView], interests: &[
       <b>plan.md dosyanızı sürükleyin veya seçin</b>
       <span>Mimari planınız (.md)</span>
     </label>
-    <button class="btn-dark">Gönder →</button>
   </form>
+  <div class="cardactions">
+    <button type="submit" form="sub-{id}" class="btn-dark">Gönder →</button>
+    {interest_btn}
+  </div>
+  {interest_extra}
 </div>"##,
                 title = esc(&t.title), level = level_name(&t.level), badge_cls = level_badge_class(&t.level),
                 desc = esc(&t.description), id = t.id, up = ico(P_UPLOAD),
