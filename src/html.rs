@@ -622,7 +622,7 @@ pub fn board(user: &User, tasks: &[Task], subs: &[SubmissionView], interests: &[
             };
             format!(
                 r##"<div class="taskcard">
-  <div class="taskhead"><h3>{title}</h3><span class="badge {badge_cls}">{level}</span></div>
+  <div class="taskhead"><h3>{title}</h3><span class="badge {badge_cls}" lang="en">{level}</span></div>
   <p class="desc">{desc}</p>
   {example}
   {sub_html}
