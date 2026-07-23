@@ -820,10 +820,35 @@ fn valid_http_url(u: &str) -> bool {
     u.starts_with("https://") || u.starts_with("http://")
 }
 
+/// Reject obvious internal targets before the server-side fetch (SSRF hardening).
+/// ponytail: literal host/IP denylist, no DNS resolution — a hostname that resolves
+/// to an internal IP still slips through. Proportionate here: the caller is an admin
+/// and only ever learns a boolean, never a response body. Upgrade to resolve-then-
+/// check-the-IP if this fetch is ever made to return data.
+fn is_internal_host(url: &str) -> bool {
+    use std::net::IpAddr;
+    let Ok(parsed) = reqwest::Url::parse(url) else { return true }; // unparseable → treat as blocked
+    let Some(host) = parsed.host_str() else { return true };
+    let h = host.trim_start_matches('[').trim_end_matches(']').to_ascii_lowercase();
+    if h == "localhost" || h.ends_with(".localhost") || h == "metadata.google.internal" {
+        return true;
+    }
+    match h.parse::<IpAddr>() {
+        Ok(IpAddr::V4(v4)) => v4.is_loopback() || v4.is_private() || v4.is_link_local() || v4.is_unspecified(),
+        Ok(IpAddr::V6(v6)) => {
+            v6.is_loopback() || v6.is_unspecified()
+                || (v6.segments()[0] & 0xfe00) == 0xfc00  // fc00::/7 unique-local
+                || (v6.segments()[0] & 0xffc0) == 0xfe80  // fe80::/10 link-local
+        }
+        Err(_) => false, // a real hostname — allowed (see the DNS-rebinding ceiling above)
+    }
+}
+
 /// GET the URL and decide whether it permits iframe embedding. Conservative:
 /// any framing restriction, or a network error/timeout, counts as NOT embeddable
 /// (so we fall back to a screenshot, which always renders).
 async fn check_embeddable(client: &reqwest::Client, url: &str) -> bool {
+    if is_internal_host(url) { return false; }
     let Ok(resp) = client.get(url).timeout(std::time::Duration::from_secs(6)).send().await else { return false };
     let h = resp.headers();
     if let Some(xfo) = h.get("x-frame-options").and_then(|v| v.to_str().ok()) {
@@ -1082,9 +1107,20 @@ async fn admin_review(State(app): State<App>, headers: HeaderMap, Form(f): Form<
 
 // ---- worker API (Phase 3 pipeline, see README) ----
 
+/// Constant-time byte equality — no early exit on the first mismatch, so the compare
+/// time doesn't leak how many leading bytes were right (would let a co-located
+/// attacker recover the token). Length is allowed to short-circuit; it isn't secret.
+fn ct_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() { return false; }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b) { diff |= x ^ y; }
+    diff == 0
+}
+
 fn check_worker(app: &App, headers: &HeaderMap) -> Result<(), Response> {
     let ok = !app.worker_token.is_empty()
-        && headers.get("x-worker-token").and_then(|v| v.to_str().ok()) == Some(app.worker_token.as_str());
+        && headers.get("x-worker-token").and_then(|v| v.to_str().ok())
+            .is_some_and(|t| ct_eq(t.as_bytes(), app.worker_token.as_bytes()));
     if ok { Ok(()) } else { Err(StatusCode::UNAUTHORIZED.into_response()) }
 }
 
@@ -1113,4 +1149,29 @@ async fn worker_result(State(app): State<App>, headers: HeaderMap, Json(r): Json
         .bind(r.id).bind(&r.status).bind(&r.feedback).bind(&r.demo_video_url)
         .execute(&app.pool).await.unwrap();
     Ok(StatusCode::NO_CONTENT)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ct_eq_matches_only_exact() {
+        assert!(ct_eq(b"secret-token", b"secret-token"));
+        assert!(!ct_eq(b"secret-token", b"secret-toke"));  // length differs
+        assert!(!ct_eq(b"secret-token", b"Secret-token")); // one byte differs
+        assert!(!ct_eq(b"", b"x"));
+    }
+
+    #[test]
+    fn internal_hosts_blocked_public_allowed() {
+        for u in ["http://localhost/x", "http://127.0.0.1", "http://169.254.169.254/latest/meta-data",
+                  "https://10.0.0.5", "http://192.168.1.1", "http://172.16.0.1", "http://[::1]/",
+                  "http://metadata.google.internal", "not a url"] {
+            assert!(is_internal_host(u), "{u} should be blocked");
+        }
+        for u in ["https://example.com", "https://ornek.vercel.app", "http://172.15.0.1", "http://172.32.0.1"] {
+            assert!(!is_internal_host(u), "{u} should be allowed");
+        }
+    }
 }

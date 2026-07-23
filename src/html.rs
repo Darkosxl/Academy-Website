@@ -567,7 +567,10 @@ pub fn board(user: &User, tasks: &[Task], subs: &[SubmissionView], interests: &[
                     let fb = s.feedback.as_deref().filter(|f| !f.is_empty())
                         .map(|f| format!(r#"<p class="feedback"><b>Geri bildirim:</b> {}</p>"#, esc(f)))
                         .unwrap_or_default();
-                    let demo = s.demo_video_url.as_deref().filter(|d| !d.is_empty())
+                    // scheme-gate before it lands in an href: only http(s), so a
+                    // javascript:/data: value (worker-token write) can't become a clickable script
+                    let demo = s.demo_video_url.as_deref()
+                        .filter(|d| d.starts_with("https://") || d.starts_with("http://"))
                         .map(|d| format!(r#"<p><a class="btn-outline" href="{}" target="_blank">Tanıtım videosu →</a></p>"#, esc(d)))
                         .unwrap_or_default();
                     let plan_ok = if s.plan_md.as_deref().is_some_and(|p| !p.trim().is_empty()) {
@@ -577,43 +580,21 @@ pub fn board(user: &User, tasks: &[Task], subs: &[SubmissionView], interests: &[
                 }
                 None => String::new(),
             };
-            // "Bunu yapmak isterim" switch. Names of everyone interested show only once
-            // the viewer has opted in (mine), nudging teammates to team up.
+            // "Göreve Başla!" gate: before starting, the card shows only the start
+            // button (posts to /board/interest, one-way). Once started, the teammates
+            // list and the project upload form are revealed. my_sub covers any student
+            // who submitted before this flow existed.
             let card_interests: Vec<&InterestRow> = interests.iter().filter(|i| i.task_id == t.id).collect();
             let mine = card_interests.iter().any(|i| i.is_me);
-            let (interest_btn, interest_extra) = if mine {
+            let started = mine || my_sub.is_some();
+            let action_area = if started {
                 let chips: String = card_interests.iter()
                     .map(|i| format!(r#"<span class="chip">{}</span>"#, esc(&i.nickname)))
                     .collect();
-                (
-                    format!(
-                        r##"<form method="post" action="/board/interest" class="inline">
-    <input type="hidden" name="task_id" value="{id}">
-    <button class="btn-interest on" aria-pressed="true" title="Projelerde beraber çalışıp beraber tam puan alabilirsiniz">✓ Bunu yapıyorum</button>
-  </form>"##,
-                        id = t.id),
-                    format!(
-                        r##"<div class="chips interest-names">{chips}</div>
-  <p class="fieldnote">Birlikte yapmak için birbirinize ulaşın 🤝</p>"##),
-                )
-            } else {
-                (
-                    format!(
-                        r##"<form method="post" action="/board/interest" class="inline">
-    <input type="hidden" name="task_id" value="{id}">
-    <button class="btn-interest" aria-pressed="false" title="Projelerde beraber çalışıp beraber tam puan alabilirsiniz">Bunu yapmak isterim</button>
-  </form>"##,
-                        id = t.id),
-                    String::new(),
-                )
-            };
-            format!(
-                r##"<div class="taskcard">
-  <div class="taskhead"><h3>{title}</h3><span class="badge {badge_cls}">{level}</span></div>
-  <p class="desc">{desc}</p>
-  {example}
-  {sub_html}
-  <form id="sub-{id}" method="post" action="/board/submit" enctype="multipart/form-data" class="subform">
+                format!(
+                    r##"<div class="chips interest-names">{chips}</div>
+  <p class="fieldnote">Birlikte yapmak için birbirinize ulaşın 🤝</p>
+  <form method="post" action="/board/submit" enctype="multipart/form-data" class="subform">
     <input type="hidden" name="task_id" value="{id}">
     <input name="repo_url" type="url" placeholder="https://github.com/..." required>
     <label class="dropzone">
@@ -626,15 +607,29 @@ pub fn board(user: &User, tasks: &[Task], subs: &[SubmissionView], interests: &[
       <b>plan.md dosyanızı sürükleyin veya seçin</b>
       <span>Mimari planınız (.md)</span>
     </label>
-  </form>
-  <div class="cardactions">
-    <button type="submit" form="sub-{id}" class="btn-dark">Gönder →</button>
-    {interest_btn}
-  </div>
-  {interest_extra}
+    <button class="btn-dark">Projenizi Yükle →</button>
+  </form>"##,
+                    id = t.id, up = ico(P_UPLOAD))
+            } else {
+                format!(
+                    r##"<div class="cardactions">
+    <form method="post" action="/board/interest" class="inline">
+      <input type="hidden" name="task_id" value="{id}">
+      <button class="btn-start" title="Göreve başla, birlikte çalışacak arkadaşlarını gör ve projeni yükle">Göreve Başla!</button>
+    </form>
+  </div>"##,
+                    id = t.id)
+            };
+            format!(
+                r##"<div class="taskcard">
+  <div class="taskhead"><h3>{title}</h3><span class="badge {badge_cls}">{level}</span></div>
+  <p class="desc">{desc}</p>
+  {example}
+  {sub_html}
+  {action_area}
 </div>"##,
                 title = esc(&t.title), level = level_name(&t.level), badge_cls = level_badge_class(&t.level),
-                desc = esc(&t.description), id = t.id, up = ico(P_UPLOAD),
+                desc = esc(&t.description),
             )
         }).collect()
     };
