@@ -74,6 +74,7 @@ async fn main() {
         .route("/api/progress", post(progress))
         .route("/leaderboard", get(leaderboard))
         .route("/board", get(board))
+        .route("/board/profiles", post(board_profiles))
         .route("/board/submit", post(board_submit).layer(DefaultBodyLimit::max(300 * 1024)))
         .route("/board/interest", post(board_interest))
         .route("/admin", get(admin_page))
@@ -707,8 +708,28 @@ async fn leader_rows(app: &App) -> Vec<LeaderRow> {
 
 // ---- board ----
 
+/// True once the student has BOTH public profiles on file. The board is gated on this:
+/// they could skip the profiles during onboarding, but not to reach the task board.
+async fn has_both_profiles(app: &App, uid: Uuid) -> (bool, Option<String>, Option<String>) {
+    let (github, linkedin): (Option<String>, Option<String>) = sqlx::query_as(
+        "select github_url, linkedin_url from users_exposure_academy where id = $1")
+        .bind(uid).fetch_one(&app.pool).await.unwrap();
+    let ok = github.as_deref().is_some_and(|s| !s.trim().is_empty())
+        && linkedin.as_deref().is_some_and(|s| !s.trim().is_empty());
+    (ok, github, linkedin)
+}
+
 async fn board(State(app): State<App>, headers: HeaderMap) -> Result<Html<String>, Response> {
     let user = require_onboarded(current_user(&app, &headers).await)?;
+    // Gate: no board until both GitHub and LinkedIn are set. Skippable at onboarding,
+    // enforced here — show the setup requirement instead of the tasks. Admins are exempt,
+    // same as the onboarding gate (they don't onboard and need to see the board).
+    if !user.is_admin {
+        let (ok, github, linkedin) = has_both_profiles(&app, user.id).await;
+        if !ok {
+            return Ok(Html(html::board_locked(&user, github.as_deref(), linkedin.as_deref(), None)));
+        }
+    }
     let tasks = sqlx::query_as::<_, Task>("select id, title, description, level, example_url, example_embeddable from tasks_exposure_academy order by level, position")
         .fetch_all(&app.pool).await.unwrap();
     let subs = sqlx::query_as::<_, SubmissionView>(
@@ -729,6 +750,36 @@ async fn board(State(app): State<App>, headers: HeaderMap) -> Result<Html<String
          order by ti.created_at")
         .bind(user.id).fetch_all(&app.pool).await.unwrap();
     Ok(Html(html::board(&user, &tasks, &subs, &interests)))
+}
+
+#[derive(Deserialize)]
+struct ProfilesForm {
+    #[serde(default)] github_url: String,
+    #[serde(default)] linkedin_url: String,
+}
+
+/// Save the GitHub/LinkedIn profiles from the board gate. Both are required here (the
+/// board stays locked otherwise); on success we drop the student straight into /board.
+async fn board_profiles(State(app): State<App>, headers: HeaderMap, Form(f): Form<ProfilesForm>) -> Result<Response, Response> {
+    let user = require_onboarded(current_user(&app, &headers).await)?;
+    // re-render the gate with an error, echoing back what they typed
+    let fail = |msg: &str| Html(html::board_locked(&user, Some(f.github_url.trim()), Some(f.linkedin_url.trim()), Some(msg))).into_response();
+
+    let github = match normalize_profile_url(&f.github_url, "github.com") {
+        Ok(Some(u)) => u,
+        Ok(None) => return Ok(fail("GitHub profilini ekle.")),
+        Err(()) => return Ok(fail("GitHub bağlantısı github.com adresinde olmalı (ör. https://github.com/kullanici).")),
+    };
+    let linkedin = match normalize_profile_url(&f.linkedin_url, "linkedin.com") {
+        Ok(Some(u)) => u,
+        Ok(None) => return Ok(fail("LinkedIn profilini ekle.")),
+        Err(()) => return Ok(fail("LinkedIn bağlantısı linkedin.com adresinde olmalı (ör. https://linkedin.com/in/adin).")),
+    };
+
+    sqlx::query("update users_exposure_academy set github_url = $2, linkedin_url = $3 where id = $1")
+        .bind(user.id).bind(&github).bind(&linkedin)
+        .execute(&app.pool).await.map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
+    Ok(Redirect::to("/board").into_response())
 }
 
 #[derive(Deserialize)]

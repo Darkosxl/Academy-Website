@@ -756,6 +756,17 @@ form.inline input, form.inline select { margin-top:0; width:auto; }
 .sb-me.active .sb-name { color:var(--blue-text); }
 
 .profilewrap { max-width:32rem; margin-top:20px; }
+
+/* Board gate — the locked state shown until both profiles are on file */
+.gate-panel { position:relative; }
+.gate-lock {
+  display:inline-flex; align-items:center; justify-content:center;
+  width:44px; height:44px; border-radius:var(--r-xl);
+  background:var(--blue-10); color:var(--blue-text); margin-bottom:14px;
+}
+.gate-lock .ico { width:24px; height:24px; }
+.gate-panel .btn-dark { margin-top:6px; }
+.gate-panel a { color:var(--blue-text); font-weight:500; }
 .fieldnote {
   font-size:var(--fs-mini); line-height:1.6; color:var(--text-subtle);
   margin:-10px 0 16px; text-transform:none; letter-spacing:normal; font-weight:400;

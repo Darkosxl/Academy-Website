@@ -68,6 +68,7 @@ const P_PLAY: &str = "M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z M15.91 11.672a.375.3
 const P_MENU: &str = "M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5";
 const P_UPLOAD: &str = "M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5";
 const P_CLOSE: &str = "M6 18 18 6M6 6l12 12";
+const P_LOCK: &str = "M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z";
 
 fn nav_link(href: &str, page: &str, key: &str, icon: &str, label: &str) -> String {
     let active = if page == key { "active" } else { "" };
@@ -156,7 +157,7 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/style.css?v=21">
+<link rel="stylesheet" href="/static/style.css?v=22">
 <script>if('scrollRestoration'in history)history.scrollRestoration='manual';</script>
 </head>
 <body class="{body_class}">
@@ -698,6 +699,36 @@ pub fn board(user: &User, tasks: &[Task], subs: &[SubmissionView], interests: &[
     layout("Görev Panosu", Some(user), "board", &format!(
         r##"<div id="board-root"><h1 class="pagetitle">Görev Panosu</h1><p class="muted">Projenizi yükleyin.</p><div class="tasks">{task_cards}</div></div>
 <script src="/static/board.js?v=1" defer></script>"##))
+}
+
+/// The board gate. Shown instead of the tasks when the student is missing either public
+/// profile. Unlike onboarding there is no skip — both fields are required to continue.
+/// `github`/`linkedin` pre-fill whatever they already have (e.g. added one, not the other).
+pub fn board_locked(user: &User, github: Option<&str>, linkedin: Option<&str>, error: Option<&str>) -> String {
+    let err = error.map(|e| format!(r#"<p class="error">{}</p>"#, esc(e))).unwrap_or_default();
+    let content = format!(r##"<h1 class="pagetitle">Görev Panosu kilitli</h1>
+<p class="muted">Panoya erişmeden önce GitHub ve LinkedIn profillerini eklemen gerekiyor.</p>
+<div class="profilewrap">
+<section class="panel gate-panel">
+  <div class="gate-lock">{lock}</div>
+  <h2>Profillerini ekle</h2>
+  <p class="fieldnote">GitHub ve LinkedIn, yaptığın işi dünyaya gösterdiğin yer — projelerini paylaştıkça portföyün büyür.
+  Hesabın yoksa hemen ücretsiz aç:
+  <a href="https://github.com/signup" target="_blank" rel="noopener">GitHub</a> ·
+  <a href="https://www.linkedin.com/signup" target="_blank" rel="noopener">LinkedIn</a>.</p>
+  {err}
+  <form method="post" action="/board/profiles">
+    <label>GitHub<input name="github_url" type="text" inputmode="url" value="{github}" placeholder="https://github.com/kullanici" required></label>
+    <label>LinkedIn<input name="linkedin_url" type="text" inputmode="url" value="{linkedin}" placeholder="https://linkedin.com/in/adin" required></label>
+    <button class="btn-dark">Kaydet ve panoyu aç →</button>
+  </form>
+</section>
+</div>"##,
+        lock = ico(P_LOCK),
+        github = esc(github.unwrap_or("")),
+        linkedin = esc(linkedin.unwrap_or("")),
+    );
+    layout("Görev Panosu", Some(user), "board", &content)
 }
 
 pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[Video], tasks: &[Task], members: &[MemberRow], invite_code: &str, base_url: &str) -> String {
