@@ -87,6 +87,15 @@ create table if not exists tasks_exposure_academy (
   created_at timestamptz not null default now()
 );
 
+-- explicit ordering within a level (easiest -> hardest), admin-controlled via arrows.
+alter table tasks_exposure_academy add column if not exists position int not null default 0;
+-- one-time backfill of legacy rows: stable per-level order from creation time.
+-- new rows get an explicit position on insert (admin_task), so they never stay 0.
+update tasks_exposure_academy t set position = sub.rn
+  from (select id, row_number() over (partition by level order by created_at) as rn
+        from tasks_exposure_academy) sub
+  where t.id = sub.id and t.position = 0;
+
 create table if not exists submissions_exposure_academy (
   id uuid primary key default gen_random_uuid(),
   task_id uuid not null references tasks_exposure_academy(id) on delete cascade,

@@ -84,6 +84,7 @@ async fn main() {
         .route("/admin/task/example", post(admin_task_example))
         .route("/admin/task/preview", post(admin_task_preview))
         .route("/admin/task/level", post(admin_task_level))
+        .route("/admin/task/move", post(admin_task_move))
         .route("/admin/task/delete", post(admin_task_delete))
         .route("/admin/user", post(admin_user))
         .route("/admin/review", post(admin_review))
@@ -684,7 +685,7 @@ async fn leader_rows(app: &App) -> Vec<LeaderRow> {
 
 async fn board(State(app): State<App>, headers: HeaderMap) -> Result<Html<String>, Response> {
     let user = require_onboarded(current_user(&app, &headers).await)?;
-    let tasks = sqlx::query_as::<_, Task>("select id, title, description, level, example_url, example_embeddable from tasks_exposure_academy order by created_at desc")
+    let tasks = sqlx::query_as::<_, Task>("select id, title, description, level, example_url, example_embeddable from tasks_exposure_academy order by level, position")
         .fetch_all(&app.pool).await.unwrap();
     let subs = sqlx::query_as::<_, SubmissionView>(
         "select distinct on (s.task_id) s.id, s.task_id, s.repo_url, s.status, s.feedback, s.demo_video_url, s.plan_md,
@@ -753,7 +754,7 @@ async fn admin_page(State(app): State<App>, headers: HeaderMap) -> Result<Html<S
         .fetch_all(&app.pool).await.unwrap();
     let videos = sqlx::query_as::<_, Video>("select id, youtube_id, title, level from videos_exposure_academy order by level, position")
         .fetch_all(&app.pool).await.unwrap();
-    let tasks = sqlx::query_as::<_, Task>("select id, title, description, level, example_url, example_embeddable from tasks_exposure_academy order by created_at desc")
+    let tasks = sqlx::query_as::<_, Task>("select id, title, description, level, example_url, example_embeddable from tasks_exposure_academy order by level, position")
         .fetch_all(&app.pool).await.unwrap();
     let invite_code = invite_code(&app).await;
     Ok(Html(html::admin(&user, &stats, &subs, &videos, &tasks, &invite_code, &app.base_url)))
@@ -834,7 +835,8 @@ async fn admin_task(State(app): State<App>, headers: HeaderMap, Form(f): Form<Ta
         return Err((StatusCode::BAD_REQUEST, "Örnek URL http:// veya https:// ile başlamalı.").into_response());
     }
     let embeddable = if example.is_empty() { None } else { Some(check_embeddable(&app.http, example).await) };
-    sqlx::query("insert into tasks_exposure_academy (title, description, level, example_url, example_embeddable) values ($1,$2,$3, nullif($4,''), $5)")
+    // position = end of this level's order, so new tasks land last (hardest) until reordered
+    sqlx::query("insert into tasks_exposure_academy (title, description, level, example_url, example_embeddable, position) values ($1,$2,$3, nullif($4,''), $5, (select coalesce(max(position),0)+1 from tasks_exposure_academy where level=$3))")
         .bind(&f.title).bind(&f.description).bind(&f.level).bind(example).bind(embeddable)
         .execute(&app.pool).await.map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
     Ok(Redirect::to("/admin"))
@@ -944,10 +946,44 @@ struct IdLevelForm { id: Uuid, level: String }
 
 async fn admin_task_level(State(app): State<App>, headers: HeaderMap, Form(f): Form<IdLevelForm>) -> Result<Redirect, Response> {
     require_admin(current_user(&app, &headers).await)?;
-    // level is checked by the DB constraint; an invalid value just 400s
-    sqlx::query("update tasks_exposure_academy set level = $2 where id = $1")
+    // level is checked by the DB constraint; an invalid value just 400s. Moving to a
+    // new level appends the task at the end of that level's order.
+    sqlx::query(
+        "update tasks_exposure_academy set level = $2,
+           position = (select coalesce(max(position),0)+1 from tasks_exposure_academy where level = $2)
+         where id = $1")
         .bind(f.id).bind(&f.level)
         .execute(&app.pool).await.map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
+    Ok(Redirect::to("/admin"))
+}
+
+#[derive(Deserialize)]
+struct TaskMoveForm { id: Uuid, dir: String }
+
+// swap a task's position with its neighbour in the same level (ponytail: adjacent-swap
+// assumes unique positions per level, which the backfill + insert-position guarantee).
+async fn admin_task_move(State(app): State<App>, headers: HeaderMap, Form(f): Form<TaskMoveForm>) -> Result<Redirect, Response> {
+    require_admin(current_user(&app, &headers).await)?;
+    let mut tx = app.pool.begin().await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())?;
+    let Some((level, position)) = sqlx::query_as::<_, (String, i32)>(
+        "select level, position from tasks_exposure_academy where id = $1")
+        .bind(f.id).fetch_optional(&mut *tx).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())?
+    else { return Ok(Redirect::to("/admin")); };
+    let neighbor = if f.dir == "up" {
+        "select id, position from tasks_exposure_academy where level = $1 and position < $2 order by position desc limit 1"
+    } else {
+        "select id, position from tasks_exposure_academy where level = $1 and position > $2 order by position asc limit 1"
+    };
+    if let Some((nid, npos)) = sqlx::query_as::<_, (Uuid, i32)>(neighbor)
+        .bind(&level).bind(position).fetch_optional(&mut *tx).await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())?
+    {
+        sqlx::query("update tasks_exposure_academy set position = $2 where id = $1")
+            .bind(f.id).bind(npos).execute(&mut *tx).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())?;
+        sqlx::query("update tasks_exposure_academy set position = $2 where id = $1")
+            .bind(nid).bind(position).execute(&mut *tx).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())?;
+    }
+    tx.commit().await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())?;
     Ok(Redirect::to("/admin"))
 }
 

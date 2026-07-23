@@ -665,6 +665,8 @@ pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[
         r##"<div class="itemrow">
   <div class="item-title"><span>{title}</span></div>
   <div class="item-controls">
+    <form method="post" action="/admin/task/move" class="inline"><input type="hidden" name="id" value="{id}"><button name="dir" value="up" class="btn-dark small" title="Yukarı">▲</button></form>
+    <form method="post" action="/admin/task/move" class="inline"><input type="hidden" name="id" value="{id}"><button name="dir" value="down" class="btn-dark small" title="Aşağı">▼</button></form>
     <form method="post" action="/admin/task/level" class="inline">
       <input type="hidden" name="id" value="{id}">
       <select name="level">{opts}</select>
