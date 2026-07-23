@@ -427,7 +427,7 @@ pub fn video_grid(user: &User, videos: &[VideoWithProgress], level: Option<&str>
     };
     // Advanced filtresinde video yok; kılavuz mesajı grid yerine büyük ve ortada.
     let body = if level == Some("SERIES_A") {
-        r#"<div class="advanced-note">Advanced seviye arkadaşlar büyük olasılıkla video içeriklerine hakimler. Sizler doğrudan görev projeleri yapmaya başlayabilirsiniz!<a class="btn-start" href="/board">Görev Panosu →</a></div>"#.to_string()
+        r#"<div class="advanced-note"><p>Advanced seviye arkadaşlar büyük olasılıkla video içeriklerine hakimler. Sizler doğrudan görev projeleri yapmaya başlayabilirsiniz!</p><a class="btn-start" href="/board">Görev Panosu →</a></div>"#.to_string()
     } else {
         format!(r#"<div class="grid">{cards}</div>"#)
     };

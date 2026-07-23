@@ -263,12 +263,15 @@ body:not(.portal) .btn-dark.big { padding:14px 32px; }
 .cardactions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:12px; }
 /* Videolar → Advanced filtresi: video yerine büyük, ortalanmış kılavuz mesajı */
 .advanced-note {
-  max-width:640px; margin:64px auto; text-align:center;
-  font-size:1.375rem; line-height:1.5; font-weight:700; color:var(--warn-text-2);
-  background:var(--warn-bg); border:1px solid var(--warn-border);
-  border-radius:var(--r-2xl); padding:40px 32px;
+  max-width:560px; margin:64px auto; text-align:center;
+  background:var(--bg-card); border:1px solid var(--border-card);
+  border-radius:var(--r-2xl); padding:48px 40px;
 }
-.advanced-note .btn-start { margin-top:24px; font-size:var(--fs-body); }
+.advanced-note p {
+  font-size:1.125rem; line-height:1.6; font-weight:600; color:var(--text-body);
+  margin:0;
+}
+.advanced-note .btn-start { margin-top:28px; }
 
 /* ============================================================================
    ANA SAYFA HUB — üç büyük hedef: videolar | görevler, altta puan tablosu
