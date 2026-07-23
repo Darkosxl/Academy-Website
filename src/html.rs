@@ -151,7 +151,7 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/style.css?v=17">
+<link rel="stylesheet" href="/static/style.css?v=18">
 </head>
 <body class="{body_class}">
 {shell}
@@ -634,7 +634,8 @@ pub fn board(user: &User, tasks: &[Task], subs: &[SubmissionView], interests: &[
         }).collect()
     };
     layout("Görev Panosu", Some(user), "board", &format!(
-        r##"<h1 class="pagetitle">Görev Panosu</h1><p class="muted">Projenizi yükleyin.</p><div class="tasks">{task_cards}</div>"##))
+        r##"<div id="board-root"><h1 class="pagetitle">Görev Panosu</h1><p class="muted">Projenizi yükleyin.</p><div class="tasks">{task_cards}</div></div>
+<script src="/static/board.js?v=1" defer></script>"##))
 }
 
 pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[Video], tasks: &[Task], invite_code: &str, base_url: &str) -> String {
