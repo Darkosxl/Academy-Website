@@ -32,6 +32,12 @@ alter table users_exposure_academy add column if not exists grade text;
 create unique index if not exists users_exposure_academy_nickname_lower_key
   on users_exposure_academy (lower(nickname)) where nickname is not null;
 
+-- optional public profiles collected at the end of onboarding. Null = not provided
+-- yet: the student skipped the step. The görev panosu (board) gates on both being
+-- set, so a null here is what re-shows the "set up your profiles" prompt in-app.
+alter table users_exposure_academy add column if not exists github_url text;
+alter table users_exposure_academy add column if not exists linkedin_url text;
+
 create table if not exists magic_links_exposure_academy (
   token text primary key,
   email text not null,

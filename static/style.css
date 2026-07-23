@@ -180,6 +180,46 @@ body:not(.portal) .btn-dark.big { padding:14px 32px; }
   border-radius:var(--r-xl); padding:12px 14px; font-size:var(--fs-xs); margin-bottom:16px;
 }
 
+/* Optional GitHub/LinkedIn step at the end of onboarding — set off from the required
+   fields above with a hairline so it reads as "extra, skippable". */
+.profiles-block {
+  margin:4px 0 20px; padding-top:18px; border-top:1px solid var(--light-border);
+}
+.profiles-head {
+  font-size:var(--fs-label); font-weight:700; text-transform:uppercase; letter-spacing:0.05em;
+  color:var(--light-muted); margin-bottom:6px;
+}
+.profiles-block .fieldnote { display:block; color:var(--light-muted); margin-bottom:14px; }
+.profiles-block a { color:var(--blue); font-weight:500; }
+
+/* Skip-confirmation modal (also reused elsewhere) */
+.modal-overlay {
+  position:fixed; inset:0; z-index:50; display:flex; align-items:center; justify-content:center;
+  padding:16px; background:rgba(9,9,11,0.55); backdrop-filter:blur(2px);
+}
+.modal-overlay[hidden] { display:none; }
+.modal-card {
+  width:100%; max-width:26rem; background:#fff; border-radius:var(--r-2xl);
+  padding:26px 24px; box-shadow:0 20px 40px -12px rgba(0,0,0,0.35);
+}
+.modal-card h2 {
+  font-size:1.35rem; font-weight:900; letter-spacing:-0.03em; color:var(--light-ink); margin-bottom:10px;
+}
+.modal-card p { color:var(--light-muted); font-size:var(--fs-sm); line-height:1.55; margin-bottom:20px; }
+.modal-card p b { color:var(--light-ink); font-weight:600; }
+.modal-actions { display:flex; gap:10px; justify-content:flex-end; flex-wrap:wrap; }
+.btn-ghost {
+  display:inline-flex; align-items:center; justify-content:center;
+  background:transparent; color:var(--light-muted); border:1px solid var(--light-border);
+  border-radius:var(--r-xl); padding:10px 18px; font:inherit;
+  font-size:var(--fs-sm); font-weight:700; cursor:pointer; transition:all 150ms;
+}
+.btn-ghost:hover { color:var(--light-ink); border-color:var(--light-ink); }
+@media (max-width:480px) {
+  .modal-actions { flex-direction:column-reverse; }
+  .modal-actions .btn-dark, .modal-actions .btn-ghost { width:100%; }
+}
+
 /* ============================================================================
    PORTAL SHELL (dark) — fixed 240px zinc-950 rail + black canvas
    ============================================================================ */

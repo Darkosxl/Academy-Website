@@ -156,7 +156,7 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/style.css?v=20">
+<link rel="stylesheet" href="/static/style.css?v=21">
 <script>if('scrollRestoration'in history)history.scrollRestoration='manual';</script>
 </head>
 <body class="{body_class}">
@@ -228,11 +228,60 @@ pub fn join(f: &JoinForm, code_locked: bool, error: Option<&str>) -> String {
       </label>
       <label>Okul<input name="school" value="{school}" required></label>
       <label>Sınıf<select name="grade" required>{grade_opts}</select></label>
-      <button class="btn-dark big">Oluştur →</button>
+
+      <div class="profiles-block">
+        <p class="profiles-head">Profillerin</p>
+        <p class="fieldnote">GitHub ve LinkedIn, yaptığın işi dünyaya gösterdiğin yerdir.
+        Hesabın varsa aşağıya linkleri gir, yoksa hemen aç!: <a href="https://github.com/signup" target="_blank" rel="noopener">GitHub</a> ·
+        <a href="https://www.linkedin.com/signup" target="_blank" rel="noopener">LinkedIn</a>.</p>
+        <label>GitHub<input name="github_url" type="text" inputmode="url" value="{github}" placeholder="https://github.com/kullanici"></label>
+        <label>LinkedIn<input name="linkedin_url" type="text" inputmode="url" value="{linkedin}" placeholder="https://linkedin.com/in/adin"></label>
+      </div>
+
+      <button type="submit" class="btn-dark big">Oluştur →</button>
     </form>
   </div>
+
+  <div class="modal-overlay" id="skipModal" hidden>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="skipTitle">
+      <h2 id="skipTitle">Profillerini eklemedin</h2>
+      <p>GitHub ve LinkedIn profillerini şimdilik atlayabilirsin. Ama uygulamanın içinde
+      bu profilleri oluşturman gerekecek — <b>Görev Panosu</b> ancak ikisini de eklediğinde açılır.</p>
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost" id="skipBack">Geri dön ve ekle</button>
+        <button type="button" class="btn-dark" id="skipGo">Şimdilik atla →</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  (function() {{
+    var form = document.querySelector('form[action="/join"]');
+    var modal = document.getElementById('skipModal');
+    var gh = form.querySelector('[name="github_url"]');
+    var li = form.querySelector('[name="linkedin_url"]');
+    var warned = false;
+    form.addEventListener('submit', function(e) {{
+      var incomplete = !gh.value.trim() || !li.value.trim();
+      if (incomplete && !warned) {{
+        e.preventDefault();
+        modal.hidden = false;
+      }}
+    }});
+    document.getElementById('skipGo').addEventListener('click', function() {{
+      warned = true;
+      modal.hidden = true;
+      form.submit();
+    }});
+    document.getElementById('skipBack').addEventListener('click', function() {{
+      modal.hidden = true;
+      gh.focus();
+    }});
+  }})();
+  </script>
 </div>"##,
         name = esc(&f.display_name), email = esc(&f.email), nick = esc(&f.nickname), school = esc(&f.school),
+        github = esc(&f.github_url), linkedin = esc(&f.linkedin_url),
     ))
 }
 

@@ -441,15 +441,26 @@ async fn join_post(State(app): State<App>, Form(f): Form<JoinForm>) -> Response 
     if !GRADES.contains(&f.grade.trim()) {
         return fail("Sınıfını seç.");
     }
+    // GitHub/LinkedIn are optional — the student may skip them here and add them in-app
+    // later. Only validate when actually provided.
+    let github = match normalize_profile_url(&f.github_url, "github.com") {
+        Ok(v) => v,
+        Err(()) => return fail("GitHub bağlantısı github.com adresinde olmalı (ör. https://github.com/kullanici)."),
+    };
+    let linkedin = match normalize_profile_url(&f.linkedin_url, "linkedin.com") {
+        Ok(v) => v,
+        Err(()) => return fail("LinkedIn bağlantısı linkedin.com adresinde olmalı (ör. https://linkedin.com/in/adin)."),
+    };
 
     // `do nothing` on an existing email: a returning student (or one the admin added
     // by hand) just gets a login link, and their existing profile is left alone rather
     // than being overwritten by whoever typed their address.
     sqlx::query(
-        "insert into users_exposure_academy (email, display_name, nickname, school, grade)
-         values ($1,$2,$3,$4,$5)
+        "insert into users_exposure_academy (email, display_name, nickname, school, grade, github_url, linkedin_url)
+         values ($1,$2,$3,$4,$5,$6,$7)
          on conflict (email) do nothing")
         .bind(&email).bind(name).bind(&nickname).bind(school).bind(f.grade.trim())
+        .bind(&github).bind(&linkedin)
         .execute(&app.pool).await.unwrap();
 
     send_login_link(&app, &email).await;

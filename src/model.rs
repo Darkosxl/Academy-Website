@@ -45,9 +45,34 @@ pub struct JoinForm {
     pub school: String,
     #[serde(default)]
     pub grade: String,
+    #[serde(default)]
+    pub github_url: String,
+    #[serde(default)]
+    pub linkedin_url: String,
 }
 
 pub const GRADES: [&str; 4] = ["9'a geçiyor", "10'a geçiyor", "11'e geçiyor", "12'ye geçiyor"];
+
+/// An optional public-profile link (GitHub / LinkedIn). Empty is allowed — the step
+/// is skippable. If present, we tolerate a missing scheme (prepend `https://`) and
+/// require the expected host so the board can trust it enough to render as a link.
+/// `Ok(None)` means "left blank", `Ok(Some(url))` the normalized URL, `Err(())` invalid.
+pub fn normalize_profile_url(raw: &str, host: &str) -> Result<Option<String>, ()> {
+    let s = raw.trim();
+    if s.is_empty() {
+        return Ok(None);
+    }
+    let url = if s.to_lowercase().starts_with("http://") || s.to_lowercase().starts_with("https://") {
+        s.to_string()
+    } else {
+        format!("https://{s}")
+    };
+    if url.to_lowercase().contains(host) {
+        Ok(Some(url))
+    } else {
+        Err(())
+    }
+}
 
 /// Nickname rules, one place. Letters (Turkish included), digits, `_` and `-`; no
 /// spaces, so it always fits the leaderboard row.
