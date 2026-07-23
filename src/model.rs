@@ -144,6 +144,16 @@ impl LeaderRow {
     }
 }
 
+/// One row in the admin "Öğrenciler" list — enough to identify and remove a member.
+#[derive(FromRow)]
+pub struct MemberRow {
+    pub id: Uuid,
+    pub display_name: String,
+    pub email: String,
+    pub nickname: Option<String>,
+    pub is_admin: bool,
+}
+
 #[derive(FromRow)]
 pub struct StatRow {
     pub display_name: String,

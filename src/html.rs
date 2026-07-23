@@ -157,6 +157,7 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/style.css?v=19">
+<script>if('scrollRestoration'in history)history.scrollRestoration='manual';</script>
 </head>
 <body class="{body_class}">
 {shell}
@@ -426,7 +427,7 @@ pub fn video_grid(user: &User, videos: &[VideoWithProgress], level: Option<&str>
     };
     // Advanced filtresinde video yok; kılavuz mesajı grid yerine büyük ve ortada.
     let body = if level == Some("SERIES_A") {
-        r#"<div class="advanced-note">Videoları izleyebilirsiniz ama projeleri sizin için şiddetle öneririz</div>"#.to_string()
+        r#"<div class="advanced-note">Advanced seviye arkadaşlar büyük olasılıkla video içeriklerine hakimler. Sizler doğrudan görev projeleri yapmaya başlayabilirsiniz!<a class="btn-start" href="/board">Görev Panosu →</a></div>"#.to_string()
     } else {
         format!(r#"<div class="grid">{cards}</div>"#)
     };
@@ -650,7 +651,7 @@ pub fn board(user: &User, tasks: &[Task], subs: &[SubmissionView], interests: &[
 <script src="/static/board.js?v=1" defer></script>"##))
 }
 
-pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[Video], tasks: &[Task], invite_code: &str, base_url: &str) -> String {
+pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[Video], tasks: &[Task], members: &[MemberRow], invite_code: &str, base_url: &str) -> String {
     let invite_link = format!("{}/join/{}", base_url.trim_end_matches('/'), invite_code);
     let level_opts = level_options("");
     let stat_rows: String = stats.iter().map(|s| {
@@ -746,6 +747,33 @@ pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[
         live_sel = if t.example_embeddable == Some(true) { " selected" } else { "" },
         desc = esc(&t.description), desc_rows = textarea_rows(&t.description, 48),
     )).collect();
+    let member_rows: String = if members.is_empty() {
+        "<p class='muted'>Henüz öğrenci yok</p>".into()
+    } else {
+        members.iter().map(|m| {
+            let name = m.nickname.as_deref().filter(|n| !n.trim().is_empty()).unwrap_or(&m.display_name);
+            // admin accounts and the current user can't be removed from here — avoids
+            // locking yourself out or nuking a fellow admin by accident
+            let action = if m.is_admin {
+                r#"<span class="item-meta">Yönetici</span>"#.to_string()
+            } else {
+                format!(
+                    r#"<form method="post" action="/admin/user/delete" class="inline" onsubmit="return confirm('{name} adlı öğrenciyi ve tüm ilerlemesini/gönderimlerini kalıcı olarak silmek istediğine emin misin?')">
+      <input type="hidden" name="id" value="{id}">
+      <button class="btn-dark small">Sil</button>
+    </form>"#,
+                    name = esc(name), id = m.id,
+                )
+            };
+            format!(
+                r##"<div class="itemrow">
+  <div class="item-title"><span>{name}</span><span class="item-meta">{email}</span></div>
+  <div class="item-controls">{action}</div>
+</div>"##,
+                name = esc(name), email = esc(&m.email),
+            )
+        }).collect()
+    };
     layout("Yönetici paneli", Some(user), "admin", &format!(
         r##"<div id="admin-root">
 <h1 class="pagetitle">Yönetici paneli</h1>
@@ -781,6 +809,7 @@ pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[
     <label>İsim<input name="display_name" required></label>
     <button class="btn-dark">Kaydet</button>
   </form>
+  <div class="minilist">{member_rows}</div>
 </section>
 
 <section class="panel">

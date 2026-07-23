@@ -88,6 +88,7 @@ async fn main() {
         .route("/admin/task/move", post(admin_task_move))
         .route("/admin/task/delete", post(admin_task_delete))
         .route("/admin/user", post(admin_user))
+        .route("/admin/user/delete", post(admin_user_delete))
         .route("/admin/review", post(admin_review))
         .route("/admin/invite", post(admin_rotate_invite))
         .route("/api/worker/pending", get(worker_pending))
@@ -797,8 +798,11 @@ async fn admin_page(State(app): State<App>, headers: HeaderMap) -> Result<Html<S
         .fetch_all(&app.pool).await.unwrap();
     let tasks = sqlx::query_as::<_, Task>("select id, title, description, level, example_url, example_embeddable from tasks_exposure_academy order by level, position")
         .fetch_all(&app.pool).await.unwrap();
+    let members = sqlx::query_as::<_, MemberRow>(
+        "select id, display_name, email, nickname, is_admin from users_exposure_academy order by is_admin desc, lower(coalesce(nickname, display_name))")
+        .fetch_all(&app.pool).await.unwrap();
     let invite_code = invite_code(&app).await;
-    Ok(Html(html::admin(&user, &stats, &subs, &videos, &tasks, &invite_code, &app.base_url)))
+    Ok(Html(html::admin(&user, &stats, &subs, &videos, &tasks, &members, &invite_code, &app.base_url)))
 }
 
 fn parse_youtube_id(input: &str) -> String {
@@ -1088,6 +1092,19 @@ async fn admin_user(State(app): State<App>, headers: HeaderMap, Form(f): Form<Us
     let email = f.email.trim().to_lowercase();
     sqlx::query("insert into users_exposure_academy (email, display_name) values ($1,$2) on conflict (email) do nothing")
         .bind(&email).bind(&f.display_name)
+        .execute(&app.pool).await.map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
+    Ok(Redirect::to("/admin"))
+}
+
+async fn admin_user_delete(State(app): State<App>, headers: HeaderMap, Form(f): Form<IdForm>) -> Result<Redirect, Response> {
+    let me = require_admin(current_user(&app, &headers).await)?;
+    // guard rails: never let an admin delete themselves or another admin from here.
+    // Deleting a student cascades to their sessions, watch progress, and submissions (FK).
+    if f.id == me.id {
+        return Err(StatusCode::BAD_REQUEST.into_response());
+    }
+    sqlx::query("delete from users_exposure_academy where id = $1 and is_admin = false")
+        .bind(f.id)
         .execute(&app.pool).await.map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
     Ok(Redirect::to("/admin"))
 }
