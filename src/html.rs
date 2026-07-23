@@ -589,6 +589,7 @@ pub fn board(user: &User, tasks: &[Task], subs: &[SubmissionView], interests: &[
             let started = mine || my_sub.is_some();
             let action_area = if started {
                 let chips: String = card_interests.iter()
+                    .filter(|i| !i.nickname.is_empty())
                     .map(|i| format!(r#"<span class="chip">{}</span>"#, esc(&i.nickname)))
                     .collect();
                 format!(

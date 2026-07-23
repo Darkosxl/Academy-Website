@@ -701,11 +701,15 @@ async fn board(State(app): State<App>, headers: HeaderMap) -> Result<Html<String
          from submissions_exposure_academy s join users_exposure_academy u on u.id = s.user_id join tasks_exposure_academy t on t.id = s.task_id
          where s.user_id = $1 order by s.task_id, s.created_at desc")
         .bind(user.id).fetch_all(&app.pool).await.unwrap();
+    // Include my own interest rows even when I have no nickname (admins don't
+    // onboard, so nickname is null) — otherwise `mine`/`started` never flips for
+    // them. Others still need a nickname to appear as a teammate chip. coalesce
+    // keeps nickname a non-null String; blank ones are filtered out at render.
     let interests = sqlx::query_as::<_, InterestRow>(
-        "select ti.task_id, u.nickname, (u.id = $1) as is_me
+        "select ti.task_id, coalesce(u.nickname, '') as nickname, (u.id = $1) as is_me
          from task_interest_exposure_academy ti
          join users_exposure_academy u on u.id = ti.user_id
-         where u.nickname is not null
+         where u.nickname is not null or u.id = $1
          order by ti.created_at")
         .bind(user.id).fetch_all(&app.pool).await.unwrap();
     Ok(Html(html::board(&user, &tasks, &subs, &interests)))
