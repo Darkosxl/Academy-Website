@@ -11,14 +11,14 @@ pub fn esc(s: &str) -> String {
 /// into a CHECK constraint and into every existing video/task row — so renaming a
 /// level is a change to the right-hand side only, never a migration.
 pub const LEVELS: [(&str, &str); 3] =
-    [("PRESEED", "Seviye 1"), ("SEED", "Seviye 2"), ("SERIES_A", "Seviye 3")];
+    [("PRESEED", "Beginner"), ("SEED", "Intermediate"), ("SERIES_A", "Advanced")];
 
 pub fn level_name(l: &str) -> &'static str {
     LEVELS.iter().find(|(k, _)| *k == l).map(|(_, v)| *v).unwrap_or("?")
 }
 
-/// Badge color modifier per level, so Seviye 1/2/3 read as distinct (blue → purple → orange,
-/// mirroring the brand hero gradient). Level 1 falls through to the base blue `.badge`.
+/// Badge color modifier per level, so Beginner/Intermediate/Advanced read as distinct (blue → purple → orange,
+/// mirroring the brand hero gradient). Beginner falls through to the base blue `.badge`.
 fn level_badge_class(l: &str) -> &'static str {
     match l {
         "SEED" => "badge-l2",
@@ -361,7 +361,7 @@ pub fn home(user: &User, videos_done: i64, videos_total: i64, open_tasks: i64, p
   <a class="hubcard" href="/leaderboard">
     <span class="hubico">{ico_trophy}</span>
     <h2>Puan Tablosu</h2>
-    <p>Her görev ve videodan puan kazanın! Video {PTS_VIDEO}; proje Seviye 1 {PTS_PROJECT_L1}, Seviye 2 {PTS_PROJECT_L2}, Seviye 3 {PTS_PROJECT_L3}.</p>
+    <p>Her görev ve videodan puan kazanın! Video {PTS_VIDEO}; proje Beginner {PTS_PROJECT_L1}, Intermediate {PTS_PROJECT_L2}, Advanced {PTS_PROJECT_L3}.</p>
     <span class="hubstat">{points} puan · {rank_line}</span>
     <span class="hubgo">Sıralamayı gör →</span>
   </a>
@@ -525,8 +525,8 @@ pub fn leaderboard(user: &User, rows: &[LeaderRow]) -> String {
 
     layout("Puan Tablosu", Some(user), "leaderboard", &format!(
         r##"<h1 class="pagetitle">Puan Tablosu</h1>
-<p class="muted">Her görev ve videodan puan kazanın! Video <b>{PTS_VIDEO}</b>; proje Seviye 1 <b>{PTS_PROJECT_L1}</b>,
-Seviye 2 <b>{PTS_PROJECT_L2}</b>, Seviye 3 <b>{PTS_PROJECT_L3}</b>.
+<p class="muted">Her görev ve videodan puan kazanın! Video <b>{PTS_VIDEO}</b>; proje Beginner <b>{PTS_PROJECT_L1}</b>,
+Intermediate <b>{PTS_PROJECT_L2}</b>, Advanced <b>{PTS_PROJECT_L3}</b>.
 </p>
 {my_card}
 <div class="lb">{list}</div>

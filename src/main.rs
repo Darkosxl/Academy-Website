@@ -128,7 +128,7 @@ async fn seed_admin(pool: &PgPool) {
 /// Lesson video youtube-IDs live hex-encoded in videos.dat (committed) so the raw
 /// URLs aren't sitting in the repo as plaintext; video_links.md (the readable
 /// source) is git-ignored. Line order in the decoded blob IS the playlist order:
-/// positions 1..=8 are Seviye 1 (PRESEED), 9..=15 Seviye 2 (SEED). Insert-once by
+/// positions 1..=8 are Beginner (PRESEED), 9..=15 Intermediate (SEED). Insert-once by
 /// youtube_id, so title/level/position edits made later in the admin panel survive
 /// restarts. Regenerate videos.dat after editing video_links.md:
 ///   python3 -c "import sys;d={};[d.__setitem__(int(o),u.strip().rsplit('/',1)[-1]) for l in open('video_links.md') if l.strip() for u,o in [l.rsplit(' - ',1)]];open('videos.dat','w').write('\n'.join(d[k] for k in sorted(d)).encode().hex())"
