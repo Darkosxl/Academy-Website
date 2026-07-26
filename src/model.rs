@@ -140,6 +140,12 @@ pub struct SubmissionView {
     pub display_name: String,
     pub email: String,
     pub task_title: String,
+    /// The task's level, so the admin row can show the level default as the
+    /// placeholder next to the manual point box.
+    pub task_level: String,
+    /// Admin-entered points for this submission. `None` = score it with the level
+    /// default, which is what almost every row does.
+    pub points_override: Option<i32>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -158,10 +164,22 @@ pub struct LeaderRow {
 }
 
 pub const PTS_VIDEO: i64 = 20;
-/// Passed-project points by level. Kept in sync with the CASE in `leader_rows`.
+/// Default passed-project points by level, used when a submission has no
+/// `points_override`. `leader_rows` binds these into its CASE, so changing a
+/// number here changes both the scoring and what the site says it awards.
 pub const PTS_PROJECT_L1: i64 = 100; // Beginner / PRESEED
 pub const PTS_PROJECT_L2: i64 = 400; // Intermediate / SEED
 pub const PTS_PROJECT_L3: i64 = 700; // Advanced / SERIES_A
+
+/// The level default a passed project is worth with no manual override.
+pub fn level_points(level: &str) -> i64 {
+    match level {
+        "PRESEED" => PTS_PROJECT_L1,
+        "SEED" => PTS_PROJECT_L2,
+        "SERIES_A" => PTS_PROJECT_L3,
+        _ => 0,
+    }
+}
 
 impl LeaderRow {
     pub fn points(&self) -> i64 {

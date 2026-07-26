@@ -679,6 +679,11 @@ async fn leaderboard(State(app): State<App>, headers: HeaderMap) -> Result<Html<
 /// A video counts once it is ≥90% watched — same threshold the grid calls "Tamamlanmış".
 /// A project counts once per task, and only when the submission passed, so resubmits
 /// of the same task don't stack points.
+///
+/// A passed project is worth its level default (PTS_PROJECT_L*) unless the admin typed
+/// a number into the Puan box, which stores a `points_override` on that submission row.
+/// Where a student has several passed submissions for one task, the newest one is the
+/// one that counts — so re-scoring means editing (or re-passing) the latest row.
 async fn leader_rows(app: &App) -> Vec<LeaderRow> {
     sqlx::query_as::<_, LeaderRow>(
         "select u.id, u.nickname,
@@ -690,12 +695,17 @@ async fn leader_rows(app: &App) -> Vec<LeaderRow> {
                     from watch_progress_exposure_academy
                     where duration > 0 and max_position >= duration * 0.9
                     group by user_id) w on w.user_id = u.id
-         -- distinct (user, passed task) first so a task counts once, then weight by level
+         -- one row per (user, passed task) first so a task counts once — the newest
+         -- passed submission wins, and it carries the override the admin typed.
+         -- sum() over bigint yields numeric, so cast back for the i64 decode.
          left join (select d.user_id,
                            count(*) as projects,
-                           sum(case t.level when 'PRESEED' then 100 when 'SEED' then 400
-                                            when 'SERIES_A' then 700 else 0 end) as project_points
-                    from (select distinct user_id, task_id from submissions_exposure_academy where status = 'passed') d
+                           sum(coalesce(d.points_override,
+                                        case t.level when 'PRESEED' then $2 when 'SEED' then $3
+                                                     when 'SERIES_A' then $4 else 0 end))::bigint as project_points
+                    from (select distinct on (user_id, task_id) user_id, task_id, points_override
+                          from submissions_exposure_academy where status = 'passed'
+                          order by user_id, task_id, created_at desc) d
                     join tasks_exposure_academy t on t.id = d.task_id
                     group by d.user_id) p on p.user_id = u.id
          -- nickname is null until onboarding is done: a student appears on the board
@@ -703,6 +713,7 @@ async fn leader_rows(app: &App) -> Vec<LeaderRow> {
          where not u.is_admin and u.nickname is not null
          order by coalesce(w.videos,0) * $1 + coalesce(p.project_points,0) desc, u.created_at")
         .bind(PTS_VIDEO)
+        .bind(PTS_PROJECT_L1).bind(PTS_PROJECT_L2).bind(PTS_PROJECT_L3)
         .fetch_all(&app.pool).await.unwrap()
 }
 
@@ -734,7 +745,7 @@ async fn board(State(app): State<App>, headers: HeaderMap) -> Result<Html<String
         .fetch_all(&app.pool).await.unwrap();
     let subs = sqlx::query_as::<_, SubmissionView>(
         "select distinct on (s.task_id) s.id, s.task_id, s.repo_url, s.status, s.feedback, s.demo_video_url, s.plan_md,
-                u.display_name, u.email, t.title as task_title, s.created_at
+                u.display_name, u.email, t.title as task_title, t.level as task_level, s.points_override, s.created_at
          from submissions_exposure_academy s join users_exposure_academy u on u.id = s.user_id join tasks_exposure_academy t on t.id = s.task_id
          where s.user_id = $1 order by s.task_id, s.created_at desc")
         .bind(user.id).fetch_all(&app.pool).await.unwrap();
@@ -852,7 +863,7 @@ async fn admin_page(State(app): State<App>, headers: HeaderMap) -> Result<Html<S
         .fetch_all(&app.pool).await.unwrap();
     let subs = sqlx::query_as::<_, SubmissionView>(
         "select s.id, s.task_id, s.repo_url, s.status, s.feedback, s.demo_video_url, s.plan_md,
-                u.display_name, u.email, t.title as task_title, s.created_at
+                u.display_name, u.email, t.title as task_title, t.level as task_level, s.points_override, s.created_at
          from submissions_exposure_academy s join users_exposure_academy u on u.id = s.user_id join tasks_exposure_academy t on t.id = s.task_id
          order by s.created_at desc")
         .fetch_all(&app.pool).await.unwrap();
@@ -1182,12 +1193,26 @@ async fn admin_rotate_invite(State(app): State<App>, headers: HeaderMap) -> Resu
 }
 
 #[derive(Deserialize)]
-struct ReviewForm { id: Uuid, status: String, feedback: String }
+struct ReviewForm {
+    id: Uuid,
+    status: String,
+    feedback: String,
+    /// The Puan box. Blank is the normal case and means "score it by level".
+    #[serde(default)] points: String,
+}
 
 async fn admin_review(State(app): State<App>, headers: HeaderMap, Form(f): Form<ReviewForm>) -> Result<Redirect, Response> {
     require_admin(current_user(&app, &headers).await)?;
-    sqlx::query("update submissions_exposure_academy set status = $2, feedback = nullif($3,'') where id = $1")
-        .bind(f.id).bind(&f.status).bind(&f.feedback)
+    // Blank clears any previous override and puts the row back on the level default;
+    // anything that isn't a non-negative number is a typo, so reject rather than
+    // silently scoring the project at some other value.
+    let points: Option<i32> = match f.points.trim() {
+        "" => None,
+        s => Some(s.parse::<i32>().ok().filter(|p| *p >= 0)
+            .ok_or_else(|| StatusCode::BAD_REQUEST.into_response())?),
+    };
+    sqlx::query("update submissions_exposure_academy set status = $2, feedback = nullif($3,''), points_override = $4 where id = $1")
+        .bind(f.id).bind(&f.status).bind(&f.feedback).bind(points)
         .execute(&app.pool).await.map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
     Ok(Redirect::to("/admin"))
 }

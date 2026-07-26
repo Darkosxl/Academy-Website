@@ -582,6 +582,11 @@ body:not(.portal) .btn-dark.big { padding:14px 32px; }
 form.inline { display:flex; gap:6px; align-items:center; flex-wrap:nowrap; }
 form.inline input, form.inline select { margin-top:0; width:auto; }
 
+/* Gönderimler tablosundaki manuel puan kutusu. Kendi sütununda durur ama form=
+   ile inceleme formuna bağlıdır, yani form.inline kuralları ona uygulanmaz —
+   `.portal input`ın width:100%/margin-top'unu yenmek için seçici o kadar özgül. */
+.portal input.pts-input { width:5.5rem; margin-top:0; text-align:right; }
+
 /* Panel içi öğe listeleri (video/görev) — tablo değil satır blokları: başlık üstte,
    kontroller altta sarar, dar panelde yana taşma olmaz */
 .minilist { margin-top:14px; border-top:1px solid var(--border-subtle); }

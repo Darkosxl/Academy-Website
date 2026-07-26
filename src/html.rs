@@ -157,7 +157,7 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/style.css?v=22">
+<link rel="stylesheet" href="/static/style.css?v=23">
 <script>if('scrollRestoration'in history)history.scrollRestoration='manual';</script>
 </head>
 <body class="{body_class}">
@@ -755,9 +755,16 @@ pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[
         let plan = s.plan_md.as_deref().filter(|p| !p.trim().is_empty())
             .map(|p| format!(r#"<details class="plan-details"><summary>Plan</summary><pre class="plan-pre">{}</pre></details>"#, esc(p)))
             .unwrap_or_else(|| "—".into());
+        // The Puan box sits in its own column but posts with the review form via the
+        // `form=` attribute — a <form> can't span table cells, so this is what keeps
+        // it a real column instead of a second control crammed into the last one.
+        // Blank shows the level default as placeholder: that is what it will score.
+        let form_id = format!("rev-{}", s.id);
         format!(
             r##"<tr><td>{student}</td><td>{email}</td><td>{task}</td><td><a href="{url}" target="_blank">repo</a></td><td>{plan}</td><td>{date}</td>
-<td><form method="post" action="/admin/review" class="inline">
+<td><input class="pts-input" form="{form_id}" type="number" min="0" step="1" name="points" value="{pts}"
+     placeholder="{pts_default}" title="Boş bırakırsan {level} varsayılanı olan {pts_default} puan verilir"></td>
+<td><form method="post" action="/admin/review" class="inline" id="{form_id}">
   <input type="hidden" name="id" value="{id}">
   <select name="status">{status_opts}</select>
   <input name="feedback" placeholder="Geri bildirim" value="{fb}">
@@ -766,6 +773,8 @@ pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[
             student = esc(&s.display_name), email = esc(&s.email), task = esc(&s.task_title),
             url = esc(&s.repo_url), date = s.created_at.format("%d.%m.%Y %H:%M"),
             id = s.id, fb = esc(s.feedback.as_deref().unwrap_or("")),
+            pts = s.points_override.map(|p| p.to_string()).unwrap_or_default(),
+            pts_default = level_points(&s.task_level), level = level_name(&s.task_level),
         )
     }).collect();
     let video_rows: String = videos.iter().map(|v| format!(
@@ -911,7 +920,9 @@ pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[
 
 <section class="panel wide">
   <h2>Gönderimler</h2>
-  <table><tr><th>Öğrenci</th><th>E-posta</th><th>Görev</th><th>Repo</th><th>Plan</th><th>Gönderim</th><th></th></tr>{sub_rows}</table>
+  <p class="muted">Puan kutusu boşsa görevin seviye varsayılanı geçerlidir (Beginner {PTS_PROJECT_L1},
+  Intermediate {PTS_PROJECT_L2}, Advanced {PTS_PROJECT_L3}). Puan yalnızca durum "Geçti" ise sayılır.</p>
+  <table><tr><th>Öğrenci</th><th>E-posta</th><th>Görev</th><th>Repo</th><th>Plan</th><th>Gönderim</th><th>Puan</th><th></th></tr>{sub_rows}</table>
 </section>
 </div>
 <script src="/static/admin.js?v=4" defer></script>"##))

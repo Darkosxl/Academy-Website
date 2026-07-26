@@ -120,6 +120,14 @@ alter table tasks_exposure_academy add column if not exists example_embeddable b
 -- plan.md content submitted with the repo; null on pre-feature submissions
 alter table submissions_exposure_academy add column if not exists plan_md text;
 
+-- admin-set point value for this submission, overriding the task's level default
+-- (see PTS_PROJECT_L* in model.rs). Null = use the level default, which is the
+-- normal case; the admin fills this in only to score a project by hand.
+alter table submissions_exposure_academy add column if not exists points_override int;
+alter table submissions_exposure_academy drop constraint if exists submissions_points_override_nonneg;
+alter table submissions_exposure_academy
+  add constraint submissions_points_override_nonneg check (points_override is null or points_override >= 0);
+
 -- cached hero screenshots for example URLs that block iframe embedding, keyed by
 -- URL so tasks sharing a URL share one image; fetched once from Microlink then served from here
 create table if not exists screenshot_cache_exposure_academy (
