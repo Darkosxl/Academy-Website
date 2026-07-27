@@ -569,6 +569,9 @@ body:not(.portal) .btn-dark.big { padding:14px 32px; }
 .lbrow.m1 { border-color:rgba(245,158,11,0.30); }
 .lbname { flex:1; min-width:0; font-size:var(--fs-body); font-weight:600; color:var(--text);
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+/* nickname trails the real name on the board, quieter than it — one line, ellipsised
+   together with the name when the row is narrow */
+.lbname .nick, .me-id .nick { font-size:var(--fs-mini); font-weight:600; color:var(--text-subtle); }
 .lbmeta { font-size:var(--fs-mini); color:var(--text-subtle); white-space:nowrap; }
 .lbpts { font-size:var(--fs-h3); font-weight:700; color:var(--blue-text); font-variant-numeric:tabular-nums; }
 .lbpts small { font-size:var(--fs-mini); font-weight:600; color:var(--text-subtle); margin-left:1px; }

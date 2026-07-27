@@ -686,7 +686,7 @@ async fn leaderboard(State(app): State<App>, headers: HeaderMap) -> Result<Html<
 /// one that counts — so re-scoring means editing (or re-passing) the latest row.
 async fn leader_rows(app: &App) -> Vec<LeaderRow> {
     sqlx::query_as::<_, LeaderRow>(
-        "select u.id, u.nickname,
+        "select u.id, u.display_name, u.nickname,
                 coalesce(w.videos, 0) as videos,
                 coalesce(p.projects, 0) as projects,
                 coalesce(p.project_points, 0) as project_points
@@ -708,8 +708,8 @@ async fn leader_rows(app: &App) -> Vec<LeaderRow> {
                           order by user_id, task_id, created_at desc) d
                     join tasks_exposure_academy t on t.id = d.task_id
                     group by d.user_id) p on p.user_id = u.id
-         -- nickname is null until onboarding is done: a student appears on the board
-         -- only once they have picked the handle the board is going to show
+         -- nickname is null until onboarding is done: it is no longer what the board
+         -- shows, but it still marks a finished onboarding, so keep gating on it
          where not u.is_admin and u.nickname is not null
          order by coalesce(w.videos,0) * $1 + coalesce(p.project_points,0) desc, u.created_at")
         .bind(PTS_VIDEO)

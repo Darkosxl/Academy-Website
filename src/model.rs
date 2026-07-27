@@ -155,6 +155,8 @@ pub struct SubmissionView {
 #[derive(FromRow)]
 pub struct LeaderRow {
     pub id: Uuid,
+    /// The board shows both: real name first, nickname in parentheses after it.
+    pub display_name: String,
     /// Non-null: the query filters to onboarded students, who by definition have one.
     pub nickname: String,
     pub videos: i64,

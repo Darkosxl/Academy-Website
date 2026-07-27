@@ -157,7 +157,7 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/style.css?v=23">
+<link rel="stylesheet" href="/static/style.css?v=24">
 <script>if('scrollRestoration'in history)history.scrollRestoration='manual';</script>
 </head>
 <body class="{body_class}">
@@ -224,8 +224,8 @@ pub fn join(f: &JoinForm, code_locked: bool, error: Option<&str>) -> String {
         <span class="fieldnote">Giriş bağlantıların bu adrese gelecek — doğru yazdığından emin ol.</span>
       </label>
       <label><span lang="en">Nickname</span><input name="nickname" value="{nick}" placeholder="ör. onur_maker" maxlength="20" required>
-        <span class="fieldnote"><b>Puan tablosunda yalnızca bu nickname görünür</b> — gerçek adın hiçbir zaman
-        diğer öğrencilere gösterilmez. Harf, rakam, _ ve - kullanabilirsin.</span>
+        <span class="fieldnote">Puan tablosunda <b>ad soyadın ve nickname'in birlikte</b> görünür
+        (ör. Onur Çelik (onur_maker)). Harf, rakam, _ ve - kullanabilirsin.</span>
       </label>
       <label>Okul<input name="school" value="{school}" required></label>
       <label>Sınıf<select name="grade" required>{grade_opts}</select></label>
@@ -328,7 +328,7 @@ pub fn profile(user: &User, p: &Profile, msg: Option<&str>, error: Option<&str>)
   <form method="post" action="/profile">
     <label>Ad soyad<input name="display_name" value="{name}" required></label>
     <label><span lang="en">Nickname</span><input name="nickname" value="{nick}" placeholder="ör. onur_maker" maxlength="20" required></label>
-    <p class="fieldnote">Puan tablosunda yalnızca nickname'in görünür; gerçek adını diğer öğrenciler görmez.</p>
+    <p class="fieldnote">Puan tablosunda ad soyadın ve nickname'in birlikte görünür; görev panosunda takım arkadaşlarına nickname'in gösterilir.</p>
     <label>Okul<input name="school" value="{school}" required></label>
     <label>Sınıf<select name="grade" required>{grade_opts}</select></label>
     <label>E-posta<input value="{email}" disabled></label>
@@ -540,12 +540,12 @@ pub fn leaderboard(user: &User, rows: &[LeaderRow]) -> String {
     let my_card = match me {
         Some(i) => {
             let r = &rows[i];
-            let name = r.nickname.clone();
+            let name = r.display_name.clone();
             format!(
                 r##"<section class="panel mecard">
   <div class="me-rank">#{rank}</div>
   <span class="avatar-fb big">{initial}</span>
-  <div class="me-id"><h3>{name}</h3><p class="meta">Senin sıran</p></div>
+  <div class="me-id"><h3>{name} <small class="nick">({nick})</small></h3><p class="meta">Senin sıran</p></div>
   <div class="me-stats">
     <div><b>{videos}</b><span>video · {vpts}p</span></div>
     <div><b>{projects}</b><span>proje · {ppts}p</span></div>
@@ -554,7 +554,7 @@ pub fn leaderboard(user: &User, rows: &[LeaderRow]) -> String {
 </section>"##,
                 rank = ranks[i],
                 initial = esc(&name.chars().next().unwrap_or('?').to_uppercase().to_string()),
-                name = esc(&name),
+                name = esc(&name), nick = esc(&r.nickname),
                 videos = r.videos, vpts = r.videos * PTS_VIDEO,
                 projects = r.projects, ppts = r.project_points,
                 total = r.points(),
@@ -567,19 +567,19 @@ pub fn leaderboard(user: &User, rows: &[LeaderRow]) -> String {
         "<p class='muted'>Henüz kimse puan toplamadı — ilk sen ol.</p>".into()
     } else {
         rows.iter().zip(&ranks).map(|(r, rank)| {
-            let name = r.nickname.clone();
+            let name = r.display_name.clone();
             format!(
                 r##"<div class="lbrow {mine} {medal}">
   <span class="lbrank">{rank}</span>
   <span class="avatar-fb">{initial}</span>
-  <span class="lbname">{name}</span>
+  <span class="lbname">{name} <small class="nick">({nick})</small></span>
   <span class="lbmeta">{videos} video · {projects} proje</span>
   <span class="lbpts">{total}<small>p</small></span>
 </div>"##,
                 mine = if r.id == user.id { "mine" } else { "" },
                 medal = match rank { 1 => "m1", 2 => "m2", 3 => "m3", _ => "" },
                 initial = esc(&name.chars().next().unwrap_or('?').to_uppercase().to_string()),
-                name = esc(&name),
+                name = esc(&name), nick = esc(&r.nickname),
                 videos = r.videos, projects = r.projects, total = r.points(),
             )
         }).collect()
