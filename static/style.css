@@ -498,6 +498,12 @@ body:not(.portal) .btn-dark.big { padding:14px 32px; }
 .portal input:focus, .portal select:focus, .portal textarea:focus { border-color:var(--blue-50); }
 .portal textarea { resize:none; }
 .portal select option { background:var(--bg-card-solid); color:var(--text); }
+/* checkbox that reads as one line with its label, instead of the block field above */
+.portal label.checkline {
+  display:flex; align-items:center; gap:8px; margin-bottom:8px;
+  text-transform:none; letter-spacing:normal; font-weight:500; color:var(--text);
+}
+.portal label.checkline input { display:inline-block; width:auto; margin-top:0; accent-color:var(--blue-50); }
 
 /* ---- Admin panels: card + 10px eyebrow section titles ---- */
 .admingrid { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:16px; margin-top:20px; }

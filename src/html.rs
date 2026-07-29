@@ -157,7 +157,7 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/style.css?v=25">
+<link rel="stylesheet" href="/static/style.css?v=26">
 <script>if('scrollRestoration'in history)history.scrollRestoration='manual';</script>
 </head>
 <body class="{body_class}">
@@ -853,17 +853,30 @@ pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[
             let action = if m.is_admin {
                 r#"<span class="item-meta">Yönetici</span>"#.to_string()
             } else {
+                // "Gizle" keeps the account out of the puan tablosu and the görev
+                // panosu teammate chips — for stajyer/ekip accounts that follow the
+                // program without competing with the students.
                 format!(
-                    r#"<form method="post" action="/admin/user/delete" class="inline" onsubmit="return confirm('{name} adlı öğrenciyi ve tüm ilerlemesini/gönderimlerini kalıcı olarak silmek istediğine emin misin?')">
+                    r#"<form method="post" action="/admin/user/hidden" class="inline">
+      <input type="hidden" name="id" value="{id}">
+      <input type="hidden" name="hidden" value="{next}">
+      <button class="btn-outline small">{toggle}</button>
+    </form>
+    <form method="post" action="/admin/user/delete" class="inline" onsubmit="return confirm('{name} adlı öğrenciyi ve tüm ilerlemesini/gönderimlerini kalıcı olarak silmek istediğine emin misin?')">
       <input type="hidden" name="id" value="{id}">
       <button class="btn-dark small">Sil</button>
     </form>"#,
                     name = esc(name), id = m.id,
+                    next = if m.hidden_from_leaderboard { "false" } else { "true" },
+                    toggle = if m.hidden_from_leaderboard { "Puan tablosunda göster" } else { "Puan tablosunda gizle" },
                 )
             };
+            let badge = if m.hidden_from_leaderboard && !m.is_admin {
+                r#"<span class="item-meta">· puan tablosunda gizli</span>"#
+            } else { "" };
             format!(
                 r##"<div class="itemrow">
-  <div class="item-title"><span>{name}</span><span class="item-meta">{email}</span></div>
+  <div class="item-title"><span>{name}</span><span class="item-meta">{email}</span>{badge}</div>
   <div class="item-controls">{action}</div>
 </div>"##,
                 name = esc(name), email = esc(&m.email),
@@ -903,6 +916,10 @@ pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[
   <form method="post" action="/admin/user">
     <label>E-posta<input name="email" type="email" required></label>
     <label>İsim<input name="display_name" required></label>
+    <label class="checkline"><input type="checkbox" name="hidden" value="true"> Puan tablosunda gizle</label>
+    <p class="fieldnote">Stajyer / ekip hesabı için: portalı öğrenciler gibi kullanır, videoları izler ve
+    projeleri yapar — ama puan tablosunda ve görev panosundaki takım arkadaşı listesinde görünmez.
+    Davet bağlantısıyla kaydolmadan önce burada eklersen hiçbir an görünmez.</p>
     <button class="btn-dark">Kaydet</button>
   </form>
   <div class="minilist">{member_rows}</div>

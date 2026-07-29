@@ -19,10 +19,26 @@ Watch time is tracked per student per video.
 
 `/admin` → **Davet bağlantısı** gives you the link to paste in the WhatsApp group. A student
 fills in name / email / nickname / school / grade, gets a magic link, and clicking it opens the
-account. `nickname` is the *only* name shown on the leaderboard — `display_name` (the real name)
-stays admin-side, and the form says so. A null `nickname` means onboarding never finished, so
+account. The leaderboard shows **both** names — real name first, nickname in parentheses
+(`Onur Çelik (onur_maker)`) — and the onboarding form says so. The board's teammate chips
+still show the nickname alone. A null `nickname` means onboarding never finished, so
 `require_onboarded` in `main.rs` redirects those students to `/profile` until they pick one;
 that also catches accounts you created by hand from `/admin`. Admins are exempt from that gate.
+
+### Hidden (intern / staff) accounts
+
+`hidden_from_leaderboard` on the user row is for people who follow the program to learn —
+an intern going through the videos and projects — without competing with the students.
+The account is a completely normal student otherwise (it onboards, earns points, submits
+projects, and sees its own total on Ana Sayfa); it is only left out of everything the
+students see: the `/leaderboard` standings and the teammate chips on `/board`. Ranks are
+computed after hidden rows are dropped, so a hidden account never pushes a student down a
+place. Do **not** use `is_admin` for this — that hands over the admin panel and skips onboarding.
+
+Two ways to set it, both in `/admin` → **Öğrenciler**: tick *Puan tablosunda gizle* when adding
+the person by hand (do this **before** they open the invite link — `join_post` does
+`on conflict (email) do nothing`, so the hidden row survives onboarding and they are never
+visible for even one page load), or hit *Puan tablosunda gizle* on their row afterwards.
 
 ## Setup
 

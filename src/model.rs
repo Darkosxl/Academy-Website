@@ -173,6 +173,10 @@ pub struct LeaderRow {
     pub projects: i64,
     /// Level-weighted sum of passed projects, computed in `leader_rows`' SQL.
     pub project_points: i64,
+    /// Intern/staff account: scored like everyone else, but kept out of the published
+    /// standings. `leader_rows` returns these so a hidden student can still be shown
+    /// her own points; every student-facing render filters them out first.
+    pub hidden: bool,
 }
 
 pub const PTS_VIDEO: i64 = 20;
@@ -207,6 +211,8 @@ pub struct MemberRow {
     pub email: String,
     pub nickname: Option<String>,
     pub is_admin: bool,
+    /// Hidden from the leaderboard and the board's teammate chips (intern accounts).
+    pub hidden_from_leaderboard: bool,
 }
 
 #[derive(FromRow)]

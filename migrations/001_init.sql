@@ -38,6 +38,12 @@ create unique index if not exists users_exposure_academy_nickname_lower_key
 alter table users_exposure_academy add column if not exists github_url text;
 alter table users_exposure_academy add column if not exists linkedin_url text;
 
+-- staff/intern accounts: they use the portal exactly like a student (videos, projects,
+-- points) but must not show up in anything the students see — the leaderboard standings
+-- and the teammate chips on the board. Unlike is_admin this grants nothing, so an intern
+-- still onboards, still gets gated by require_onboarded, and still sees her own points.
+alter table users_exposure_academy add column if not exists hidden_from_leaderboard boolean not null default false;
+
 create table if not exists magic_links_exposure_academy (
   token text primary key,
   email text not null,

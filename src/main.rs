@@ -90,6 +90,7 @@ async fn main() {
         .route("/admin/task/delete", post(admin_task_delete))
         .route("/admin/user", post(admin_user))
         .route("/admin/user/delete", post(admin_user_delete))
+        .route("/admin/user/hidden", post(admin_user_hidden))
         .route("/admin/review", post(admin_review))
         .route("/admin/prompts.txt", get(admin_prompts_txt))
         .route("/admin/invite", post(admin_rotate_invite))
@@ -602,11 +603,13 @@ async fn home(State(app): State<App>, headers: HeaderMap) -> Result<Html<String>
          where not exists (select 1 from submissions_exposure_academy s
                            where s.task_id = t.id and s.user_id = $1 and s.status = 'passed')")
         .bind(user.id).fetch_one(&app.pool).await.unwrap();
-    let rows = leader_rows(&app).await;
+    let all = leader_rows(&app).await;
+    // Points come from the full list so a hidden (intern) account still sees its own
+    // total; the rank comes from the visible standings, where it has no place at all.
+    let points = all.iter().find(|r| r.id == user.id).map(|r| r.points()).unwrap_or(0);
+    let rows: Vec<LeaderRow> = all.into_iter().filter(|r| !r.hidden).collect();
     let ranks = html::dense_ranks(&rows);
-    let me = rows.iter().position(|r| r.id == user.id);
-    let points = me.map(|i| rows[i].points()).unwrap_or(0);
-    let rank = me.map(|i| ranks[i]);
+    let rank = rows.iter().position(|r| r.id == user.id).map(|i| ranks[i]);
     Ok(Html(html::home(&user, videos_done, videos_total, open_tasks, points, rank)))
 }
 
@@ -670,12 +673,19 @@ async fn progress(State(app): State<App>, headers: HeaderMap, Json(r): Json<Prog
 
 async fn leaderboard(State(app): State<App>, headers: HeaderMap) -> Result<Html<String>, Response> {
     let user = require_onboarded(current_user(&app, &headers).await)?;
-    let rows = leader_rows(&app).await;
+    // Hidden (intern) accounts never reach a rendered standings list — not even their
+    // own, so nothing about them can leak through a shared screen or a screenshot.
+    let rows: Vec<LeaderRow> = leader_rows(&app).await.into_iter().filter(|r| !r.hidden).collect();
     Ok(Html(html::leaderboard(&user, &rows)))
 }
 
 /// The standings, ordered. Shared by /leaderboard and the Ana Sayfa summary card so
 /// the two can never disagree about a student's points or place.
+///
+/// Includes hidden (intern) accounts, flagged as `hidden` — they are scored like anyone
+/// else so they can see their own total, and every caller drops them before rendering a
+/// list. Ranks are therefore computed over the visible rows only: a hidden account never
+/// pushes a student down a place.
 ///
 /// A video counts once it is ≥90% watched — same threshold the grid calls "Tamamlanmış".
 /// A project counts once per task, and only when the submission passed, so resubmits
@@ -687,7 +697,7 @@ async fn leaderboard(State(app): State<App>, headers: HeaderMap) -> Result<Html<
 /// one that counts — so re-scoring means editing (or re-passing) the latest row.
 async fn leader_rows(app: &App) -> Vec<LeaderRow> {
     sqlx::query_as::<_, LeaderRow>(
-        "select u.id, u.display_name, u.nickname,
+        "select u.id, u.display_name, u.nickname, u.hidden_from_leaderboard as hidden,
                 coalesce(w.videos, 0) as videos,
                 coalesce(p.projects, 0) as projects,
                 coalesce(p.project_points, 0) as project_points
@@ -754,11 +764,13 @@ async fn board(State(app): State<App>, headers: HeaderMap) -> Result<Html<String
     // onboard, so nickname is null) — otherwise `mine`/`started` never flips for
     // them. Others still need a nickname to appear as a teammate chip. coalesce
     // keeps nickname a non-null String; blank ones are filtered out at render.
+    // Hidden (intern) accounts are dropped for the same reason as on the leaderboard,
+    // but `or u.id = $1` keeps their own row so their "Göreve başladım" state survives.
     let interests = sqlx::query_as::<_, InterestRow>(
         "select ti.task_id, coalesce(u.nickname, '') as nickname, (u.id = $1) as is_me
          from task_interest_exposure_academy ti
          join users_exposure_academy u on u.id = ti.user_id
-         where u.nickname is not null or u.id = $1
+         where (u.nickname is not null and not u.hidden_from_leaderboard) or u.id = $1
          order by ti.created_at")
         .bind(user.id).fetch_all(&app.pool).await.unwrap();
     Ok(Html(html::board(&user, &tasks, &subs, &interests)))
@@ -873,7 +885,8 @@ async fn admin_page(State(app): State<App>, headers: HeaderMap) -> Result<Html<S
     let tasks = sqlx::query_as::<_, Task>("select id, title, description, level, example_url, example_embeddable from tasks_exposure_academy order by level, position")
         .fetch_all(&app.pool).await.unwrap();
     let members = sqlx::query_as::<_, MemberRow>(
-        "select id, display_name, email, nickname, is_admin from users_exposure_academy order by is_admin desc, lower(coalesce(nickname, display_name))")
+        "select id, display_name, email, nickname, is_admin, hidden_from_leaderboard
+         from users_exposure_academy order by is_admin desc, lower(coalesce(nickname, display_name))")
         .fetch_all(&app.pool).await.unwrap();
     let invite_code = invite_code(&app).await;
     Ok(Html(html::admin(&user, &stats, &subs, &videos, &tasks, &members, &invite_code, &app.base_url)))
@@ -1159,13 +1172,37 @@ async fn admin_video_delete(State(app): State<App>, headers: HeaderMap, Form(f):
 }
 
 #[derive(Deserialize)]
-struct UserForm { email: String, display_name: String }
+struct UserForm {
+    email: String,
+    display_name: String,
+    /// Unchecked checkboxes are simply absent from the POST body, hence the Option.
+    #[serde(default)]
+    hidden: Option<String>,
+}
 
 async fn admin_user(State(app): State<App>, headers: HeaderMap, Form(f): Form<UserForm>) -> Result<Redirect, Response> {
     require_admin(current_user(&app, &headers).await)?;
     let email = f.email.trim().to_lowercase();
-    sqlx::query("insert into users_exposure_academy (email, display_name) values ($1,$2) on conflict (email) do nothing")
-        .bind(&email).bind(&f.display_name)
+    // Adding the row here with `hidden` pre-set is how an intern account gets created
+    // before she ever opens the invite link: join_post's `on conflict (email) do nothing`
+    // leaves this row alone, so she is never visible for even one page load.
+    sqlx::query(
+        "insert into users_exposure_academy (email, display_name, hidden_from_leaderboard)
+         values ($1,$2,$3) on conflict (email) do nothing")
+        .bind(&email).bind(&f.display_name).bind(f.hidden.is_some())
+        .execute(&app.pool).await.map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
+    Ok(Redirect::to("/admin"))
+}
+
+#[derive(Deserialize)]
+struct UserHiddenForm { id: Uuid, hidden: bool }
+
+/// Flip a student in or out of the published standings (and the board's teammate chips).
+/// Admins are excluded on both sides already, so the flag is only meaningful for students.
+async fn admin_user_hidden(State(app): State<App>, headers: HeaderMap, Form(f): Form<UserHiddenForm>) -> Result<Redirect, Response> {
+    require_admin(current_user(&app, &headers).await)?;
+    sqlx::query("update users_exposure_academy set hidden_from_leaderboard = $2 where id = $1")
+        .bind(f.id).bind(f.hidden)
         .execute(&app.pool).await.map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
     Ok(Redirect::to("/admin"))
 }
