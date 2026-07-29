@@ -83,4 +83,21 @@
     decodeObfuscatedEmails(root);
     flashSaved(action, idValue); // no-op if the row was just deleted — its own absence is the feedback
   });
+
+  // Copy one submission's review prompt. Delegated for the same reason as the submit
+  // handler above: every save destroys the row buttons, but not the root they hang off.
+  root.addEventListener('click', async (e) => {
+    const btn = e.target.closest('.btn-copy');
+    if (!btn) return;
+    try {
+      await navigator.clipboard.writeText(btn.dataset.prompt);
+    } catch {
+      alert('Kopyalanamadı.');
+      return;
+    }
+    const original = btn.textContent;
+    btn.textContent = 'Kopyalandı ✓';
+    btn.classList.add('btn-saved');
+    setTimeout(() => { btn.textContent = original; btn.classList.remove('btn-saved'); }, 1400);
+  });
 })();

@@ -755,13 +755,21 @@ pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[
         let plan = s.plan_md.as_deref().filter(|p| !p.trim().is_empty())
             .map(|p| format!(r#"<details class="plan-details"><summary>Plan</summary><pre class="plan-pre">{}</pre></details>"#, esc(p)))
             .unwrap_or_else(|| "—".into());
+        // The review prompt needs the task's Tanım, which SubmissionView doesn't carry
+        // (it flattens the task to title + level). `tasks` is already here, so match on
+        // task_id in memory rather than widening the query — same as board() does.
+        let goal = tasks.iter().find(|t| t.id == s.task_id)
+            .map(|t| t.description.trim()).filter(|d| !d.is_empty())
+            .unwrap_or(&s.task_title);
         // The Puan box sits in its own column but posts with the review form via the
         // `form=` attribute — a <form> can't span table cells, so this is what keeps
         // it a real column instead of a second control crammed into the last one.
         // Blank shows the level default as placeholder: that is what it will score.
         let form_id = format!("rev-{}", s.id);
         format!(
-            r##"<tr><td>{student}</td><td>{email}</td><td>{task}</td><td><a href="{url}" target="_blank">repo</a></td><td>{plan}</td><td>{date}</td>
+            r##"<tr><td>{student}</td><td>{email}</td><td>{task}</td>
+<td><a href="{url}" target="_blank" rel="noopener">repo</a>
+    <button type="button" class="btn-copy" data-prompt="{prompt}">⧉ Prompt</button></td><td>{plan}</td><td>{date}</td>
 <td><input class="pts-input" form="{form_id}" type="number" min="0" step="1" name="points" value="{pts}"
      placeholder="{pts_default}" title="Boş bırakırsan {level} varsayılanı olan {pts_default} puan verilir"></td>
 <td><form method="post" action="/admin/review" class="inline" id="{form_id}">
@@ -771,7 +779,8 @@ pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[
   <button class="btn-dark small">Kaydet</button>
 </form></td></tr>"##,
             student = esc(&s.display_name), email = esc(&s.email), task = esc(&s.task_title),
-            url = esc(&s.repo_url), date = s.created_at.format("%d.%m.%Y %H:%M"),
+            url = esc(&s.repo_url), prompt = esc(&review_prompt(&s.repo_url, goal)),
+            date = s.created_at.format("%d.%m.%Y %H:%M"),
             id = s.id, fb = esc(s.feedback.as_deref().unwrap_or("")),
             pts = s.points_override.map(|p| p.to_string()).unwrap_or_default(),
             pts_default = level_points(&s.task_level), level = level_name(&s.task_level),
@@ -919,11 +928,14 @@ pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[
 </section>
 
 <section class="panel wide">
-  <h2>Gönderimler</h2>
+  <div class="panel-head">
+    <h2>Gönderimler</h2>
+    <a class="btn-dark small" href="/admin/prompts.txt">⬇ Prompts .txt</a>
+  </div>
   <p class="muted">Puan kutusu boşsa görevin seviye varsayılanı geçerlidir (Beginner {PTS_PROJECT_L1},
   Intermediate {PTS_PROJECT_L2}, Advanced {PTS_PROJECT_L3}). Puan yalnızca durum "Geçti" ise sayılır.</p>
   <table><tr><th>Öğrenci</th><th>E-posta</th><th>Görev</th><th>Repo</th><th>Plan</th><th>Gönderim</th><th>Puan</th><th></th></tr>{sub_rows}</table>
 </section>
 </div>
-<script src="/static/admin.js?v=4" defer></script>"##))
+<script src="/static/admin.js?v=5" defer></script>"##))
 }

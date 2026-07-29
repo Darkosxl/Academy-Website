@@ -91,6 +91,7 @@ async fn main() {
         .route("/admin/user", post(admin_user))
         .route("/admin/user/delete", post(admin_user_delete))
         .route("/admin/review", post(admin_review))
+        .route("/admin/prompts.txt", get(admin_prompts_txt))
         .route("/admin/invite", post(admin_rotate_invite))
         .route("/api/worker/pending", get(worker_pending))
         .route("/api/worker/result", post(worker_result))
@@ -1215,6 +1216,40 @@ async fn admin_review(State(app): State<App>, headers: HeaderMap, Form(f): Form<
         .bind(f.id).bind(&f.status).bind(&f.feedback).bind(points)
         .execute(&app.pool).await.map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
     Ok(Redirect::to("/admin"))
+}
+
+/// One .txt holding a review prompt per submission that hasn't reached a verdict yet,
+/// so a whole grading round can be pasted into an agent in one go. Its own narrow
+/// projection rather than SubmissionView — that struct has no task description, and
+/// widening it would drag the board query along for no reason.
+async fn admin_prompts_txt(State(app): State<App>, headers: HeaderMap) -> Result<Response, Response> {
+    require_admin(current_user(&app, &headers).await)?;
+    let rows: Vec<(String, String, String, String, chrono::DateTime<chrono::Utc>)> = sqlx::query_as(
+        "select u.display_name, t.title, t.description, s.repo_url, s.created_at
+         from submissions_exposure_academy s
+         join users_exposure_academy u on u.id = s.user_id
+         join tasks_exposure_academy t on t.id = s.task_id
+         where s.status in ('pending', 'reviewing')
+         order by s.created_at desc")
+        .fetch_all(&app.pool).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())?;
+
+    let body = if rows.is_empty() {
+        "İncelenmeyi bekleyen gönderim yok.\n".to_string()
+    } else {
+        rows.iter().map(|(name, title, desc, repo, at)| format!(
+            "=== {name} — {title} — {date} ===\n{prompt}\n",
+            date = at.format("%d.%m.%Y"),
+            prompt = review_prompt(repo, if desc.trim().is_empty() { title } else { desc }),
+        )).collect::<Vec<_>>().join("\n")
+    };
+
+    let filename = format!("prompts-{}.txt", chrono::Utc::now().format("%Y-%m-%d"));
+    Ok((
+        [(header::CONTENT_TYPE, "text/plain; charset=utf-8".to_string()),
+         (header::CONTENT_DISPOSITION, format!("attachment; filename=\"{filename}\"")),
+         (header::CACHE_CONTROL, "no-store".to_string())],
+        body,
+    ).into_response())
 }
 
 // ---- worker API (Phase 3 pipeline, see README) ----

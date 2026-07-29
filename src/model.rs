@@ -74,6 +74,16 @@ pub fn normalize_profile_url(raw: &str, host: &str) -> Result<Option<String>, ()
     }
 }
 
+/// The instruction handed to a coding agent to review one submission. Shared by the
+/// per-row copy button on /admin and the bulk .txt export, so both emit the same text.
+pub fn review_prompt(repo_url: &str, goal: &str) -> String {
+    format!(
+        "Project: git clone {repo}\nGoals: \"{goal}\"\ncheck if this goal is achieved, \
+         for anything you can't test yourself, give a short concise report at the end and tell me",
+        repo = repo_url.trim(), goal = goal.trim(),
+    )
+}
+
 /// Nickname rules, one place. Letters (Turkish included), digits, `_` and `-`; no
 /// spaces, so it always fits the leaderboard row.
 pub fn validate_nickname(n: &str) -> Result<String, &'static str> {
