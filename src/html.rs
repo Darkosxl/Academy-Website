@@ -157,7 +157,7 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/style.css?v=24">
+<link rel="stylesheet" href="/static/style.css?v=25">
 <script>if('scrollRestoration'in history)history.scrollRestoration='manual';</script>
 </head>
 <body class="{body_class}">
@@ -767,9 +767,7 @@ pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[
         // Blank shows the level default as placeholder: that is what it will score.
         let form_id = format!("rev-{}", s.id);
         format!(
-            r##"<tr><td>{student}</td><td>{email}</td><td>{task}</td>
-<td><a href="{url}" target="_blank" rel="noopener">repo</a>
-    <button type="button" class="btn-copy" data-prompt="{prompt}">⧉ Prompt</button></td><td>{plan}</td><td>{date}</td>
+            r##"<tr><td>{student}</td><td>{email}</td><td>{task}</td><td><a href="{url}" target="_blank" rel="noopener">repo</a><button type="button" class="btn-copy" data-prompt="{prompt}">⧉ Prompt</button></td><td>{plan}</td><td>{date}</td>
 <td><input class="pts-input" form="{form_id}" type="number" min="0" step="1" name="points" value="{pts}"
      placeholder="{pts_default}" title="Boş bırakırsan {level} varsayılanı olan {pts_default} puan verilir"></td>
 <td><form method="post" action="/admin/review" class="inline" id="{form_id}">

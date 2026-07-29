@@ -590,16 +590,14 @@ form.inline input, form.inline select { margin-top:0; width:auto; }
    `.portal input`ın width:100%/margin-top'unu yenmek için seçici o kadar özgül. */
 .portal input.pts-input { width:5.5rem; margin-top:0; text-align:right; }
 
-/* Repo hücresindeki "⧉ Prompt" — link ağırlığında dursun diye çerçeveli, dolgusuz.
-   .btn-saved sınıfı Kaydet düğmesindekiyle aynı geçici onay durumu. */
+/* Repo hücresindeki "⧉ Prompt" — <button> ama link gibi görünsün: kutu yok, mavi
+   metin, yanındaki repo linkiyle aynı satırda. Kopyalayınca kısa süre yeşile döner. */
 .portal .btn-copy {
-  margin-left:8px; padding:2px 8px; font-size:var(--fs-mini); font-weight:600;
-  background:transparent; color:var(--text-body); cursor:pointer;
-  border:1px solid var(--border-input); border-radius:var(--r-lg);
-  white-space:nowrap; transition:all 150ms;
+  display:inline; background:none; border:none; padding:0; margin-left:10px;
+  font-size:var(--fs-xs); color:var(--blue-text); white-space:nowrap;
 }
-.portal .btn-copy:hover { background:var(--blue); color:#fff; border-color:var(--blue); }
-.portal .btn-copy.btn-saved, .portal .btn-copy.btn-saved:hover { background:var(--ok); color:#fff; border-color:var(--ok); }
+.portal .btn-copy:hover { text-decoration:underline; }
+.portal .btn-copy.btn-saved, .portal .btn-copy.btn-saved:hover { color:var(--ok-text); text-decoration:none; }
 
 /* Panel başlığı + sağda tek eylem (ör. Gönderimler / Prompts .txt) */
 .panel-head { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
