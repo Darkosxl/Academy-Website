@@ -68,6 +68,8 @@ async fn main() {
         .route("/app", get(home))
         .route("/videos", get(video_grid))
         .route("/agentic-harness", get(agentic_harness))
+        .route("/agentic-harness/submit", post(harness_submit))
+        .route("/agentic-harness/status", get(harness_status))
         .route("/ai-monopoly", get(ai_monopoly))
         .route("/demos", get(demos))
         .route("/watch/{id}", get(watch))
@@ -94,8 +96,16 @@ async fn main() {
         .route("/admin/review", post(admin_review))
         .route("/admin/prompts.txt", get(admin_prompts_txt))
         .route("/admin/invite", post(admin_rotate_invite))
+        .route("/admin/harness/team", post(admin_harness_team))
+        .route("/admin/harness/team/delete", post(admin_harness_team_delete))
+        .route("/admin/harness/member", post(admin_harness_member))
+        .route("/admin/harness/member/remove", post(admin_harness_member_remove))
+        .route("/admin/harness/run/fail", post(admin_harness_run_fail))
         .route("/api/worker/pending", get(worker_pending))
         .route("/api/worker/result", post(worker_result))
+        .route("/api/worker/harness/pending", get(worker_harness_pending))
+        .route("/api/worker/harness/stage", post(worker_harness_stage))
+        .route("/api/worker/harness/result", post(worker_harness_result))
         // rolling session refresh — applies to the routes above only; static assets
         // are mounted after the layer so they don't each cost a session write
         .layer(middleware::from_fn_with_state(app.clone(), rolling_session))
@@ -568,9 +578,144 @@ async fn logout(State(app): State<App>, headers: HeaderMap) -> Response {
 #[derive(Deserialize)]
 struct LevelQ { level: Option<String> }
 
-async fn agentic_harness(State(app): State<App>, headers: HeaderMap) -> Result<Html<String>, Response> {
+// ---- Agentic Harness (student side) ----
+
+#[derive(Deserialize)]
+struct HarnessQ { tab: Option<String>, bench: Option<String> }
+
+/// The team the student belongs to, if any. Teams are admin-assigned for now.
+async fn harness_team_of(app: &App, uid: Uuid) -> Option<HarnessTeam> {
+    sqlx::query_as(
+        "select t.id, t.name from harness_team_members_exposure_academy tm
+         join harness_teams_exposure_academy t on t.id = tm.team_id
+         where tm.user_id = $1")
+        .bind(uid).fetch_optional(&app.pool).await.unwrap()
+}
+
+async fn agentic_harness(State(app): State<App>, headers: HeaderMap, Query(q): Query<HarnessQ>) -> Result<Html<String>, Response> {
     let user = require_onboarded(current_user(&app, &headers).await)?;
-    Ok(Html(html::agentic_harness(&user)))
+    // unknown values fall back to defaults, same as /demos?lang=
+    let tab = match q.tab.as_deref() {
+        Some("history") => "history",
+        Some("instructions") => "instructions",
+        _ => "main",
+    };
+    if tab == "instructions" {
+        return Ok(Html(html::agentic_harness_instructions(&user)));
+    }
+    let team = harness_team_of(&app, user.id).await;
+    if tab == "history" {
+        let runs: Vec<HarnessRun> = match &team {
+            Some(t) => sqlx::query_as(
+                "select repo_url, commit_sha, stage, score_arc, score_frontier,
+                        ram_1session_mb, ram_10session_mb, error_log, created_at
+                 from harness_runs_exposure_academy where team_id = $1 order by created_at desc")
+                .bind(t.id).fetch_all(&app.pool).await.unwrap(),
+            None => Vec::new(),
+        };
+        return Ok(Html(html::agentic_harness_history(&user, team.as_ref(), &runs)));
+    }
+    let bench = match q.bench.as_deref() {
+        Some("frontier") => "frontier",
+        Some("ram") => "ram",
+        _ => "arc",
+    };
+    // Kid names shown next to each team, real names per the leaderboard convention.
+    // One query for all teams; html filters per row in memory, same as board() does
+    // with interests. The nickname gate = finished onboarding, as everywhere else.
+    let members: Vec<HarnessTeamMemberRow> = sqlx::query_as(
+        "select tm.team_id, tm.user_id, u.display_name
+         from harness_team_members_exposure_academy tm
+         join users_exposure_academy u on u.id = tm.user_id
+         where u.nickname is not null and not u.hidden_from_leaderboard
+         order by tm.created_at")
+        .fetch_all(&app.pool).await.unwrap();
+    let active_run: Option<HarnessRun> = match &team {
+        Some(t) => sqlx::query_as(
+            "select repo_url, commit_sha, stage, score_arc, score_frontier,
+                    ram_1session_mb, ram_10session_mb, error_log, created_at
+             from harness_runs_exposure_academy
+             where team_id = $1 and stage not in ('done','failed')")
+            .bind(t.id).fetch_optional(&app.pool).await.unwrap(),
+        None => None,
+    };
+    // Best score per team over its done runs. ARC/Frontier: higher wins. RAM: ranked
+    // by the lowest 10-session PSS, and the 1-session column comes from that same run
+    // (distinct on picks it), not from whichever run happened to have the lowest 1s.
+    let (rows, ram_rows): (Vec<HarnessLeaderRow>, Vec<HarnessRamRow>) = if bench == "ram" {
+        (Vec::new(), sqlx::query_as(
+            "select id, name, ram_1session_mb, ram_10session_mb from (
+               select distinct on (t.id) t.id, t.name, r.ram_1session_mb, r.ram_10session_mb
+               from harness_teams_exposure_academy t
+               join harness_runs_exposure_academy r
+                 on r.team_id = t.id and r.stage = 'done' and r.ram_10session_mb is not null
+               order by t.id, r.ram_10session_mb asc, r.created_at desc
+             ) best order by ram_10session_mb asc, lower(name)")
+            .fetch_all(&app.pool).await.unwrap())
+    } else {
+        let sql = if bench == "frontier" {
+            "select t.id, t.name, max(r.score_frontier) as best
+             from harness_teams_exposure_academy t
+             join harness_runs_exposure_academy r
+               on r.team_id = t.id and r.stage = 'done' and r.score_frontier is not null
+             group by t.id, t.name order by best desc, lower(t.name)"
+        } else {
+            "select t.id, t.name, max(r.score_arc) as best
+             from harness_teams_exposure_academy t
+             join harness_runs_exposure_academy r
+               on r.team_id = t.id and r.stage = 'done' and r.score_arc is not null
+             group by t.id, t.name order by best desc, lower(t.name)"
+        };
+        (sqlx::query_as(sql).fetch_all(&app.pool).await.unwrap(), Vec::new())
+    };
+    Ok(Html(html::agentic_harness_main(
+        &user, bench, team.as_ref(), &members, active_run.as_ref(), &rows, &ram_rows)))
+}
+
+#[derive(Deserialize)]
+struct HarnessSubmitForm { repo_url: String }
+
+async fn harness_submit(State(app): State<App>, headers: HeaderMap, Form(f): Form<HarnessSubmitForm>) -> Result<Redirect, Response> {
+    let user = require_onboarded(current_user(&app, &headers).await)?;
+    let bad = |msg: &str| (StatusCode::BAD_REQUEST, msg.to_string()).into_response();
+    let Some(team) = harness_team_of(&app, user.id).await else {
+        // the form isn't rendered for team-less students; this catches hand-rolled POSTs
+        return Err(bad("Bir takımda değilsin — eğitmenine yaz."));
+    };
+    let repo_url = f.repo_url.trim().to_string();
+    if !repo_url.starts_with("https://github.com/") {
+        return Err(bad("Repo bağlantısı https://github.com/ ile başlamalı."));
+    }
+    let in_flight = "Takımının devam eden bir çalıştırması var — bitmesini bekleyin.";
+    let active: Option<Uuid> = sqlx::query_scalar(
+        "select id from harness_runs_exposure_academy where team_id = $1 and stage not in ('done','failed')")
+        .bind(team.id).fetch_optional(&app.pool).await.unwrap();
+    if active.is_some() {
+        return Err(bad(in_flight));
+    }
+    // The one-active-run partial unique index backstops the pre-check above, so a
+    // double-click race lands here as a constraint error, not a second run — map it
+    // to the same friendly message instead of unwrap-panicking into a 500.
+    sqlx::query("insert into harness_runs_exposure_academy (team_id, submitted_by, repo_url) values ($1,$2,$3)")
+        .bind(team.id).bind(user.id).bind(&repo_url)
+        .execute(&app.pool).await
+        .map_err(|_| bad(in_flight))?;
+    Ok(Redirect::to("/agentic-harness"))
+}
+
+/// Tiny JSON the stepper polls. The server resolves "my team's latest run" from the
+/// session — no run id in the URL, so nothing cross-team is addressable.
+async fn harness_status(State(app): State<App>, headers: HeaderMap) -> Result<Json<serde_json::Value>, Response> {
+    let user = require(current_user(&app, &headers).await)?;
+    let row: Option<(String, Option<String>)> = sqlx::query_as(
+        "select r.stage, r.commit_sha from harness_runs_exposure_academy r
+         join harness_team_members_exposure_academy tm on tm.team_id = r.team_id
+         where tm.user_id = $1 order by r.created_at desc limit 1")
+        .bind(user.id).fetch_optional(&app.pool).await.unwrap();
+    Ok(Json(match row {
+        Some((stage, sha)) => serde_json::json!({"stage": stage, "commit_sha": sha}),
+        None => serde_json::json!({"stage": null}),
+    }))
 }
 
 async fn ai_monopoly(State(app): State<App>, headers: HeaderMap) -> Result<Html<String>, Response> {
@@ -889,7 +1034,89 @@ async fn admin_page(State(app): State<App>, headers: HeaderMap) -> Result<Html<S
          from users_exposure_academy order by is_admin desc, lower(coalesce(nickname, display_name))")
         .fetch_all(&app.pool).await.unwrap();
     let invite_code = invite_code(&app).await;
-    Ok(Html(html::admin(&user, &stats, &subs, &videos, &tasks, &members, &invite_code, &app.base_url)))
+    // Interim harness-team management (until real team onboarding): the full team +
+    // membership lists are small, so load them whole like everything else here.
+    let harness = HarnessAdmin {
+        teams: sqlx::query_as("select id, name from harness_teams_exposure_academy order by lower(name)")
+            .fetch_all(&app.pool).await.unwrap(),
+        members: sqlx::query_as(
+            "select tm.team_id, tm.user_id, u.display_name
+             from harness_team_members_exposure_academy tm
+             join users_exposure_academy u on u.id = tm.user_id
+             order by lower(u.display_name)")
+            .fetch_all(&app.pool).await.unwrap(),
+        active_runs: sqlx::query_as(
+            "select r.id, t.name as team_name, r.stage, r.created_at
+             from harness_runs_exposure_academy r
+             join harness_teams_exposure_academy t on t.id = r.team_id
+             where r.stage not in ('done','failed') order by r.created_at")
+            .fetch_all(&app.pool).await.unwrap(),
+    };
+    Ok(Html(html::admin(&user, &stats, &subs, &videos, &tasks, &members, &invite_code, &app.base_url, &harness)))
+}
+
+// ---- admin: Agentic Harness teams (interim until team onboarding) ----
+
+#[derive(Deserialize)]
+struct HarnessTeamForm { name: String }
+
+async fn admin_harness_team(State(app): State<App>, headers: HeaderMap, Form(f): Form<HarnessTeamForm>) -> Result<Redirect, Response> {
+    require_admin(current_user(&app, &headers).await)?;
+    let name = f.name.trim().to_string();
+    if name.is_empty() {
+        return Err(StatusCode::BAD_REQUEST.into_response());
+    }
+    // unique on lower(name); a duplicate is a silent no-op, the list makes it obvious
+    sqlx::query("insert into harness_teams_exposure_academy (name) values ($1) on conflict do nothing")
+        .bind(&name)
+        .execute(&app.pool).await.map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
+    Ok(Redirect::to("/admin"))
+}
+
+async fn admin_harness_team_delete(State(app): State<App>, headers: HeaderMap, Form(f): Form<IdForm>) -> Result<Redirect, Response> {
+    require_admin(current_user(&app, &headers).await)?;
+    // cascades members AND runs — the confirm() on the button says so
+    sqlx::query("delete from harness_teams_exposure_academy where id = $1")
+        .bind(f.id)
+        .execute(&app.pool).await.map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
+    Ok(Redirect::to("/admin"))
+}
+
+#[derive(Deserialize)]
+struct HarnessMemberForm { user_id: Uuid, team_id: Uuid }
+
+async fn admin_harness_member(State(app): State<App>, headers: HeaderMap, Form(f): Form<HarnessMemberForm>) -> Result<Redirect, Response> {
+    require_admin(current_user(&app, &headers).await)?;
+    // user_id is the PK: assigning an already-assigned student moves them. Past runs
+    // stay with the old team — runs are team-scoped, the score was the team's.
+    sqlx::query(
+        "insert into harness_team_members_exposure_academy (user_id, team_id) values ($1,$2)
+         on conflict (user_id) do update set team_id = excluded.team_id")
+        .bind(f.user_id).bind(f.team_id)
+        .execute(&app.pool).await.map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
+    Ok(Redirect::to("/admin"))
+}
+
+async fn admin_harness_member_remove(State(app): State<App>, headers: HeaderMap, Form(f): Form<IdForm>) -> Result<Redirect, Response> {
+    require_admin(current_user(&app, &headers).await)?;
+    sqlx::query("delete from harness_team_members_exposure_academy where user_id = $1")
+        .bind(f.id)
+        .execute(&app.pool).await.map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
+    Ok(Redirect::to("/admin"))
+}
+
+/// The stuck-run escape hatch: a worker that died after claiming leaves the run
+/// non-terminal, which blocks the team's resubmits (one-active-run index). Failing it
+/// here unblocks them; a late worker report against it then gets a 409 and is dropped.
+async fn admin_harness_run_fail(State(app): State<App>, headers: HeaderMap, Form(f): Form<IdForm>) -> Result<Redirect, Response> {
+    require_admin(current_user(&app, &headers).await)?;
+    sqlx::query(
+        "update harness_runs_exposure_academy
+         set stage = 'failed', error_log = 'Yönetici tarafından durduruldu.', updated_at = now()
+         where id = $1 and stage not in ('done','failed')")
+        .bind(f.id)
+        .execute(&app.pool).await.map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
+    Ok(Redirect::to("/admin"))
 }
 
 fn parse_youtube_id(input: &str) -> String {
@@ -1332,6 +1559,109 @@ async fn worker_result(State(app): State<App>, headers: HeaderMap, Json(r): Json
     sqlx::query("update submissions_exposure_academy set status = $2, feedback = $3, demo_video_url = $4 where id = $1")
         .bind(r.id).bind(&r.status).bind(&r.feedback).bind(&r.demo_video_url)
         .execute(&app.pool).await.unwrap();
+    Ok(StatusCode::NO_CONTENT)
+}
+
+// ---- worker API: Agentic Harness runs ----
+//
+// Same shape as the board pipeline above: the runner polls `pending` to claim a run,
+// reports each stage transition as it goes (so the student's stepper moves), and posts
+// the final scores or the failure. Transitions are forward-only and guarded on the
+// expected current stage — a stale or duplicate report gets a 409 and must be dropped.
+
+async fn worker_harness_pending(State(app): State<App>, headers: HeaderMap) -> Result<Json<serde_json::Value>, Response> {
+    check_worker(&app, &headers)?;
+    // claim atomically: queued -> cloning. One run at a time keeps stage reporting simple.
+    let rows: Vec<(Uuid, String)> = sqlx::query_as(
+        "update harness_runs_exposure_academy set stage = 'cloning', updated_at = now()
+         where id in (select id from harness_runs_exposure_academy where stage = 'queued' order by created_at limit 1)
+         returning id, repo_url")
+        .fetch_all(&app.pool).await.unwrap();
+    Ok(Json(serde_json::json!(rows.iter().map(|(id, repo)| {
+        serde_json::json!({"id": id, "repo_url": repo})
+    }).collect::<Vec<_>>())))
+}
+
+#[derive(Deserialize)]
+struct HarnessStageReq { id: Uuid, stage: String, commit_sha: Option<String> }
+
+async fn worker_harness_stage(State(app): State<App>, headers: HeaderMap, Json(r): Json<HarnessStageReq>) -> Result<StatusCode, Response> {
+    check_worker(&app, &headers)?;
+    // Only the mid-pipeline stages are reportable here: `cloning` is set by the claim
+    // in `pending`, `done`/`failed` go through `result`. The expected predecessor is
+    // simply the previous entry in HARNESS_STAGES.
+    let Some(idx) = HARNESS_STAGES.iter().position(|s| *s == r.stage).filter(|i| (2..=5).contains(i)) else {
+        return Err(StatusCode::BAD_REQUEST.into_response());
+    };
+    let expected = HARNESS_STAGES[idx - 1];
+    // The cloning->building report must carry the commit it checked out; that SHA is
+    // what the history tab links to. Worker-supplied, so validate it's plain hex here.
+    let sha: Option<String> = if r.stage == "building" {
+        let Some(s) = r.commit_sha.as_deref().map(str::trim)
+            .filter(|s| (7..=40).contains(&s.len()) && s.chars().all(|c| c.is_ascii_hexdigit())) else {
+            return Err(StatusCode::BAD_REQUEST.into_response());
+        };
+        Some(s.to_lowercase())
+    } else {
+        None
+    };
+    let res = match &sha {
+        Some(sha) => sqlx::query(
+            "update harness_runs_exposure_academy set stage = $2, commit_sha = $3, updated_at = now()
+             where id = $1 and stage = $4")
+            .bind(r.id).bind(&r.stage).bind(sha).bind(expected)
+            .execute(&app.pool).await.unwrap(),
+        None => sqlx::query(
+            "update harness_runs_exposure_academy set stage = $2, updated_at = now()
+             where id = $1 and stage = $3")
+            .bind(r.id).bind(&r.stage).bind(expected)
+            .execute(&app.pool).await.unwrap(),
+    };
+    if res.rows_affected() == 0 {
+        return Err(StatusCode::CONFLICT.into_response());
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Deserialize)]
+struct HarnessResultReq {
+    id: Uuid,
+    status: String,
+    score_arc: Option<f32>,
+    score_frontier: Option<f32>,
+    ram_1session_mb: Option<f32>,
+    ram_10session_mb: Option<f32>,
+    error_log: Option<String>,
+}
+
+async fn worker_harness_result(State(app): State<App>, headers: HeaderMap, Json(r): Json<HarnessResultReq>) -> Result<StatusCode, Response> {
+    check_worker(&app, &headers)?;
+    if r.status != "done" && r.status != "failed" {
+        return Err(StatusCode::BAD_REQUEST.into_response());
+    }
+    // A `done` run scored all three boards or it didn't finish — no partial scores.
+    if r.status == "done"
+        && (r.score_arc.is_none() || r.score_frontier.is_none()
+            || r.ram_1session_mb.is_none() || r.ram_10session_mb.is_none()) {
+        return Err(StatusCode::BAD_REQUEST.into_response());
+    }
+    let (arc, frontier, ram1, ram10, log) = if r.status == "done" {
+        (r.score_arc, r.score_frontier, r.ram_1session_mb, r.ram_10session_mb, None)
+    } else {
+        (None, None, None, None, r.error_log.clone())
+    };
+    // Terminal from any non-terminal stage, so an early crash (clone failed) can still
+    // resolve the run; an admin-failed run answers 409 and the worker drops it.
+    let res = sqlx::query(
+        "update harness_runs_exposure_academy
+         set stage = $2, score_arc = $3, score_frontier = $4, ram_1session_mb = $5,
+             ram_10session_mb = $6, error_log = $7, updated_at = now()
+         where id = $1 and stage not in ('done','failed')")
+        .bind(r.id).bind(&r.status).bind(arc).bind(frontier).bind(ram1).bind(ram10).bind(&log)
+        .execute(&app.pool).await.unwrap();
+    if res.rows_affected() == 0 {
+        return Err(StatusCode::CONFLICT.into_response());
+    }
     Ok(StatusCode::NO_CONTENT)
 }
 

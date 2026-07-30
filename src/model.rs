@@ -215,6 +215,79 @@ pub struct MemberRow {
     pub hidden_from_leaderboard: bool,
 }
 
+// ---- Agentic Harness ----
+
+/// Pipeline order. Single source for the worker API's expected-predecessor guard
+/// (main.rs) and the stepper renderer (html.rs). The first six are the pipeline;
+/// `done`/`failed` are terminal.
+pub const HARNESS_STAGES: [&str; 8] =
+    ["queued", "cloning", "building", "arc_agi_3", "frontier_bench", "ram_bench", "done", "failed"];
+
+#[derive(FromRow, Clone)]
+pub struct HarnessTeam {
+    pub id: Uuid,
+    pub name: String,
+}
+
+/// One submission = one run = scores for all three benchmarks. Scores are null
+/// until the worker posts a `done` result; `error_log` only on failed runs.
+/// No `id`: the student UI never addresses a run directly — the status endpoint
+/// resolves "my team's latest run" from the session.
+#[derive(FromRow)]
+pub struct HarnessRun {
+    pub repo_url: String,
+    pub commit_sha: Option<String>,
+    pub stage: String,
+    pub score_arc: Option<f32>,
+    pub score_frontier: Option<f32>,
+    pub ram_1session_mb: Option<f32>,
+    pub ram_10session_mb: Option<f32>,
+    pub error_log: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+/// One team's best score on ARC-AGI-3 or Frontier-bench (higher = better).
+#[derive(FromRow)]
+pub struct HarnessLeaderRow {
+    pub id: Uuid,
+    pub name: String,
+    pub best: f32,
+}
+
+/// One team's best RAM-bench result: ranked by 10-session PSS (lower = better),
+/// the 1-session value comes from the same run that achieved that minimum.
+#[derive(FromRow)]
+pub struct HarnessRamRow {
+    pub id: Uuid,
+    pub name: String,
+    pub ram_1session_mb: f32,
+    pub ram_10session_mb: f32,
+}
+
+/// (team, member) pair for the leaderboard's kid-names line and the admin list.
+#[derive(FromRow)]
+pub struct HarnessTeamMemberRow {
+    pub team_id: Uuid,
+    pub user_id: Uuid,
+    pub display_name: String,
+}
+
+#[derive(FromRow)]
+pub struct HarnessActiveRun {
+    pub id: Uuid,
+    pub team_name: String,
+    pub stage: String,
+    pub created_at: DateTime<Utc>,
+}
+
+/// Interim admin-side team management, bundled so `html::admin`'s signature grows
+/// by one parameter. Goes away when real team onboarding lands.
+pub struct HarnessAdmin {
+    pub teams: Vec<HarnessTeam>,
+    pub members: Vec<HarnessTeamMemberRow>,
+    pub active_runs: Vec<HarnessActiveRun>,
+}
+
 #[derive(FromRow)]
 pub struct StatRow {
     pub display_name: String,

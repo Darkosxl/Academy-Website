@@ -150,3 +150,48 @@ create table if not exists task_interest_exposure_academy (
   created_at timestamptz not null default now(),
   primary key (task_id, user_id)
 );
+
+-- ---- Agentic Harness ----
+-- Teams are admin-managed for now (interim until team onboarding exists).
+create table if not exists harness_teams_exposure_academy (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  created_at timestamptz not null default now()
+);
+create unique index if not exists harness_teams_name_lower_key
+  on harness_teams_exposure_academy (lower(name));
+
+-- user_id as PK = a student is on at most one team, which is what makes
+-- "any member submits for the team" unambiguous.
+create table if not exists harness_team_members_exposure_academy (
+  user_id uuid primary key references users_exposure_academy(id) on delete cascade,
+  team_id uuid not null references harness_teams_exposure_academy(id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+create index if not exists harness_team_members_team_idx
+  on harness_team_members_exposure_academy (team_id);
+
+-- One submission = one run = scores for all three benchmarks. The worker claims a
+-- queued run, walks it through the stages, and posts the scores (see /api/worker/harness/*).
+create table if not exists harness_runs_exposure_academy (
+  id uuid primary key default gen_random_uuid(),
+  team_id uuid not null references harness_teams_exposure_academy(id) on delete cascade,
+  submitted_by uuid references users_exposure_academy(id) on delete set null,
+  repo_url text not null,
+  commit_sha text,                          -- resolved by the worker after clone
+  stage text not null default 'queued' check (stage in
+    ('queued','cloning','building','arc_agi_3','frontier_bench','ram_bench','done','failed')),
+  score_arc real,                           -- higher = better
+  score_frontier real,                      -- higher = better
+  ram_1session_mb real,                     -- PSS MB at 1 active session, shown next to the ranking column
+  ram_10session_mb real,                    -- PSS MB at 10 active sessions, ranking column, lower = better
+  error_log text,                           -- failure output shown in the history tab
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists harness_runs_team_idx
+  on harness_runs_exposure_academy (team_id, created_at desc);
+-- double-submit guard: at most ONE in-flight run per team, enforced by the DB so a
+-- submit race can't slip past the handler's friendly pre-check.
+create unique index if not exists harness_runs_one_active_per_team
+  on harness_runs_exposure_academy (team_id) where stage not in ('done','failed');

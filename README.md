@@ -94,6 +94,30 @@ To build (a script/daemon in `worker/`, runs on the admin's machine — never on
 Safety notes for the worker: run student code in a container (podman/docker) with no
 network egress except package registries, memory/time limits, throwaway filesystem.
 
+### Agentic Harness runner API
+
+Server side is done; the runner daemon is not built yet. Same auth (`X-Worker-Token`),
+same pull model. One team submission = one run = scores for all three boards
+(ARC-AGI-3, Frontier-bench, RAM-bench). Stages are forward-only; every update is
+guarded on the expected current stage — on a `409` drop the run and move on.
+
+- `GET /api/worker/harness/pending` — atomically claims one `queued` run
+  (flips it to `cloning`), returns `[{id, repo_url}]` (0 or 1 element).
+- `POST /api/worker/harness/stage` — `{id, stage, commit_sha?}` reports a transition:
+  `building` → `arc_agi_3` → `frontier_bench` → `ram_bench`. The `building` report
+  **must** carry `commit_sha` (7–40 hex chars, the commit that was checked out) —
+  it's what the student history tab links to. `204` ok, `400` bad stage/sha, `409` stale.
+- `POST /api/worker/harness/result` — terminal:
+  `{id, status: "done"|"failed", score_arc, score_frontier, ram_1session_mb,
+  ram_10session_mb, error_log}`. `done` requires all four scores (RAM values are PSS MB
+  measured during active sessions — 1 and 10 concurrent; lower is better). `failed`
+  stores only `error_log` (shown to the team in the history tab, so keep it readable).
+
+The student page polls `/agentic-harness/status` every 5s and moves a stepper through
+the stages, so report each transition as it happens rather than batching at the end.
+A run stuck non-terminal (runner died after claiming) blocks the team's resubmits;
+the admin panel's "Başarısız say" button is the escape hatch.
+
 ## Notes
 
 - Turkish UI strings were produced via the Google Translate API, not hand-written.

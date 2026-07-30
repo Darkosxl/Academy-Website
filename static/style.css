@@ -744,6 +744,10 @@ form.inline input, form.inline select { margin-top:0; width:auto; }
   .lbmeta { display:none; }
   .mecard { gap:12px; }
 
+  /* ---- Agentic Harness: same stack the watch page gets ---- */
+  .harnesswrap { flex-direction:column; align-items:stretch; }
+  .harness-left { width:auto; }
+
   /* ---- Board card head: badge drops under a long title ---- */
   .taskhead { flex-wrap:wrap; }
 
@@ -814,3 +818,26 @@ form.inline input, form.inline select { margin-top:0; width:auto; }
 }
 .loginbox select:focus { border-color:var(--blue); box-shadow:0 0 0 2px rgba(3,57,166,0.10); }
 .loginbox .auth-sub b { font-weight:600; color:var(--light-ink); }
+
+/* ============================================================================
+   AGENTIC HARNESS — submit panel left, switchable leaderboards right; the
+   stepper is the in-flight run's live progress (harness.js polls and updates).
+   ============================================================================ */
+.harnesswrap { display:flex; gap:24px; align-items:flex-start; margin-top:16px; }
+.harness-left { width:340px; flex-shrink:0; }
+.harness-right { flex:1; min-width:0; }
+.harness-repo { word-break:break-all; }
+.stepper { list-style:none; margin-top:14px; }
+.step {
+  display:flex; gap:10px; align-items:center; padding:7px 0;
+  font-size:var(--fs-xs); color:var(--text-subtle);
+}
+.step .dot2 { width:10px; height:10px; border-radius:50%; background:var(--border-strong); flex-shrink:0; }
+.step.done { color:var(--text-body); }
+.step.done .dot2 { background:var(--ok); }
+.step.active { color:var(--blue-text); font-weight:600; }
+.step.active .dot2 { background:var(--blue-text); animation:steppulse 1.2s ease-in-out infinite; }
+.step.fail { color:var(--err-text); }
+.step.fail .dot2 { background:var(--err); }
+@keyframes steppulse { 50% { opacity:0.35; } }
+.harness-rules { list-style:disc; padding-left:18px; display:grid; gap:8px; color:var(--text-body); font-size:var(--fs-body); }
