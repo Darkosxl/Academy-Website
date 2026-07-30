@@ -70,6 +70,7 @@ const P_UPLOAD: &str = "M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 
 const P_CLOSE: &str = "M6 18 18 6M6 6l12 12";
 const P_LOCK: &str = "M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z";
 const P_CAL: &str = "M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5";
+const P_PIN: &str = "M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1 1 15 0Z";
 
 fn nav_link(href: &str, page: &str, key: &str, icon: &str, label: &str) -> String {
     let active = if page == key { "active" } else { "" };
@@ -102,6 +103,7 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
   <nav class="sb-nav">
     {home}
     {schedule}
+    {location}
     {videos}
     {board}
     {leaderboard}
@@ -123,6 +125,7 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
 </div></main>"##,
                 home = nav_link("/app", active, "home", &ico(P_HOME), "Ana Sayfa"),
                 schedule = nav_link("/schedule", active, "schedule", &ico(P_CAL), "Haftalık Program"),
+                location = nav_link("/location", active, "location", &ico(P_PIN), "Konum"),
                 board = nav_link("/board", active, "board", &ico(P_BOARD), "Görev Panosu"),
                 leaderboard = nav_link("/leaderboard", active, "leaderboard", &ico(P_TROPHY), "Puan Tablosu"),
                 // Haftalar (Agentic Harness / AI Monopoly) geçici olarak gizli — rotalar duruyor,
@@ -160,7 +163,7 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/style.css?v=28">
+<link rel="stylesheet" href="/static/style.css?v=29">
 <script>if('scrollRestoration'in history)history.scrollRestoration='manual';</script>
 </head>
 <body class="{body_class}">
@@ -453,7 +456,9 @@ fn u_first_name(user: &User) -> &str {
 /// the layout of the schedule is entirely whatever the screenshot looks like.
 ///
 /// `img` is the metadata for the selected track, `None` when nothing is uploaded yet.
-pub fn schedule(user: &User, track: &str, img: Option<&ScheduleImage>) -> String {
+/// `venue` rides along at the bottom: "where is this happening" is the other half of
+/// the question the schedule answers, and it is the same card as /location.
+pub fn schedule(user: &User, track: &str, img: Option<&ScheduleImage>, venue: &Venue) -> String {
     let chips: String = SCHEDULE_TRACKS.iter().map(|(k, label)| format!(
         r#"<a class="chip {active}" href="/schedule?track={k}" lang="en">{label}</a>"#,
         active = if *k == track { "active" } else { "" },
@@ -478,11 +483,19 @@ pub fn schedule(user: &User, track: &str, img: Option<&ScheduleImage>) -> String
         ),
     };
 
+    // silent when no address is on file — an empty-state box here would just be noise
+    // next to the schedule, unlike on /location where it is the whole page
+    let venue_block = match venue_card(venue).as_str() {
+        "" => String::new(),
+        card => format!(r#"<h2 class="venue-head">Konum</h2><div class="venue-wrap">{card}</div>"#),
+    };
+
     let content = format!(
         r##"<h1 class="pagetitle">Haftalık Program</h1>
 <p class="muted">Bu haftanın akışı.</p>
 <div class="chips">{chips}</div>
-{body}"##
+{body}
+{venue_block}"##
     );
     layout("Haftalık Program", Some(user), "schedule", &content)
 }
@@ -774,6 +787,52 @@ pub fn board_locked(user: &User, github: Option<&str>, linkedin: Option<&str>, e
     layout("Görev Panosu", Some(user), "board", &content)
 }
 
+/// The address card. One renderer, shown on its own page (/location) and again under
+/// the schedule, so the two can never disagree about where the academy is.
+/// Returns "" when nothing is filled in, letting each caller decide what to show
+/// in its place.
+fn venue_card(v: &Venue) -> String {
+    if v.is_empty() {
+        return String::new();
+    }
+    let name = if v.name.trim().is_empty() { String::new() }
+        else { format!("<h3>{}</h3>", esc(v.name.trim())) };
+    let address = if v.address.trim().is_empty() { String::new() }
+        else { format!(r#"<p class="venue-address">{}</p>"#, esc(v.address.trim())) };
+    // maps_url is validated http(s) on save (admin_venue), so it can go in an href
+    let maps = if v.maps_url.trim().is_empty() { String::new() }
+        else { format!(
+            r#"<a class="btn-dark small venue-maps" href="{}" target="_blank" rel="noopener">Google Haritalar'da aç →</a>"#,
+            esc(v.maps_url.trim())) };
+    let notes = if v.notes.trim().is_empty() { String::new() }
+        else { format!(r#"<p class="venue-notes">{}</p>"#, esc(v.notes.trim())) };
+    format!(
+        r##"<section class="panel venue-card">
+  <span class="venue-pin">{pin}</span>
+  {name}
+  {address}
+  {notes}
+  {maps}
+</section>"##,
+        pin = ico(P_PIN),
+    )
+}
+
+/// Konum. The address on its own page, reachable from the nav.
+pub fn location(user: &User, v: &Venue) -> String {
+    let body = if v.is_empty() {
+        r#"<p class="sheet-empty">Adres bilgisi henüz eklenmedi.</p>"#.to_string()
+    } else {
+        venue_card(v)
+    };
+    let content = format!(
+        r##"<h1 class="pagetitle">Konum</h1>
+<p class="muted">Derslerin yapıldığı yer.</p>
+<div class="venue-wrap">{body}</div>"##
+    );
+    layout("Konum", Some(user), "location", &content)
+}
+
 /// Upload ceiling for a schedule screenshot, in MB. Stated on the form and enforced
 /// by the route's body limit in main.rs, which reads this same number.
 pub const SCHEDULE_IMAGE_MAX_MB: usize = 8;
@@ -832,9 +891,35 @@ fn admin_schedule_panel(images: &[ScheduleImage]) -> String {
     )
 }
 
-pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[Video], tasks: &[Task], members: &[MemberRow], invite_code: &str, base_url: &str, schedule_images: &[ScheduleImage]) -> String {
+/// The Konum panel. Every field is optional and free text — filling in only a Maps
+/// link, or only a note, is a legitimate way to use it. Blanking them all takes the
+/// card off both pages.
+fn admin_venue_panel(v: &Venue) -> String {
+    format!(
+        r##"<section class="panel">
+  <h2>Konum / adres</h2>
+  <p class="muted">Öğrenciler bunu <b>Konum</b> sayfasında ve <b>Haftalık Program</b>'ın
+  altında görür. Boş bıraktığın alanlar gösterilmez.</p>
+  <form method="post" action="/admin/venue">
+    <label>Mekan adı<input name="name" value="{name}" placeholder="Kolektif House Levent"></label>
+    <label>Adres<textarea name="address" rows="3" placeholder="Esentepe Mah. ... Şişli/İstanbul">{address}</textarea></label>
+    <label>Google Haritalar bağlantısı<input name="maps_url" type="url" value="{maps_url}" placeholder="https://maps.app.goo.gl/...">
+      <span class="fieldnote">Haritalar'da mekânı aç → Paylaş → Bağlantıyı kopyala.</span></label>
+    <label>Diğer detaylar<textarea name="notes" rows="4" placeholder="Kat, kapı kodu, ulaşım, otopark, yanına ne getirmeli…">{notes}</textarea></label>
+    <button class="btn-dark">Kaydet</button>
+  </form>
+</section>"##,
+        name = esc(&v.name),
+        address = esc(&v.address),
+        maps_url = esc(&v.maps_url),
+        notes = esc(&v.notes),
+    )
+}
+
+pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[Video], tasks: &[Task], members: &[MemberRow], invite_code: &str, base_url: &str, schedule_images: &[ScheduleImage], venue: &Venue) -> String {
     let invite_link = format!("{}/join/{}", base_url.trim_end_matches('/'), invite_code);
     let schedule_panel = admin_schedule_panel(schedule_images);
+    let venue_panel = admin_venue_panel(venue);
     let level_opts = level_options("");
     let stat_rows: String = stats.iter().map(|s| {
         let pct = if s.duration > 0.0 { (s.max_position / s.duration * 100.0).min(100.0) } else { 0.0 };
@@ -1029,6 +1114,8 @@ pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[
   <div class="minilist">{member_rows}</div>
 </section>
 
+{venue_panel}
+
 <section class="panel">
   <h2>Davet bağlantısı</h2>
   <p class="muted">WhatsApp grubuna bu bağlantıyı at — kod bağlantının içinde, öğrenciler
@@ -1091,7 +1178,7 @@ mod tests {
     #[test]
     fn uploaded_image_is_shown_and_versioned() {
         let img = image("advanced");
-        let html = schedule(&student(), "advanced", Some(&img));
+        let html = schedule(&student(), "advanced", Some(&img), &Venue::default());
         assert!(html.contains(&format!(r#"src="/schedule/image/advanced?v={}""#, img.version())));
         assert!(html.contains(r#"<a class="chip active" href="/schedule?track=advanced""#));
         assert!(!html.contains("sheet-empty"));
@@ -1100,7 +1187,7 @@ mod tests {
     /// Nothing uploaded yet is a normal state, not an error or a broken <img>.
     #[test]
     fn missing_image_says_so() {
-        let html = schedule(&student(), "beginner", None);
+        let html = schedule(&student(), "beginner", None, &Venue::default());
         assert!(html.contains("henüz yüklenmedi"));
         // the shell has its own <img> (the logo), so check for the image route itself
         assert!(!html.contains("/schedule/image/"), "no <img> pointing at a 404");
@@ -1115,5 +1202,55 @@ mod tests {
         }
         assert!(panel.contains("/admin/schedule/delete"), "beginner is on file, so it can be removed");
         assert!(panel.contains(r#"enctype="multipart/form-data""#));
+    }
+
+    fn venue() -> Venue {
+        Venue {
+            name: "Kolektif House Levent".into(),
+            address: "Esentepe Mah.\nŞişli/İstanbul".into(),
+            maps_url: "https://maps.app.goo.gl/abc".into(),
+            notes: "3. kat · kapı kodu 1234".into(),
+        }
+    }
+
+    /// The same card renders on its own page and under the schedule, so students
+    /// can't be shown two different addresses.
+    #[test]
+    fn venue_card_is_shared_by_both_pages() {
+        let v = venue();
+        let page = location(&student(), &v);
+        let sched = schedule(&student(), "beginner", None, &v);
+        for html in [&page, &sched] {
+            assert!(html.contains("Kolektif House Levent"));
+            assert!(html.contains("3. kat · kapı kodu 1234"));
+            assert!(html.contains(r#"href="https://maps.app.goo.gl/abc""#));
+        }
+        assert!(sched.contains("venue-head"), "schedule labels the section");
+    }
+
+    /// A blank field is left out rather than rendered as an empty element, and an
+    /// address with nothing in it takes the card off the schedule entirely.
+    #[test]
+    fn empty_venue_fields_are_omitted() {
+        let partial = Venue { maps_url: "https://maps.app.goo.gl/x".into(), ..Venue::default() };
+        let html = location(&student(), &partial);
+        assert!(html.contains("maps.app.goo.gl/x"));
+        assert!(!html.contains("<h3>"), "no empty name heading");
+        assert!(!html.contains("venue-notes"), "no empty notes block");
+
+        assert!(Venue::default().is_empty());
+        assert!(!partial.is_empty());
+        let bare = schedule(&student(), "beginner", None, &Venue::default());
+        assert!(!bare.contains("venue-card"), "no empty card beside the schedule");
+        assert!(location(&student(), &Venue::default()).contains("henüz eklenmedi"));
+    }
+
+    /// Whatever the admin typed is escaped on the way into the card and the href.
+    #[test]
+    fn venue_text_is_escaped() {
+        let v = Venue { name: r#"<script>alert(1)</script>"#.into(), ..Venue::default() };
+        let html = location(&student(), &v);
+        assert!(!html.contains("<script>alert(1)"));
+        assert!(html.contains("&lt;script&gt;alert(1)&lt;/script&gt;"));
     }
 }

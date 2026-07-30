@@ -68,6 +68,7 @@ async fn main() {
         .route("/app", get(home))
         .route("/schedule", get(schedule))
         .route("/schedule/image/{track}", get(schedule_image))
+        .route("/location", get(location))
         .route("/videos", get(video_grid))
         .route("/agentic-harness", get(agentic_harness))
         .route("/ai-monopoly", get(ai_monopoly))
@@ -94,6 +95,7 @@ async fn main() {
         .route("/admin/schedule", post(admin_schedule)
             .layer(DefaultBodyLimit::max(html::SCHEDULE_IMAGE_MAX_MB * 1024 * 1024)))
         .route("/admin/schedule/delete", post(admin_schedule_delete))
+        .route("/admin/venue", post(admin_venue))
         .route("/admin/user", post(admin_user))
         .route("/admin/user/delete", post(admin_user_delete))
         .route("/admin/user/hidden", post(admin_user_hidden))
@@ -605,7 +607,65 @@ async fn schedule(State(app): State<App>, headers: HeaderMap, Query(q): Query<Tr
     let user = require_onboarded(current_user(&app, &headers).await)?;
     let track = valid_schedule_track(q.track.as_deref());
     let img = schedule_meta(&app, track).await;
-    Ok(Html(html::schedule(&user, track, img.as_ref())))
+    let venue = load_venue(&app).await;
+    Ok(Html(html::schedule(&user, track, img.as_ref(), &venue)))
+}
+
+// ---- konum / adres ----
+
+/// The venue's four `venue_*` settings rows, as one record. Missing rows read as
+/// empty strings, so a half-filled address is a normal state rather than an error.
+async fn load_venue(app: &App) -> Venue {
+    let rows: Vec<(String, String)> = sqlx::query_as(
+        "select key, value from app_settings_exposure_academy
+         where key in ('venue_name','venue_address','venue_maps_url','venue_notes')")
+        .fetch_all(&app.pool).await.unwrap_or_default();
+    let get = |k: &str| rows.iter().find(|(key, _)| key == k)
+        .map(|(_, v)| v.clone()).unwrap_or_default();
+    Venue {
+        name: get("venue_name"),
+        address: get("venue_address"),
+        maps_url: get("venue_maps_url"),
+        notes: get("venue_notes"),
+    }
+}
+
+async fn location(State(app): State<App>, headers: HeaderMap) -> Result<Html<String>, Response> {
+    let user = require_onboarded(current_user(&app, &headers).await)?;
+    let venue = load_venue(&app).await;
+    Ok(Html(html::location(&user, &venue)))
+}
+
+#[derive(Deserialize)]
+struct VenueForm {
+    #[serde(default)] name: String,
+    #[serde(default)] address: String,
+    #[serde(default)] maps_url: String,
+    #[serde(default)] notes: String,
+}
+
+async fn admin_venue(State(app): State<App>, headers: HeaderMap, Form(f): Form<VenueForm>) -> Result<Redirect, Response> {
+    require_admin(current_user(&app, &headers).await)?;
+    // Scheme-gate before it ever reaches an href: blank is fine (the button is then
+    // simply not rendered), but a javascript:/data: value must never become a link.
+    let maps_url = f.maps_url.trim();
+    if !maps_url.is_empty() && !valid_http_url(maps_url) {
+        return Err((StatusCode::BAD_REQUEST,
+            "Haritalar bağlantısı http:// veya https:// ile başlamalı.").into_response());
+    }
+    for (key, value) in [
+        ("venue_name", f.name.trim()),
+        ("venue_address", f.address.trim()),
+        ("venue_maps_url", maps_url),
+        ("venue_notes", f.notes.trim()),
+    ] {
+        sqlx::query(
+            "insert into app_settings_exposure_academy (key, value, updated_at) values ($1,$2, now())
+             on conflict (key) do update set value = $2, updated_at = now()")
+            .bind(key).bind(value)
+            .execute(&app.pool).await.map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
+    }
+    Ok(Redirect::to("/admin"))
 }
 
 /// The uploaded screenshot itself. Members-only (it sits inside the authed routes), so
@@ -996,7 +1056,7 @@ async fn admin_page(State(app): State<App>, headers: HeaderMap) -> Result<Html<S
         "select track, content_type, uploaded_at, length(image)::bigint as bytes
          from schedule_image_exposure_academy")
         .fetch_all(&app.pool).await.unwrap_or_default();
-    Ok(Html(html::admin(&user, &stats, &subs, &videos, &tasks, &members, &invite_code, &app.base_url, &schedule_images)))
+    Ok(Html(html::admin(&user, &stats, &subs, &videos, &tasks, &members, &invite_code, &app.base_url, &schedule_images, &load_venue(&app).await)))
 }
 
 fn parse_youtube_id(input: &str) -> String {

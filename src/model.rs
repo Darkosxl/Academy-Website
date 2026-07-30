@@ -240,6 +240,29 @@ impl ScheduleImage {
     }
 }
 
+/// Where the academy physically meets. Kept as four rows in
+/// app_settings_exposure_academy (the `venue_*` keys) rather than its own table — it is
+/// one record of free text, the same shape as the invite code that already lives there,
+/// so it needs no migration and no schema to keep in step.
+#[derive(Default)]
+pub struct Venue {
+    pub name: String,
+    pub address: String,
+    /// Whatever the admin pasted out of Google Maps. Validated as http(s) on save, so
+    /// it is safe to put straight in an href.
+    pub maps_url: String,
+    /// Anything else students need: floor, door code, transit, parking.
+    pub notes: String,
+}
+
+impl Venue {
+    /// Nothing filled in yet. The page then says so rather than rendering an empty card.
+    pub fn is_empty(&self) -> bool {
+        [&self.name, &self.address, &self.maps_url, &self.notes]
+            .iter().all(|f| f.trim().is_empty())
+    }
+}
+
 /// One row in the admin "Öğrenciler" list — enough to identify and remove a member.
 #[derive(FromRow)]
 pub struct MemberRow {

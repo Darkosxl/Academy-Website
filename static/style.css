@@ -848,3 +848,32 @@ form.inline input, form.inline select { margin-top:0; width:auto; }
 @media (max-width:768px) {
   .sched-slots { grid-template-columns:1fr; }
 }
+
+/* ============================================================================
+   KONUM (/location) — adres kartı. Aynı kart hem kendi sayfasında hem de
+   Haftalık Program'ın altında görünür (venue_card, html.rs).
+   ============================================================================ */
+.venue-wrap { max-width:34rem; }
+.portal .venue-head {
+  font-size:var(--fs-label); font-weight:600; text-transform:uppercase; letter-spacing:0.05em;
+  color:var(--text-muted); margin:28px 0 10px;
+}
+.venue-card { position:relative; }
+.venue-pin {
+  display:inline-flex; align-items:center; justify-content:center;
+  width:40px; height:40px; border-radius:var(--r-xl);
+  background:var(--blue-10); color:var(--blue-text); margin-bottom:14px;
+}
+.venue-pin .ico { width:22px; height:22px; }
+.portal .venue-card h3 { font-size:var(--fs-h3); font-weight:700; color:var(--text); margin-bottom:6px; }
+/* adres ve notlar satır sonlarını korur — yönetici nasıl yazdıysa öyle görünür */
+.venue-address {
+  font-size:var(--fs-body); color:var(--text-body); line-height:1.65;
+  white-space:pre-wrap; margin-bottom:12px;
+}
+.venue-notes {
+  font-size:var(--fs-sm); color:var(--text-muted); line-height:1.7;
+  white-space:pre-wrap; margin-bottom:16px;
+  padding-top:12px; border-top:1px solid var(--border-subtle);
+}
+.portal .venue-maps { margin-top:2px; }
