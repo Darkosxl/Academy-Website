@@ -607,37 +607,43 @@ async fn schedule(State(app): State<App>, headers: HeaderMap, Query(q): Query<Tr
     let user = require_onboarded(current_user(&app, &headers).await)?;
     let track = valid_schedule_track(q.track.as_deref());
     let img = schedule_meta(&app, track).await;
-    let venue = load_venue(&app).await;
-    Ok(Html(html::schedule(&user, track, img.as_ref(), &venue)))
+    let venues = load_venues(&app).await;
+    Ok(Html(html::schedule(&user, track, img.as_ref(), &venues)))
 }
 
 // ---- konum / adres ----
 
-/// The venue's four `venue_*` settings rows, as one record. Missing rows read as
-/// empty strings, so a half-filled address is a normal state rather than an error.
-async fn load_venue(app: &App) -> Venue {
+/// One `Venue` per entry in VENUE_WEEKS, in order, always the full set. A week with no
+/// rows yet comes back with empty strings rather than being absent, so the pages can
+/// name it as "not announced" instead of leaving a hole where a week should be.
+async fn load_venues(app: &App) -> Vec<Venue> {
     let rows: Vec<(String, String)> = sqlx::query_as(
-        "select key, value from app_settings_exposure_academy
-         where key in ('venue_name','venue_address','venue_maps_url','venue_notes')")
+        "select key, value from app_settings_exposure_academy where key like 'venue%'")
         .fetch_all(&app.pool).await.unwrap_or_default();
-    let get = |k: &str| rows.iter().find(|(key, _)| key == k)
-        .map(|(_, v)| v.clone()).unwrap_or_default();
-    Venue {
-        name: get("venue_name"),
-        address: get("venue_address"),
-        maps_url: get("venue_maps_url"),
-        notes: get("venue_notes"),
-    }
+    let get = |week: u8, field: &str| {
+        let k = venue_key(week, field);
+        rows.iter().find(|(key, _)| *key == k).map(|(_, v)| v.clone()).unwrap_or_default()
+    };
+    VENUE_WEEKS.iter().map(|&week| Venue {
+        week,
+        dates: get(week, "dates"),
+        name: get(week, "name"),
+        address: get(week, "address"),
+        maps_url: get(week, "maps_url"),
+        notes: get(week, "notes"),
+    }).collect()
 }
 
 async fn location(State(app): State<App>, headers: HeaderMap) -> Result<Html<String>, Response> {
     let user = require_onboarded(current_user(&app, &headers).await)?;
-    let venue = load_venue(&app).await;
-    Ok(Html(html::location(&user, &venue)))
+    let venues = load_venues(&app).await;
+    Ok(Html(html::location(&user, &venues)))
 }
 
 #[derive(Deserialize)]
 struct VenueForm {
+    week: u8,
+    #[serde(default)] dates: String,
     #[serde(default)] name: String,
     #[serde(default)] address: String,
     #[serde(default)] maps_url: String,
@@ -646,6 +652,10 @@ struct VenueForm {
 
 async fn admin_venue(State(app): State<App>, headers: HeaderMap, Form(f): Form<VenueForm>) -> Result<Redirect, Response> {
     require_admin(current_user(&app, &headers).await)?;
+    // a week we don't render would write settings rows nothing ever reads again
+    if !VENUE_WEEKS.contains(&f.week) {
+        return Err((StatusCode::BAD_REQUEST, "Geçersiz hafta.").into_response());
+    }
     // Scheme-gate before it ever reaches an href: blank is fine (the button is then
     // simply not rendered), but a javascript:/data: value must never become a link.
     let maps_url = f.maps_url.trim();
@@ -653,16 +663,17 @@ async fn admin_venue(State(app): State<App>, headers: HeaderMap, Form(f): Form<V
         return Err((StatusCode::BAD_REQUEST,
             "Haritalar bağlantısı http:// veya https:// ile başlamalı.").into_response());
     }
-    for (key, value) in [
-        ("venue_name", f.name.trim()),
-        ("venue_address", f.address.trim()),
-        ("venue_maps_url", maps_url),
-        ("venue_notes", f.notes.trim()),
+    for (field, value) in [
+        ("dates", f.dates.trim()),
+        ("name", f.name.trim()),
+        ("address", f.address.trim()),
+        ("maps_url", maps_url),
+        ("notes", f.notes.trim()),
     ] {
         sqlx::query(
             "insert into app_settings_exposure_academy (key, value, updated_at) values ($1,$2, now())
              on conflict (key) do update set value = $2, updated_at = now()")
-            .bind(key).bind(value)
+            .bind(venue_key(f.week, field)).bind(value)
             .execute(&app.pool).await.map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
     }
     Ok(Redirect::to("/admin"))
@@ -1056,7 +1067,7 @@ async fn admin_page(State(app): State<App>, headers: HeaderMap) -> Result<Html<S
         "select track, content_type, uploaded_at, length(image)::bigint as bytes
          from schedule_image_exposure_academy")
         .fetch_all(&app.pool).await.unwrap_or_default();
-    Ok(Html(html::admin(&user, &stats, &subs, &videos, &tasks, &members, &invite_code, &app.base_url, &schedule_images, &load_venue(&app).await)))
+    Ok(Html(html::admin(&user, &stats, &subs, &videos, &tasks, &members, &invite_code, &app.base_url, &schedule_images, &load_venues(&app).await)))
 }
 
 fn parse_youtube_id(input: &str) -> String {

@@ -240,12 +240,17 @@ impl ScheduleImage {
     }
 }
 
-/// Where the academy physically meets. Kept as four rows in
-/// app_settings_exposure_academy (the `venue_*` keys) rather than its own table — it is
-/// one record of free text, the same shape as the invite code that already lives there,
-/// so it needs no migration and no schema to keep in step.
+/// Where the academy meets — per week, because the two weeks run in different places.
+/// Kept as rows in app_settings_exposure_academy (`venue{week}_{field}`) rather than
+/// its own table: it is a handful of free-text fields, the same shape as the invite
+/// code that already lives there, so there is no schema to keep in step.
 #[derive(Default)]
 pub struct Venue {
+    /// 1 or 2. Every heading names it, so a student is never left guessing which
+    /// week an address belongs to.
+    pub week: u8,
+    /// Optional date range shown beside the week number, e.g. "3–7 Ağustos".
+    pub dates: String,
     pub name: String,
     pub address: String,
     /// Whatever the admin pasted out of Google Maps. Validated as http(s) on save, so
@@ -255,11 +260,29 @@ pub struct Venue {
     pub notes: String,
 }
 
+/// The weeks that get their own address. Adding a third is this array plus nothing —
+/// the settings keys, the admin panel and both pages are all driven off it.
+pub const VENUE_WEEKS: [u8; 2] = [1, 2];
+
+/// Settings key for one field of one week's venue.
+pub fn venue_key(week: u8, field: &str) -> String {
+    format!("venue{week}_{field}")
+}
+
 impl Venue {
     /// Nothing filled in yet. The page then says so rather than rendering an empty card.
     pub fn is_empty(&self) -> bool {
-        [&self.name, &self.address, &self.maps_url, &self.notes]
+        [&self.dates, &self.name, &self.address, &self.maps_url, &self.notes]
             .iter().all(|f| f.trim().is_empty())
+    }
+
+    /// What the card is titled: "1. Hafta", or "1. Hafta · 3–7 Ağustos" once dates
+    /// are filled in.
+    pub fn heading(&self) -> String {
+        match self.dates.trim() {
+            "" => format!("{}. Hafta", self.week),
+            d => format!("{}. Hafta · {}", self.week, d),
+        }
     }
 }
 

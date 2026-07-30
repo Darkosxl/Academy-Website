@@ -161,3 +161,13 @@ create table if not exists schedule_image_exposure_academy (
   content_type text not null,
   uploaded_at timestamptz not null default now()
 );
+
+-- The venue used to be one address (`venue_name` etc). The two academy weeks run in
+-- different places, so it is now per week (`venue1_*`, `venue2_*`); whatever was
+-- already entered becomes week 1. Idempotent: after the first run there are no
+-- `venue_%` rows left to move, and `do nothing` protects an already-edited week 1.
+insert into app_settings_exposure_academy (key, value, updated_at)
+  select replace(key, 'venue_', 'venue1_'), value, updated_at
+  from app_settings_exposure_academy where key like 'venue\_%'
+  on conflict (key) do nothing;
+delete from app_settings_exposure_academy where key like 'venue\_%';

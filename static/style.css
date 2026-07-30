@@ -853,12 +853,34 @@ form.inline input, form.inline select { margin-top:0; width:auto; }
    KONUM (/location) — adres kartı. Aynı kart hem kendi sayfasında hem de
    Haftalık Program'ın altında görünür (venue_card, html.rs).
    ============================================================================ */
-.venue-wrap { max-width:34rem; }
+/* iki hafta iki ayrı yerde: kartlar alt alta, her biri hangi haftaya ait olduğunu
+   kendi eyebrow'unda söyler */
+.venue-wrap { max-width:34rem; display:flex; flex-direction:column; gap:14px; }
+.venue-week {
+  display:block; font-size:var(--fs-label); font-weight:700; text-transform:uppercase;
+  letter-spacing:0.06em; color:var(--blue-text); margin-bottom:6px;
+}
+/* adresi henüz belli olmayan hafta — kart yerine sessiz bir yer tutucu, ama yine de
+   adıyla anılır ki "ikinci hafta yok" gibi okunmasın */
+.venue-pending {
+  background:var(--bg-card); border:1px dashed var(--border-input);
+  border-radius:var(--r-2xl); padding:18px 20px;
+}
+.venue-pending p { font-size:var(--fs-body); color:var(--text-muted); margin:0; }
+.portal .venue-sub { margin:0 0 12px; }
+/* yönetici paneli: hafta başına bir form */
+.venue-slots { display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:24px; margin-top:16px; }
+.venue-slots > * { min-width:0; }
+.portal .venue-slot h3 {
+  font-size:var(--fs-h3); font-weight:700; color:var(--text);
+  margin-bottom:12px; padding-bottom:10px; border-bottom:1px solid var(--border-subtle);
+}
 .portal .venue-head {
   font-size:var(--fs-label); font-weight:600; text-transform:uppercase; letter-spacing:0.05em;
   color:var(--text-muted); margin:28px 0 10px;
 }
 .venue-card { position:relative; }
+.venue-card .venue-pin { margin-bottom:12px; }
 .venue-pin {
   display:inline-flex; align-items:center; justify-content:center;
   width:40px; height:40px; border-radius:var(--r-xl);
@@ -877,3 +899,7 @@ form.inline input, form.inline select { margin-top:0; width:auto; }
   padding-top:12px; border-top:1px solid var(--border-subtle);
 }
 .portal .venue-maps { margin-top:2px; }
+
+@media (max-width:768px) {
+  .venue-slots { grid-template-columns:1fr; }
+}

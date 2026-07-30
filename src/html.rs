@@ -102,12 +102,12 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
   </div>
   <nav class="sb-nav">
     {home}
-    {schedule}
-    {location}
     {videos}
     {board}
     {leaderboard}
     {demos}
+    {schedule}
+    {location}
     {admin_block}
   </nav>
   <div class="sb-footer">
@@ -163,7 +163,7 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/style.css?v=29">
+<link rel="stylesheet" href="/static/style.css?v=30">
 <script>if('scrollRestoration'in history)history.scrollRestoration='manual';</script>
 </head>
 <body class="{body_class}">
@@ -456,9 +456,9 @@ fn u_first_name(user: &User) -> &str {
 /// the layout of the schedule is entirely whatever the screenshot looks like.
 ///
 /// `img` is the metadata for the selected track, `None` when nothing is uploaded yet.
-/// `venue` rides along at the bottom: "where is this happening" is the other half of
-/// the question the schedule answers, and it is the same card as /location.
-pub fn schedule(user: &User, track: &str, img: Option<&ScheduleImage>, venue: &Venue) -> String {
+/// `venues` ride along at the bottom: "where is this happening" is the other half of
+/// the question the schedule answers, and they are the same cards as /location.
+pub fn schedule(user: &User, track: &str, img: Option<&ScheduleImage>, venues: &[Venue]) -> String {
     let chips: String = SCHEDULE_TRACKS.iter().map(|(k, label)| format!(
         r#"<a class="chip {active}" href="/schedule?track={k}" lang="en">{label}</a>"#,
         active = if *k == track { "active" } else { "" },
@@ -483,11 +483,14 @@ pub fn schedule(user: &User, track: &str, img: Option<&ScheduleImage>, venue: &V
         ),
     };
 
-    // silent when no address is on file — an empty-state box here would just be noise
-    // next to the schedule, unlike on /location where it is the whole page
-    let venue_block = match venue_card(venue).as_str() {
+    // silent when no address is on file at all — an empty-state box here would just be
+    // noise next to the schedule, unlike on /location where it is the whole page
+    let venue_block = match venue_cards(venues).as_str() {
         "" => String::new(),
-        card => format!(r#"<h2 class="venue-head">Konum</h2><div class="venue-wrap">{card}</div>"#),
+        cards => format!(
+            r#"<h2 class="venue-head">Konum</h2>
+<p class="fieldnote venue-sub">İki hafta iki ayrı yerde.</p>
+<div class="venue-wrap">{cards}</div>"#),
     };
 
     let content = format!(
@@ -787,14 +790,18 @@ pub fn board_locked(user: &User, github: Option<&str>, linkedin: Option<&str>, e
     layout("Görev Panosu", Some(user), "board", &content)
 }
 
-/// The address card. One renderer, shown on its own page (/location) and again under
-/// the schedule, so the two can never disagree about where the academy is.
+/// The address card for one week. One renderer, shown on its own page (/location) and
+/// again under the schedule, so the two can never disagree about where the academy is.
 /// Returns "" when nothing is filled in, letting each caller decide what to show
 /// in its place.
+///
+/// The week is always in the card's own eyebrow — the two weeks are in different
+/// places, so an address that doesn't say which week it is for is worse than useless.
 fn venue_card(v: &Venue) -> String {
     if v.is_empty() {
         return String::new();
     }
+    let week = format!(r#"<span class="venue-week">{}</span>"#, esc(&v.heading()));
     let name = if v.name.trim().is_empty() { String::new() }
         else { format!("<h3>{}</h3>", esc(v.name.trim())) };
     let address = if v.address.trim().is_empty() { String::new() }
@@ -809,6 +816,7 @@ fn venue_card(v: &Venue) -> String {
     format!(
         r##"<section class="panel venue-card">
   <span class="venue-pin">{pin}</span>
+  {week}
   {name}
   {address}
   {notes}
@@ -818,16 +826,29 @@ fn venue_card(v: &Venue) -> String {
     )
 }
 
-/// Konum. The address on its own page, reachable from the nav.
-pub fn location(user: &User, v: &Venue) -> String {
-    let body = if v.is_empty() {
-        r#"<p class="sheet-empty">Adres bilgisi henüz eklenmedi.</p>"#.to_string()
-    } else {
-        venue_card(v)
-    };
+/// Every week that has an address, in order. "" when none of them do.
+fn venue_cards(venues: &[Venue]) -> String {
+    venues.iter().map(venue_card).collect()
+}
+
+/// Konum. One card per week, because the two weeks are in different buildings.
+/// A week with nothing filled in says so by name rather than silently vanishing —
+/// "2. Hafta" missing entirely would read as "there is no second week".
+pub fn location(user: &User, venues: &[Venue]) -> String {
+    let body: String = venues.iter().map(|v| {
+        if v.is_empty() {
+            format!(
+                r#"<div class="venue-pending"><span class="venue-week">{}</span>
+<p>Adres henüz açıklanmadı.</p></div>"#,
+                esc(&v.heading()),
+            )
+        } else {
+            venue_card(v)
+        }
+    }).collect();
     let content = format!(
         r##"<h1 class="pagetitle">Konum</h1>
-<p class="muted">Derslerin yapıldığı yer.</p>
+<p class="muted">İki hafta iki ayrı yerde geçiyor — hangi hafta nerede, aşağıda.</p>
 <div class="venue-wrap">{body}</div>"##
     );
     layout("Konum", Some(user), "location", &content)
@@ -891,35 +912,48 @@ fn admin_schedule_panel(images: &[ScheduleImage]) -> String {
     )
 }
 
-/// The Konum panel. Every field is optional and free text — filling in only a Maps
-/// link, or only a note, is a legitimate way to use it. Blanking them all takes the
-/// card off both pages.
-fn admin_venue_panel(v: &Venue) -> String {
-    format!(
-        r##"<section class="panel">
-  <h2>Konum / adres</h2>
-  <p class="muted">Öğrenciler bunu <b>Konum</b> sayfasında ve <b>Haftalık Program</b>'ın
-  altında görür. Boş bıraktığın alanlar gösterilmez.</p>
+/// The Konum panel — one form per week, saved independently, since the two weeks are
+/// in different places and are usually confirmed at different times. Every field is
+/// optional and free text; filling in only a Maps link, or only a note, is a
+/// legitimate way to use it. Blanking a week's fields takes its card off both pages.
+fn admin_venue_panel(venues: &[Venue]) -> String {
+    let slots: String = venues.iter().map(|v| format!(
+        r##"<div class="venue-slot">
+  <h3>{week}. Hafta</h3>
   <form method="post" action="/admin/venue">
+    <input type="hidden" name="week" value="{week}">
+    <label>Tarihler<input name="dates" value="{dates}" placeholder="3–7 Ağustos"></label>
     <label>Mekan adı<input name="name" value="{name}" placeholder="Kolektif House Levent"></label>
     <label>Adres<textarea name="address" rows="3" placeholder="Esentepe Mah. ... Şişli/İstanbul">{address}</textarea></label>
     <label>Google Haritalar bağlantısı<input name="maps_url" type="url" value="{maps_url}" placeholder="https://maps.app.goo.gl/...">
       <span class="fieldnote">Haritalar'da mekânı aç → Paylaş → Bağlantıyı kopyala.</span></label>
-    <label>Diğer detaylar<textarea name="notes" rows="4" placeholder="Kat, kapı kodu, ulaşım, otopark, yanına ne getirmeli…">{notes}</textarea></label>
-    <button class="btn-dark">Kaydet</button>
+    <label>Diğer detaylar<textarea name="notes" rows="4" placeholder="Kat, kapı kodu, ulaşım, otopark…">{notes}</textarea></label>
+    <button class="btn-dark">{week}. haftayı kaydet</button>
   </form>
-</section>"##,
+</div>"##,
+        week = v.week,
+        dates = esc(&v.dates),
         name = esc(&v.name),
         address = esc(&v.address),
         maps_url = esc(&v.maps_url),
         notes = esc(&v.notes),
+    )).collect();
+
+    format!(
+        r##"<section class="panel wide">
+  <h2>Konum / adres</h2>
+  <p class="muted">İki hafta iki ayrı yerde geçtiği için her hafta ayrı ayrı girilir.
+  Öğrenciler bunları <b>Konum</b> sayfasında ve <b>Haftalık Program</b>'ın altında görür.
+  Boş bıraktığın alanlar gösterilmez.</p>
+  <div class="venue-slots">{slots}</div>
+</section>"##
     )
 }
 
-pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[Video], tasks: &[Task], members: &[MemberRow], invite_code: &str, base_url: &str, schedule_images: &[ScheduleImage], venue: &Venue) -> String {
+pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[Video], tasks: &[Task], members: &[MemberRow], invite_code: &str, base_url: &str, schedule_images: &[ScheduleImage], venues: &[Venue]) -> String {
     let invite_link = format!("{}/join/{}", base_url.trim_end_matches('/'), invite_code);
     let schedule_panel = admin_schedule_panel(schedule_images);
-    let venue_panel = admin_venue_panel(venue);
+    let venue_panel = admin_venue_panel(venues);
     let level_opts = level_options("");
     let stat_rows: String = stats.iter().map(|s| {
         let pct = if s.duration > 0.0 { (s.max_position / s.duration * 100.0).min(100.0) } else { 0.0 };
@@ -1076,6 +1110,8 @@ pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[
 
 {schedule_panel}
 
+{venue_panel}
+
 <div class="admingrid stack">
 <section class="panel">
   <h2>Video ekle</h2>
@@ -1113,8 +1149,6 @@ pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[
   </form>
   <div class="minilist">{member_rows}</div>
 </section>
-
-{venue_panel}
 
 <section class="panel">
   <h2>Davet bağlantısı</h2>
@@ -1178,7 +1212,7 @@ mod tests {
     #[test]
     fn uploaded_image_is_shown_and_versioned() {
         let img = image("advanced");
-        let html = schedule(&student(), "advanced", Some(&img), &Venue::default());
+        let html = schedule(&student(), "advanced", Some(&img), &[]);
         assert!(html.contains(&format!(r#"src="/schedule/image/advanced?v={}""#, img.version())));
         assert!(html.contains(r#"<a class="chip active" href="/schedule?track=advanced""#));
         assert!(!html.contains("sheet-empty"));
@@ -1187,7 +1221,7 @@ mod tests {
     /// Nothing uploaded yet is a normal state, not an error or a broken <img>.
     #[test]
     fn missing_image_says_so() {
-        let html = schedule(&student(), "beginner", None, &Venue::default());
+        let html = schedule(&student(), "beginner", None, &[]);
         assert!(html.contains("henüz yüklenmedi"));
         // the shell has its own <img> (the logo), so check for the image route itself
         assert!(!html.contains("/schedule/image/"), "no <img> pointing at a 404");
@@ -1204,8 +1238,10 @@ mod tests {
         assert!(panel.contains(r#"enctype="multipart/form-data""#));
     }
 
-    fn venue() -> Venue {
+    fn venue(week: u8) -> Venue {
         Venue {
+            week,
+            dates: "3–7 Ağustos".into(),
             name: "Kolektif House Levent".into(),
             address: "Esentepe Mah.\nŞişli/İstanbul".into(),
             maps_url: "https://maps.app.goo.gl/abc".into(),
@@ -1213,13 +1249,17 @@ mod tests {
         }
     }
 
-    /// The same card renders on its own page and under the schedule, so students
+    fn blank(week: u8) -> Venue {
+        Venue { week, ..Venue::default() }
+    }
+
+    /// The same cards render on their own page and under the schedule, so students
     /// can't be shown two different addresses.
     #[test]
-    fn venue_card_is_shared_by_both_pages() {
-        let v = venue();
-        let page = location(&student(), &v);
-        let sched = schedule(&student(), "beginner", None, &v);
+    fn venue_cards_are_shared_by_both_pages() {
+        let venues = [venue(1), venue(2)];
+        let page = location(&student(), &venues);
+        let sched = schedule(&student(), "beginner", None, &venues);
         for html in [&page, &sched] {
             assert!(html.contains("Kolektif House Levent"));
             assert!(html.contains("3. kat · kapı kodu 1234"));
@@ -1228,29 +1268,61 @@ mod tests {
         assert!(sched.contains("venue-head"), "schedule labels the section");
     }
 
-    /// A blank field is left out rather than rendered as an empty element, and an
-    /// address with nothing in it takes the card off the schedule entirely.
+    /// Every card names its week — the two weeks are in different buildings, so an
+    /// address that doesn't say which week it belongs to is worse than none.
+    #[test]
+    fn every_card_names_its_week() {
+        let html = location(&student(), &[venue(1), venue(2)]);
+        assert!(html.contains("1. Hafta · 3–7 Ağustos"));
+        assert!(html.contains("2. Hafta · 3–7 Ağustos"));
+        // dates are optional; the week number is not
+        assert_eq!(blank(2).heading(), "2. Hafta");
+        assert_eq!(Venue { week: 1, dates: " 3–7 Ağustos ".into(), ..Venue::default() }.heading(),
+                   "1. Hafta · 3–7 Ağustos");
+    }
+
+    /// A week with no address yet is still listed by name on /location, so a missing
+    /// second week reads as "not announced" rather than "there is no second week".
+    /// Beside the schedule it stays silent instead of adding an empty box.
+    #[test]
+    fn a_week_without_an_address_is_named_not_dropped() {
+        let html = location(&student(), &[venue(1), blank(2)]);
+        assert!(html.contains("venue-pending"));
+        assert!(html.contains("2. Hafta"));
+        assert!(html.contains("Adres henüz açıklanmadı"));
+
+        let none = schedule(&student(), "beginner", None, &[blank(1), blank(2)]);
+        assert!(!none.contains("venue-card"), "no empty card beside the schedule");
+        assert!(!none.contains("venue-head"));
+    }
+
+    /// A blank field is left out rather than rendered as an empty element.
     #[test]
     fn empty_venue_fields_are_omitted() {
-        let partial = Venue { maps_url: "https://maps.app.goo.gl/x".into(), ..Venue::default() };
-        let html = location(&student(), &partial);
+        let partial = Venue { week: 1, maps_url: "https://maps.app.goo.gl/x".into(), ..Venue::default() };
+        let html = location(&student(), &[partial]);
         assert!(html.contains("maps.app.goo.gl/x"));
         assert!(!html.contains("<h3>"), "no empty name heading");
         assert!(!html.contains("venue-notes"), "no empty notes block");
-
-        assert!(Venue::default().is_empty());
-        assert!(!partial.is_empty());
-        let bare = schedule(&student(), "beginner", None, &Venue::default());
-        assert!(!bare.contains("venue-card"), "no empty card beside the schedule");
-        assert!(location(&student(), &Venue::default()).contains("henüz eklenmedi"));
+        assert!(blank(1).is_empty());
     }
 
     /// Whatever the admin typed is escaped on the way into the card and the href.
     #[test]
     fn venue_text_is_escaped() {
-        let v = Venue { name: r#"<script>alert(1)</script>"#.into(), ..Venue::default() };
-        let html = location(&student(), &v);
+        let v = Venue { week: 1, name: r#"<script>alert(1)</script>"#.into(), ..Venue::default() };
+        let html = location(&student(), &[v]);
         assert!(!html.contains("<script>alert(1)"));
         assert!(html.contains("&lt;script&gt;alert(1)&lt;/script&gt;"));
+    }
+
+    /// Both weeks get their own form, each posting its own week number.
+    #[test]
+    fn admin_panel_has_a_form_per_week() {
+        let panel = admin_venue_panel(&[blank(1), blank(2)]);
+        for week in VENUE_WEEKS {
+            assert!(panel.contains(&format!(r#"<input type="hidden" name="week" value="{week}">"#)), "{week}");
+        }
+        assert_eq!(panel.matches("/admin/venue").count(), VENUE_WEEKS.len());
     }
 }
