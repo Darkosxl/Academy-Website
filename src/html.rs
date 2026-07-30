@@ -589,25 +589,45 @@ pub fn agentic_harness_instructions(user: &User) -> String {
 │   └── ...               # geri kalanı size kalmış
 ├── main.py               # duman testi giriş noktası
 └── requirements.txt      # bağımlılıklar</pre>
-  <p><code>main.py</code> yalnızca bir duman testidir: 60 saniye içinde başarıyla çıkması gerekir.
-  Deponuzun içe aktarılabileceğini kanıtlar.</p>
+  <p><code>main.py</code> ajanınızın bağımsız bir oturumudur. Harness onu iki kez çalıştırır:
+  bir kez <b>building</b> aşamasında (60 saniye içinde başarıyla çıkması gerekir) ve bir kez de
+  <b lang="en">RAM-bench</b> için.</p>
+</section>
+<section class="panel">
+  <h2 lang="en">RAM-bench</h2>
+  <p><span lang="en">RAM-bench</span> kendi başına bir benchmark'tır ve diğer ikisiyle hiçbir
+  ilgisi yoktur. <code>main.py</code>'yi önce 1 oturum, ardından 10 eşzamanlı oturum olarak
+  çalıştırıyoruz ve toplam belleği (<span lang="en">PSS</span>) sabit 30 saniyelik bir pencere
+  boyunca örnekliyoruz; zirve değer puanınızdır. Bu ölçüm sırasında
+  <code>HARNESS_RAM_PROBE=1</code> ayarlanır. <code>main.py</code>'nin yaptığı her şey ölçülür,
+  bu yüzden ajanınızın gerçek işinden temsili bir dilim çalıştırın. Daha düşük olması daha iyidir.</p>
 </section>
 <section class="panel">
   <h2 lang="en">agent/my_agent.py — ARC-AGI-3</h2>
   <p>Bu dosya <span lang="en">ARC-AGI-3</span> oyun motorunun içinde çalışır. Sınıfınızın adı
   <code>MyAgent</code> olmalıdır, her adımda bir eylem seçer ve ne zaman biteceğine karar verir.
   <code>requirements.txt</code> dosyasındaki bağımlılıklar bu benchmark çalıştırılmadan önce yüklenir.</p>
-  <pre class="plan-pre" lang="en">from arcengine import FrameData, GameAction, GameState
-from agents.agent import Agent
+  <p>En kolay yol, döngüyü kendiniz yazmak yerine framework'ün kendi ajanını devralmaktır.
+  Başlangıç seti; sohbet geçmişini, <code lang="en">RESET</code> başlatmasını ve eylem
+  araçlarını hazır yöneten bir <span lang="en">LLM</span> ajanı içerir — siz yalnızca prompt'u
+  ve stratejiyi sağlarsınız.</p>
+  <pre class="plan-pre" lang="en">from agents.templates.llm_agents import LLM
 
-class MyAgent(Agent):
+class MyAgent(LLM):
     MAX_ACTIONS = 200
+    MODEL = os.environ["HARNESS_LLM_MODEL"]
+    MODEL_REQUIRES_TOOLS = True     # gemma yanıtı tool_calls ile döner
+    DO_OBSERVATION = False          # True = her eylem öncesi ek bir düşünme çağrısı
 
-    def is_done(self, frames, latest_frame) -> bool:
-        return latest_frame.state is GameState.WIN
-
-    def choose_action(self, frames, latest_frame) -> GameAction:
-        ...  # sizin stratejiniz</pre>
+    def build_user_prompt(self, latest_frame) -> str:
+        return "..."   # asıl kaldıraç burada</pre>
+  <p>Sıfırdan yazmak isterseniz <code>agents.agent.Agent</code>'ı devralıp
+  <code>choose_action(frames, latest_frame)</code> ve <code>is_done(...)</code> metotlarını
+  kendiniz yazın.</p>
+  <p>Uç nokta size <code lang="en">OPENAI_BASE_URL</code> ve <code lang="en">OPENAI_API_KEY</code>
+  ile verilir; <span lang="en">OpenAI SDK</span> bunları kendi kendine okur.
+  <span lang="en">LLM</span> şablonunu devralırsanız <code>requirements.txt</code> dosyanıza
+  <code lang="en">openai</code> ekleyin.</p>
 </section>
 <section class="panel">
   <h2 lang="en">agent/harbor_agent.py — Frontier-bench</h2>
@@ -646,8 +666,8 @@ class HarborAgent(BaseAgent):
     <li><span lang="en">Frontier-bench</span>, görev başına bir denemeyle 70 görevi (4 GPU görevi
     hariç) çalıştırır. Puan, çözülen görevlerin yüzdesidir. Tam bir çalıştırma saatler sürebilir —
     aşama göstergesinin altındaki ilerleme satırı mevcut görevi canlı olarak gösterir.</li>
-    <li>Bellek kullanımı (<span lang="en">PSS</span>), ajanınız çalışırken bir kez 1 etkin oturumla
-    ve bir kez 10 etkin oturumla ölçülür. Daha düşük olması daha iyidir.</li>
+    <li><code>main.py</code> 60 saniye içinde başarıyla çıkmalıdır, yoksa gönderim
+    <b>building</b> aşamasında başarısız olur.</li>
   </ul>
 </section>
 <section class="panel">

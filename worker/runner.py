@@ -17,6 +17,7 @@ Run:  python3 worker/runner.py            (production: full non-GPU set)
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -45,9 +46,13 @@ ARC_TIMEOUT = 900 if SMOKE else 3 * 3600
 FRONTIER_N_TASKS = 2 if SMOKE else None         # None = full non-GPU set (70)
 FRONTIER_CONCURRENCY = 4
 FRONTIER_TIMEOUT = 2400 if SMOKE else 12 * 3600
-RAM_GAME = "ls20"
-RAM_STEPS = 15
 SMOKE_TIMEOUT_BUILD = 60
+# RAM-bench is its own benchmark: the student's own main.py session, nothing to do
+# with the ARC engine or Harbor. Sessions get a fixed window so a long-running agent
+# and a quick one are compared over the same interval.
+RAM_SESSION_SECONDS = 30
+RAM_SAMPLE_SECONDS = 0.05
+RAM_CONCURRENT = 10
 
 
 def env_from_file() -> dict:
@@ -68,6 +73,18 @@ LLM_ENV = {
     "HARNESS_LLM_KEY": ENV.get("HARNESS_LLM_KEY") or ENV["CEREBRAS_API_KEY"],
     "HARNESS_LLM_MODEL": ENV.get("HARNESS_LLM_MODEL", "gemma-4-31b"),
 }
+# Both reference harnesses reach the provider through their own conventions rather
+# than our HARNESS_* names: the ARC framework builds an OpenAI SDK client (which
+# reads OPENAI_BASE_URL / OPENAI_API_KEY from the environment), and Terminus 2
+# calls LiteLLM, which wants a "<provider>/<model>" string plus that provider's
+# own key variable. Same endpoint and key, three spellings.
+OPENAI_ENV = {
+    "OPENAI_BASE_URL": LLM_ENV["HARNESS_LLM_BASE"],
+    "OPENAI_API_KEY": LLM_ENV["HARNESS_LLM_KEY"],
+}
+LITELLM_PROVIDER = ENV.get("HARNESS_LLM_PROVIDER", "cerebras")
+FRONTIER_MODEL = f"{LITELLM_PROVIDER}/{LLM_ENV['HARNESS_LLM_MODEL']}"
+LITELLM_ENV = {f"{LITELLM_PROVIDER.upper()}_API_KEY": LLM_ENV["HARNESS_LLM_KEY"]}
 
 
 # ── site API ────────────────────────────────────────────────────────────────
@@ -129,21 +146,32 @@ def arc_cmd(games, max_steps):
     return cmd
 
 
-def run_arc_sessions(procs: int) -> float:
-    """N concurrent short ARC sessions; return peak total PSS in MB."""
-    env = {**os.environ, **LLM_ENV}
-    ps = [subprocess.Popen(arc_cmd(RAM_GAME, RAM_STEPS), cwd=ARC_STARTER, env=env,
+def ram_sessions(repo: Path, venv_py: Path, procs: int) -> float:
+    """RAM-bench, standalone: `procs` concurrent `main.py` sessions of the student's
+    own agent — no game engine, no Harbor. Samples summed PSS over a fixed window and
+    returns the peak in MB. Sessions still running at the end of the window are killed;
+    ones that exit early keep the peak they reached.
+    """
+    env = {**os.environ, **LLM_ENV, "HARNESS_RAM_PROBE": "1"}
+    ps = [subprocess.Popen([str(venv_py), "main.py"], cwd=repo, env=env,
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
           for _ in range(procs)]
     peak = 0
-    deadline = time.time() + 600
-    while any(p.poll() is None for p in ps):
-        peak = max(peak, sum(pss_kb(p.pid) for p in ps if p.poll() is None))
-        if time.time() > deadline:
-            for p in ps:
+    deadline = time.time() + RAM_SESSION_SECONDS
+    try:
+        while time.time() < deadline:
+            live = [p for p in ps if p.poll() is None]
+            if not live:
+                break
+            peak = max(peak, sum(pss_kb(p.pid) for p in live))
+            time.sleep(RAM_SAMPLE_SECONDS)
+    finally:
+        for p in ps:
+            if p.poll() is None:
                 p.kill()
-            raise RunFailed("RAM ölçümü zaman aşımına uğradı.")
-        time.sleep(0.2)
+            p.wait()
+    if peak == 0:
+        raise RunFailed("RAM ölçülemedi: main.py ölçüm penceresinde hiç çalışmadı.")
     return round(peak / 1024, 1)
 
 
@@ -159,74 +187,127 @@ def clone(repo_url: str, work: Path) -> tuple[Path, str]:
     return repo, sha
 
 
-def build(repo: Path):
-    """Contract v2 validation + deps + smoke test. Runs in the ARC starter venv."""
+def build(repo: Path, work: Path) -> Path:
+    """Contract v2 validation + deps + smoke test. Returns the repo's own venv python.
+
+    Two installs on purpose: the repo gets a clean venv of its own (used by the smoke
+    test and RAM-bench, so student pins can't collide with arc-agi's), and the ARC
+    starter venv gets the same deps because play_local.py imports the student's agent
+    in-process.
+    """
     missing = [p for p in ("agent/my_agent.py", "agent/harbor_agent.py",
                            "main.py", "requirements.txt")
                if not (repo / p).exists()]
     if missing:
         raise RunFailed("Depo yapısı kurallara uymuyor, eksik: " + ", ".join(missing))
 
-    venv_py = ARC_STARTER / ".venv" / "bin" / "python"
-    # ponytail: student deps go straight into the starter venv (one run at a time);
-    # if version conflicts with arc-agi ever bite, switch to a per-run venv copy.
-    r = subprocess.run([str(venv_py), "-m", "pip", "install", "-q",
-                        "-r", str(repo / "requirements.txt")],
-                       capture_output=True, text=True, timeout=600)
-    if r.returncode != 0:
-        raise RunFailed(f"pip install başarısız:\n{r.stderr[-2000:]}")
+    reqs = str(repo / "requirements.txt")
+    venv = work / "venv"
+    subprocess.run([sys.executable, "-m", "venv", str(venv)], check=True, timeout=180)
+    venv_py = venv / "bin" / "python"
+    for py in (venv_py, ARC_STARTER / ".venv" / "bin" / "python"):
+        r = subprocess.run([str(py), "-m", "pip", "install", "-q", "-r", reqs],
+                           capture_output=True, text=True, timeout=600)
+        if r.returncode != 0:
+            raise RunFailed(f"pip install başarısız:\n{r.stderr[-2000:]}")
 
     r = subprocess.run([str(venv_py), "main.py"], cwd=repo,
                        capture_output=True, text=True, timeout=SMOKE_TIMEOUT_BUILD)
     if r.returncode != 0:
         raise RunFailed(f"main.py duman testi başarısız:\n{(r.stderr or r.stdout)[-2000:]}")
+    return venv_py
 
 
-def run_arc(run_id, repo: Path) -> float:
-    """Overlay the student's my_agent.py onto the starter and play for real."""
+@contextlib.contextmanager
+def overlaid_agent(repo: Path):
+    """Swap the student's my_agent.py into the cached starter for the ARC stage only.
+
+    play_local.py loads the agent from a fixed path in the starter tree, so the
+    student's file has to sit there while the games run; the starter's own file is put
+    back afterwards.
+    """
     target = ARC_STARTER / "agent" / "my_agent.py"
     backup = target.read_bytes()
     shutil.copyfile(repo / "agent" / "my_agent.py", target)
     try:
-        env = {**os.environ, **LLM_ENV}
-        p = subprocess.Popen(arc_cmd(ARC_GAMES, ARC_MAX_STEPS), cwd=ARC_STARTER, env=env,
-                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-        score = None
-        done = total = 0
-        levels = 0
-        tail = []
-        deadline = time.time() + ARC_TIMEOUT
-        for line in p.stdout:
-            tail = (tail + [line])[-80:]
-            if time.time() > deadline:
-                p.kill()
-                raise RunFailed("ARC-AGI-3 zaman aşımına uğradı.")
-            m = re.match(r"=== \[(\d+)/(\d+)\] (\S+) ===", line)
-            if m:
-                done, total = int(m.group(1)) - 1, int(m.group(2))
-                progress(run_id, done, total, levels, m.group(3))
-                log(f"ARC game {m.group(1)}/{total}: {m.group(3)}")
-            m = re.search(r"levels_completed=(\d+), actions=", line)
-            if m:
-                levels += int(m.group(1))
-                done += 1
-                progress(run_id, done, total, levels)
-            m = re.search(r"Aggregate scorecard score: ([\d.]+)", line)
-            if m:
-                score = float(m.group(1))
-        p.wait()
-        if score is None:
-            raise RunFailed("ARC-AGI-3 skoru üretilemedi:\n" + "".join(tail)[-2000:])
-        log(f"score_arc = {score}")
-        return score
+        yield
     finally:
         target.write_bytes(backup)
+
+
+def run_arc(run_id) -> float:
+    """Play the real local game engine with the student's agent already overlaid."""
+    # The framework's LLM agents build an OpenAI client with no explicit base_url,
+    # so the SDK's own OPENAI_* env vars are what point them at our provider.
+    env = {**os.environ, **LLM_ENV, **OPENAI_ENV}
+    p = subprocess.Popen(arc_cmd(ARC_GAMES, ARC_MAX_STEPS), cwd=ARC_STARTER, env=env,
+                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    score = None
+    done = total = 0
+    levels = 0
+    tail = []
+    deadline = time.time() + ARC_TIMEOUT
+    for line in p.stdout:
+        tail = (tail + [line])[-80:]
+        if time.time() > deadline:
+            p.kill()
+            raise RunFailed("ARC-AGI-3 zaman aşımına uğradı.")
+        m = re.match(r"=== \[(\d+)/(\d+)\] (\S+) ===", line)
+        if m:
+            done, total = int(m.group(1)) - 1, int(m.group(2))
+            progress(run_id, done, total, levels, m.group(3))
+            log(f"ARC game {m.group(1)}/{total}: {m.group(3)}")
+        m = re.search(r"levels_completed=(\d+), actions=", line)
+        if m:
+            levels += int(m.group(1))
+            done += 1
+            progress(run_id, done, total, levels)
+        m = re.search(r"Aggregate scorecard score: ([\d.]+)", line)
+        if m:
+            score = float(m.group(1))
+    p.wait()
+    if score is None:
+        raise RunFailed("ARC-AGI-3 skoru üretilemedi:\n" + "".join(tail)[-2000:])
+    log(f"score_arc = {score}")
+    return score
+
+
+def trial_verdict(res: dict) -> tuple[str, str | None]:
+    """Classify one Harbor trial result.json: resolved / unresolved / crashed.
+
+    A crash means the trial raised (agent bug, LLM unreachable) and scored nothing —
+    distinct from an honest 0 reward, which means the agent ran and failed the task.
+    """
+    ei = res.get("exception_info")
+    if ei:
+        return "crashed", f"{ei.get('exception_type')}: {ei.get('exception_message')}"
+    rewards = (res.get("verifier_result") or {}).get("rewards") or {}
+    val = rewards.get("reward")
+    if val is None and rewards:
+        val = next(iter(rewards.values()))
+    try:
+        return ("resolved" if val is not None and float(val) >= 1 else "unresolved"), None
+    except (ValueError, TypeError):
+        return "unresolved", None
+
+
+def _selftest():
+    assert trial_verdict({"verifier_result": {"rewards": {"reward": 1.0}}}) == ("resolved", None)
+    assert trial_verdict({"verifier_result": {"rewards": {"reward": 0.0}}})[0] == "unresolved"
+    assert trial_verdict({"verifier_result": {"rewards": {}}})[0] == "unresolved"
+    assert trial_verdict({})[0] == "unresolved"
+    v, msg = trial_verdict({"exception_info": {"exception_type": "HTTPError",
+                                              "exception_message": "403"}})
+    assert v == "crashed" and "403" in msg
+    # a partial-credit board would score 0.5 as unresolved — pass/fail is the rule
+    assert trial_verdict({"verifier_result": {"rewards": {"reward": 0.5}}})[0] == "unresolved"
+    print("selftest ok")
 
 
 def run_frontier(run_id, repo: Path, work: Path) -> float:
     jobs_dir = work / "jobs"
     cmd = ["harbor", "run", "-p", str(FRONTIER_DATASET),
-           "-a", "agent.harbor_agent:HarborAgent",
+           "-a", "agent.harbor_agent:HarborAgent", "-m", FRONTIER_MODEL,
            "-n", str(FRONTIER_CONCURRENCY), "-o", str(jobs_dir)]
     for t in GPU_TASKS:
         cmd += ["-x", t]
@@ -237,18 +318,23 @@ def run_frontier(run_id, repo: Path, work: Path) -> float:
 
     total = FRONTIER_N_TASKS or (len([d for d in FRONTIER_DATASET.iterdir() if d.is_dir()])
                                  - len(GPU_TASKS))
-    env = {**os.environ, **LLM_ENV, "PYTHONPATH": str(repo)}
+    env = {**os.environ, **LLM_ENV, **LITELLM_ENV, "PYTHONPATH": str(repo)}
     logf = open(work / "harbor.log", "w")
     p = subprocess.Popen(cmd, cwd=repo, env=env, stdout=logf, stderr=subprocess.STDOUT)
 
     def scan():
-        """(finished trials, resolved count, one still-running task name)"""
+        """(finished trials, resolved count, still-running task name, crash message)
+
+        A trial that raised (agent bug, LLM unreachable) records exception_info and
+        scores nothing. If *every* trial crashes the agent is broken, not bad — the
+        run fails with that message instead of posting a meaningless 0%.
+        """
         job = next((d for d in jobs_dir.iterdir() if d.is_dir()), None) \
             if jobs_dir.exists() else None
         if not job:
-            return 0, 0, None
-        finished = resolved = 0
-        running = None
+            return 0, 0, None, None
+        finished = resolved = crashed = 0
+        running = crash = None
         for trial in job.iterdir():
             if not trial.is_dir():
                 continue
@@ -258,44 +344,48 @@ def run_frontier(run_id, repo: Path, work: Path) -> float:
                 continue
             finished += 1
             try:
-                rewards = (json.loads(rj.read_text())
-                           .get("verifier_result") or {}).get("rewards") or {}
-                val = rewards.get("reward")
-                if val is None and rewards:
-                    val = next(iter(rewards.values()))
-                if val and float(val) >= 1:
-                    resolved += 1
-            except (json.JSONDecodeError, ValueError, TypeError):
-                pass
-        return finished, resolved, running
+                res = json.loads(rj.read_text())
+            except json.JSONDecodeError:
+                continue
+            verdict, msg = trial_verdict(res)
+            if verdict == "crashed":
+                crashed += 1
+                crash = msg
+            elif verdict == "resolved":
+                resolved += 1
+        return finished, resolved, running, (crash if crashed == finished else None)
 
     deadline = time.time() + FRONTIER_TIMEOUT
     while p.poll() is None:
         if time.time() > deadline:
             p.kill()
             raise RunFailed("Frontier-bench zaman aşımına uğradı.")
-        finished, resolved, running = scan()
+        finished, resolved, running, _ = scan()
         pct = round(100.0 * resolved / total, 1)
         progress(run_id, finished, total, pct, running)
         time.sleep(10)
     logf.close()
 
-    finished, resolved, _ = scan()
+    finished, resolved, _, crash = scan()
     if finished == 0:
         tail = (work / "harbor.log").read_text()[-2000:]
         raise RunFailed(f"Frontier-bench hiçbir görevi çalıştıramadı:\n{tail}")
+    if crash:
+        raise RunFailed(
+            "Frontier-bench görevlerinin tamamı ajan hatasıyla sonlandı — "
+            f"agent/harbor_agent.py çalışmıyor:\n{crash[:1500]}")
     score = round(100.0 * resolved / total, 1)
     log(f"score_frontier = {score} ({resolved}/{total} resolved, {finished} finished)")
     return score
 
 
-def run_ram(run_id) -> tuple[float, float]:
+def run_ram(run_id, repo: Path, venv_py: Path) -> tuple[float, float]:
     progress(run_id, 0, 2, None, "1 oturum")
-    ram1 = run_arc_sessions(1)
+    ram1 = ram_sessions(repo, venv_py, 1)
     log(f"ram 1 session peak = {ram1} MB")
-    progress(run_id, 1, 2, None, "10 oturum")
-    ram10 = run_arc_sessions(10)
-    log(f"ram 10 sessions peak = {ram10} MB")
+    progress(run_id, 1, 2, ram1, f"{RAM_CONCURRENT} oturum")
+    ram10 = ram_sessions(repo, venv_py, RAM_CONCURRENT)
+    log(f"ram {RAM_CONCURRENT} sessions peak = {ram10} MB")
     return ram1, ram10
 
 
@@ -305,16 +395,17 @@ def process(run_id: str, repo_url: str):
     try:
         repo, sha = clone(repo_url, work)
         stage(run_id, "building", sha)
-        build(repo)
+        venv_py = build(repo, work)
 
         stage(run_id, "arc_agi_3")
-        score_arc = run_arc(run_id, repo)
+        with overlaid_agent(repo):
+            score_arc = run_arc(run_id)
 
         stage(run_id, "frontier_bench")
         score_frontier = run_frontier(run_id, repo, work)
 
         stage(run_id, "ram_bench")
-        ram1, ram10 = run_ram(run_id)
+        ram1, ram10 = run_ram(run_id, repo, venv_py)
 
         status, _ = api("/api/worker/harness/result", {
             "id": run_id, "status": "done",
@@ -357,4 +448,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    if "--selftest" in sys.argv:
+        _selftest()
+    else:
+        main()
