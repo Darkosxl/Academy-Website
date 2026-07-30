@@ -270,6 +270,9 @@ pub struct HarnessTeamMemberRow {
     pub team_id: Uuid,
     pub user_id: Uuid,
     pub display_name: String,
+    /// Onboarded and not hidden: eligible for the public leaderboard line. The
+    /// own-team panel ignores this and shows the whole roster.
+    pub public: bool,
 }
 
 #[derive(FromRow)]

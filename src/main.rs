@@ -622,12 +622,14 @@ async fn agentic_harness(State(app): State<App>, headers: HeaderMap, Query(q): Q
     };
     // Kid names shown next to each team, real names per the leaderboard convention.
     // One query for all teams; html filters per row in memory, same as board() does
-    // with interests. The nickname gate = finished onboarding, as everywhere else.
+    // with interests. `public` = onboarded and not hidden — the leaderboard shows only
+    // those, but your own team panel shows the full roster (admins/interns included,
+    // it's your roster, not the published standings).
     let members: Vec<HarnessTeamMemberRow> = sqlx::query_as(
-        "select tm.team_id, tm.user_id, u.display_name
+        "select tm.team_id, tm.user_id, u.display_name,
+                (u.nickname is not null and not u.hidden_from_leaderboard) as public
          from harness_team_members_exposure_academy tm
          join users_exposure_academy u on u.id = tm.user_id
-         where u.nickname is not null and not u.hidden_from_leaderboard
          order by tm.created_at")
         .fetch_all(&app.pool).await.unwrap();
     let active_run: Option<HarnessRun> = match &team {
@@ -1040,7 +1042,8 @@ async fn admin_page(State(app): State<App>, headers: HeaderMap) -> Result<Html<S
         teams: sqlx::query_as("select id, name from harness_teams_exposure_academy order by lower(name)")
             .fetch_all(&app.pool).await.unwrap(),
         members: sqlx::query_as(
-            "select tm.team_id, tm.user_id, u.display_name
+            "select tm.team_id, tm.user_id, u.display_name,
+                    (u.nickname is not null and not u.hidden_from_leaderboard) as public
              from harness_team_members_exposure_academy tm
              join users_exposure_academy u on u.id = tm.user_id
              order by lower(u.display_name)")

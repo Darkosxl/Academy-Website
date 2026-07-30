@@ -158,7 +158,7 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/style.css?v=27">
+<link rel="stylesheet" href="/static/style.css?v=28">
 <script>if('scrollRestoration'in history)history.scrollRestoration='manual';</script>
 </head>
 <body class="{body_class}">
@@ -433,9 +433,10 @@ pub fn agentic_harness_main(
     user: &User, bench: &str, team: Option<&HarnessTeam>, members: &[HarnessTeamMemberRow],
     active_run: Option<&HarnessRun>, rows: &[HarnessLeaderRow], ram_rows: &[HarnessRamRow],
 ) -> String {
-    // kid names next to the team name, real names per the leaderboard convention
+    // kid names next to the team name, real names per the leaderboard convention;
+    // only public members (onboarded, not hidden) reach the published line
     let kid_names = |team_id: uuid::Uuid| -> String {
-        let names: Vec<String> = members.iter().filter(|m| m.team_id == team_id)
+        let names: Vec<String> = members.iter().filter(|m| m.team_id == team_id && m.public)
             .map(|m| esc(&m.display_name)).collect();
         if names.is_empty() { String::new() } else { format!("({})", names.join(", ")) }
     };
@@ -580,19 +581,21 @@ pub fn agentic_harness_instructions(user: &User) -> String {
   <p>Reponuz aşağıdaki yapıyı takip etmelidir. Onu kopyalayıp otomatik olarak çalıştırıyoruz;
   kurallara uymayan bir gönderim puanlanmadan başarısız olur.</p>
   <pre class="plan-pre" lang="en">takim-repo/
-├── agent/
-│   ├── my_agent.py
-│   ├── planner.py
-│   └── memory.py
-├── main.py
-└── requirements.txt</pre>
-  <p>Giriş noktası, reponun kökündeki <code>main.py</code> dosyası olmalıdır. Ajanınızı oluşturur ve
-  <code>run()</code> metodunu çağırır. Ajan sınıfınızı <code>agent/my_agent.py</code> içinde,
-  <span lang="en">ARC-AGI-3 SDK</span> kurallarına uygun olarak yazın.</p>
+├── agent/            # ajan kodunuz — iç yapısı size kalmış
+├── main.py           # giriş noktası
+└── requirements.txt  # bağımlılıklar</pre>
+  <p><code>agent/</code> klasörünün içi size kalmış — kodunuzu istediğiniz gibi düzenleyin, bir dosya
+  veya on dosya. Bizim zorunlu tuttuklarımız yalnızca reponun kökündeki <code>main.py</code> giriş
+  noktası ve <code>requirements.txt</code> dosyasıdır. <code>main.py</code> ajanınızı oluşturur ve
+  <code>run()</code> metodunu çağırır:</p>
   <pre class="plan-pre" lang="en">from agent.my_agent import MyAgent
 
 agent = MyAgent()
 agent.run()</pre>
+  <p>Bir istisna: <span lang="en">ARC-AGI-3 SDK</span>, ajan sınıfınızın kendi kurallarına uygun
+  olarak belirli bir konumda (<code>agent/my_agent.py</code>) olmasını bekler. Bu gereksinim bizden
+  değil, SDK'dan gelir — gerekli sınıf yapısı için
+  <a href="https://docs.arcprize.org/arc-prize-2026" target="_blank" rel="noopener" lang="en">SDK belgelerine</a> bakın.</p>
 </section>
 <section class="panel">
   <h2>Kurallar</h2>
