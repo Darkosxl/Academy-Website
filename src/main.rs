@@ -66,6 +66,8 @@ async fn main() {
         .route("/logout", post(logout))
         .route("/profile", get(profile_page).post(profile_post))
         .route("/app", get(home))
+        .route("/schedule", get(schedule))
+        .route("/schedule/image/{track}", get(schedule_image))
         .route("/videos", get(video_grid))
         .route("/agentic-harness", get(agentic_harness))
         .route("/ai-monopoly", get(ai_monopoly))
@@ -88,6 +90,10 @@ async fn main() {
         .route("/admin/task/level", post(admin_task_level))
         .route("/admin/task/move", post(admin_task_move))
         .route("/admin/task/delete", post(admin_task_delete))
+        // a screenshot is far past axum's 2 MB default, so this route raises its own limit
+        .route("/admin/schedule", post(admin_schedule)
+            .layer(DefaultBodyLimit::max(html::SCHEDULE_IMAGE_MAX_MB * 1024 * 1024)))
+        .route("/admin/schedule/delete", post(admin_schedule_delete))
         .route("/admin/user", post(admin_user))
         .route("/admin/user/delete", post(admin_user_delete))
         .route("/admin/user/hidden", post(admin_user_hidden))
@@ -581,6 +587,103 @@ async fn ai_monopoly(State(app): State<App>, headers: HeaderMap) -> Result<Html<
 #[derive(Deserialize)]
 struct LangQ { lang: Option<String> }
 
+// ---- haftalık program ----
+
+#[derive(Deserialize)]
+struct TrackQ { track: Option<String> }
+
+/// Metadata for a track's uploaded schedule, without the bytes — those only ever leave
+/// via `schedule_image`, so the page render never pulls a few MB out of the database.
+async fn schedule_meta(app: &App, track: &str) -> Option<ScheduleImage> {
+    sqlx::query_as::<_, ScheduleImage>(
+        "select track, content_type, uploaded_at, length(image)::bigint as bytes
+         from schedule_image_exposure_academy where track = $1")
+        .bind(track).fetch_optional(&app.pool).await.ok().flatten()
+}
+
+async fn schedule(State(app): State<App>, headers: HeaderMap, Query(q): Query<TrackQ>) -> Result<Html<String>, Response> {
+    let user = require_onboarded(current_user(&app, &headers).await)?;
+    let track = valid_schedule_track(q.track.as_deref());
+    let img = schedule_meta(&app, track).await;
+    Ok(Html(html::schedule(&user, track, img.as_ref())))
+}
+
+/// The uploaded screenshot itself. Members-only (it sits inside the authed routes), so
+/// the schedule isn't a public URL the way /preview/{id} is. Cached hard but privately:
+/// the src carries `?v=<upload time>`, so a replacement is a different URL and no stale
+/// image can survive it.
+async fn schedule_image(State(app): State<App>, headers: HeaderMap, Path(track): Path<String>) -> Result<Response, Response> {
+    require_onboarded(current_user(&app, &headers).await)?;
+    let track = valid_schedule_track(Some(&track));
+    let row: Option<(Vec<u8>, String)> = sqlx::query_as(
+        "select image, content_type from schedule_image_exposure_academy where track = $1")
+        .bind(track).fetch_optional(&app.pool).await.ok().flatten();
+    let Some((bytes, ct)) = row else { return Err(StatusCode::NOT_FOUND.into_response()) };
+    Ok((
+        [(header::CONTENT_TYPE, ct),
+         (header::CACHE_CONTROL, "private, max-age=86400".to_string()),
+         // the type is one we sniffed on upload; forbid the browser guessing another
+         (header::X_CONTENT_TYPE_OPTIONS, "nosniff".to_string())],
+        bytes,
+    ).into_response())
+}
+
+/// Content type from the file's own magic bytes rather than whatever the browser
+/// claimed — these bytes get served back out under that type, so it has to be one we
+/// actually recognised. `None` = not an image we accept.
+fn sniff_image(b: &[u8]) -> Option<&'static str> {
+    if b.starts_with(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]) { return Some("image/png") }
+    if b.starts_with(&[0xFF, 0xD8, 0xFF]) { return Some("image/jpeg") }
+    if b.starts_with(b"GIF87a") || b.starts_with(b"GIF89a") { return Some("image/gif") }
+    if b.len() >= 12 && b.starts_with(b"RIFF") && &b[8..12] == b"WEBP" { return Some("image/webp") }
+    None
+}
+
+async fn admin_schedule(State(app): State<App>, headers: HeaderMap, mut mp: Multipart) -> Result<Redirect, Response> {
+    require_admin(current_user(&app, &headers).await)?;
+    let bad = |msg: &str| (StatusCode::BAD_REQUEST, msg.to_string()).into_response();
+
+    let mut track: Option<&'static str> = None;
+    let mut image: Option<Vec<u8>> = None;
+    while let Some(field) = mp.next_field().await.map_err(|_| bad("Form okunamadı."))? {
+        let name = field.name().unwrap_or("").to_string();
+        match name.as_str() {
+            "track" => track = field.text().await.ok().map(|t| valid_schedule_track(Some(&t))),
+            "image" => {
+                let bytes = field.bytes().await.map_err(|_| bad("Görsel okunamadı — dosya çok büyük olabilir."))?;
+                if !bytes.is_empty() { image = Some(bytes.to_vec()); }
+            }
+            _ => {}
+        }
+    }
+
+    let Some(track) = track else { return Err(bad("Grup seçilmedi.")) };
+    let Some(image) = image else { return Err(bad("Bir görsel seç.")) };
+    let Some(content_type) = sniff_image(&image) else {
+        return Err(bad("Dosya PNG, JPEG, WebP veya GIF olmalı."));
+    };
+
+    sqlx::query(
+        "insert into schedule_image_exposure_academy (track, image, content_type, uploaded_at)
+         values ($1,$2,$3, now())
+         on conflict (track) do update set
+           image = $2, content_type = $3, uploaded_at = now()")
+        .bind(track).bind(&image).bind(content_type)
+        .execute(&app.pool).await.map_err(|_| bad("Kaydedilemedi."))?;
+    Ok(Redirect::to("/admin"))
+}
+
+#[derive(Deserialize)]
+struct ScheduleDeleteForm { track: String }
+
+async fn admin_schedule_delete(State(app): State<App>, headers: HeaderMap, Form(f): Form<ScheduleDeleteForm>) -> Result<Redirect, Response> {
+    require_admin(current_user(&app, &headers).await)?;
+    sqlx::query("delete from schedule_image_exposure_academy where track = $1")
+        .bind(valid_schedule_track(Some(&f.track)))
+        .execute(&app.pool).await.map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
+    Ok(Redirect::to("/admin"))
+}
+
 async fn demos(State(app): State<App>, headers: HeaderMap, Query(q): Query<LangQ>) -> Result<Html<String>, Response> {
     let user = require_onboarded(current_user(&app, &headers).await)?;
     let lang = if q.lang.as_deref() == Some("en") { "en" } else { "tr" };
@@ -889,7 +992,11 @@ async fn admin_page(State(app): State<App>, headers: HeaderMap) -> Result<Html<S
          from users_exposure_academy order by is_admin desc, lower(coalesce(nickname, display_name))")
         .fetch_all(&app.pool).await.unwrap();
     let invite_code = invite_code(&app).await;
-    Ok(Html(html::admin(&user, &stats, &subs, &videos, &tasks, &members, &invite_code, &app.base_url)))
+    let schedule_images = sqlx::query_as::<_, ScheduleImage>(
+        "select track, content_type, uploaded_at, length(image)::bigint as bytes
+         from schedule_image_exposure_academy")
+        .fetch_all(&app.pool).await.unwrap_or_default();
+    Ok(Html(html::admin(&user, &stats, &subs, &videos, &tasks, &members, &invite_code, &app.base_url, &schedule_images)))
 }
 
 fn parse_youtube_id(input: &str) -> String {

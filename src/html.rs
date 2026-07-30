@@ -69,6 +69,7 @@ const P_MENU: &str = "M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5";
 const P_UPLOAD: &str = "M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5";
 const P_CLOSE: &str = "M6 18 18 6M6 6l12 12";
 const P_LOCK: &str = "M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z";
+const P_CAL: &str = "M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5";
 
 fn nav_link(href: &str, page: &str, key: &str, icon: &str, label: &str) -> String {
     let active = if page == key { "active" } else { "" };
@@ -100,6 +101,7 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
   </div>
   <nav class="sb-nav">
     {home}
+    {schedule}
     {videos}
     {board}
     {leaderboard}
@@ -120,6 +122,7 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
 {content}
 </div></main>"##,
                 home = nav_link("/app", active, "home", &ico(P_HOME), "Ana Sayfa"),
+                schedule = nav_link("/schedule", active, "schedule", &ico(P_CAL), "Haftalık Program"),
                 board = nav_link("/board", active, "board", &ico(P_BOARD), "Görev Panosu"),
                 leaderboard = nav_link("/leaderboard", active, "leaderboard", &ico(P_TROPHY), "Puan Tablosu"),
                 // Haftalar (Agentic Harness / AI Monopoly) geçici olarak gizli — rotalar duruyor,
@@ -157,7 +160,7 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/style.css?v=26">
+<link rel="stylesheet" href="/static/style.css?v=28">
 <script>if('scrollRestoration'in history)history.scrollRestoration='manual';</script>
 </head>
 <body class="{body_class}">
@@ -442,6 +445,46 @@ pub fn home(user: &User, videos_done: i64, videos_total: i64, open_tasks: i64, p
 /// Kartta tam ad yerine yalnızca ilk isim — selamlama kısa kalsın.
 fn u_first_name(user: &User) -> &str {
     user.label().split_whitespace().next().unwrap_or("")
+}
+
+/// Haftalık Program. The schedule itself is kept in a spreadsheet outside the portal;
+/// what students see is the image of it the admin uploads on /admin, one per track.
+/// The portal stores and shows that image and nothing else — it never parses it, so
+/// the layout of the schedule is entirely whatever the screenshot looks like.
+///
+/// `img` is the metadata for the selected track, `None` when nothing is uploaded yet.
+pub fn schedule(user: &User, track: &str, img: Option<&ScheduleImage>) -> String {
+    let chips: String = SCHEDULE_TRACKS.iter().map(|(k, label)| format!(
+        r#"<a class="chip {active}" href="/schedule?track={k}" lang="en">{label}</a>"#,
+        active = if *k == track { "active" } else { "" },
+    )).collect();
+
+    let body = match img {
+        // Click-through to the raw image: a screenshot of a full week is wider than the
+        // column it renders in, and this is the "zoom in" students will reach for.
+        Some(i) => format!(
+            r##"<a class="sheet-shot" href="/schedule/image/{track}?v={v}" target="_blank" rel="noopener"
+   title="Tam boyutta aç">
+  <img src="/schedule/image/{track}?v={v}" alt="{label} haftalık program">
+</a>
+<p class="fieldnote sheet-note">Büyütmek için görsele tıkla · Son güncelleme {when}</p>"##,
+            v = i.version(),
+            label = esc(schedule_track_name(track)),
+            when = i.uploaded_at.format("%d.%m.%Y %H:%M"),
+        ),
+        None => format!(
+            r#"<p class="sheet-empty">{label} grubunun programı henüz yüklenmedi.</p>"#,
+            label = esc(schedule_track_name(track)),
+        ),
+    };
+
+    let content = format!(
+        r##"<h1 class="pagetitle">Haftalık Program</h1>
+<p class="muted">Bu haftanın akışı.</p>
+<div class="chips">{chips}</div>
+{body}"##
+    );
+    layout("Haftalık Program", Some(user), "schedule", &content)
 }
 
 pub fn video_grid(user: &User, videos: &[VideoWithProgress], level: Option<&str>) -> String {
@@ -731,8 +774,67 @@ pub fn board_locked(user: &User, github: Option<&str>, linkedin: Option<&str>, e
     layout("Görev Panosu", Some(user), "board", &content)
 }
 
-pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[Video], tasks: &[Task], members: &[MemberRow], invite_code: &str, base_url: &str) -> String {
+/// Upload ceiling for a schedule screenshot, in MB. Stated on the form and enforced
+/// by the route's body limit in main.rs, which reads this same number.
+pub const SCHEDULE_IMAGE_MAX_MB: usize = 8;
+
+/// The Haftalık Program panel: one upload slot per track. Uploading replaces whatever
+/// that track had — there is no history, because the only thing students should ever
+/// see is the current week.
+fn admin_schedule_panel(images: &[ScheduleImage]) -> String {
+    let slots: String = SCHEDULE_TRACKS.iter().map(|(key, label)| {
+        let current = images.iter().find(|i| i.track == *key);
+        let state = match current {
+            Some(i) => format!(
+                r##"<a class="sched-thumb" href="/schedule/image/{key}?v={v}" target="_blank" rel="noopener">
+    <img src="/schedule/image/{key}?v={v}" alt=""></a>
+  <p class="fieldnote">{when} · {kb} KB · {ct}</p>
+  <form method="post" action="/admin/schedule/delete" onsubmit="return confirm('{label} programı kaldırılsın mı?')">
+    <input type="hidden" name="track" value="{key}">
+    <button class="btn-outline">Kaldır</button>
+  </form>"##,
+                v = i.version(),
+                when = i.uploaded_at.format("%d.%m.%Y %H:%M"),
+                kb = i.bytes / 1024,
+                ct = esc(&i.content_type),
+            ),
+            None => r#"<p class="fieldnote">Henüz yüklenmedi.</p>"#.to_string(),
+        };
+        format!(
+            r##"<div class="sched-slot">
+  <h3>{label}</h3>
+  {state}
+  <form method="post" action="/admin/schedule" enctype="multipart/form-data">
+    <input type="hidden" name="track" value="{key}">
+    <label class="dropzone">
+      <input name="image" type="file" accept="image/png,image/jpeg,image/webp,image/gif" required
+        onchange="var z=this.closest('.dropzone');z.classList.toggle('has-file',this.files.length>0);z.querySelector('b').textContent=this.files.length?this.files[0].name:'Ekran görüntüsünü sürükle veya seç'">
+      {up}
+      <b>Ekran görüntüsünü sürükle veya seç</b>
+      <span>PNG, JPEG, WebP veya GIF · en fazla {max} MB</span>
+    </label>
+    <button class="btn-dark">{verb}</button>
+  </form>
+</div>"##,
+            up = ico(P_UPLOAD),
+            max = SCHEDULE_IMAGE_MAX_MB,
+            verb = if current.is_some() { "Değiştir" } else { "Yükle" },
+        )
+    }).collect();
+
+    format!(
+        r##"<section class="panel wide">
+  <h2>Haftalık program</h2>
+  <p class="muted">Programın ekran görüntüsünü yükle — öğrenciler <b>Haftalık Program</b>
+  sayfasında bunu görür. Yeni bir görsel yüklemek eskisinin yerine geçer.</p>
+  <div class="sched-slots">{slots}</div>
+</section>"##
+    )
+}
+
+pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[Video], tasks: &[Task], members: &[MemberRow], invite_code: &str, base_url: &str, schedule_images: &[ScheduleImage]) -> String {
     let invite_link = format!("{}/join/{}", base_url.trim_end_matches('/'), invite_code);
+    let schedule_panel = admin_schedule_panel(schedule_images);
     let level_opts = level_options("");
     let stat_rows: String = stats.iter().map(|s| {
         let pct = if s.duration > 0.0 { (s.max_position / s.duration * 100.0).min(100.0) } else { 0.0 };
@@ -887,6 +989,8 @@ pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[
         r##"<div id="admin-root">
 <h1 class="pagetitle">Yönetici paneli</h1>
 
+{schedule_panel}
+
 <div class="admingrid stack">
 <section class="panel">
   <h2>Video ekle</h2>
@@ -952,5 +1056,64 @@ pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[
   <table><tr><th>Öğrenci</th><th>E-posta</th><th>Görev</th><th>Repo</th><th>Plan</th><th>Gönderim</th><th>Puan</th><th></th></tr>{sub_rows}</table>
 </section>
 </div>
-<script src="/static/admin.js?v=5" defer></script>"##))
+<script src="/static/admin.js?v=6" defer></script>"##))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn student() -> User {
+        User { id: uuid::Uuid::new_v4(), display_name: "Ada".into(), nickname: Some("ada".into()), is_admin: false }
+    }
+
+    fn image(track: &str) -> ScheduleImage {
+        ScheduleImage {
+            track: track.into(), content_type: "image/png".into(),
+            uploaded_at: chrono::DateTime::from_timestamp(1_780_000_000, 0).unwrap(),
+            bytes: 512_000,
+        }
+    }
+
+    /// An unknown, blank or differently-cased ?track= still renders a page.
+    #[test]
+    fn track_is_resolved_leniently() {
+        assert_eq!(valid_schedule_track(Some("advanced")), "advanced");
+        assert_eq!(valid_schedule_track(Some("Advanced")), "advanced");
+        assert_eq!(valid_schedule_track(Some(" BEGINNER ")), "beginner");
+        for bad in [None, Some(""), Some("PRESEED"), Some("../../etc/passwd")] {
+            assert_eq!(valid_schedule_track(bad), "beginner", "{bad:?}");
+        }
+    }
+
+    /// The image URL carries the upload time, so replacing a screenshot busts the
+    /// cached one instead of leaving students on last week's.
+    #[test]
+    fn uploaded_image_is_shown_and_versioned() {
+        let img = image("advanced");
+        let html = schedule(&student(), "advanced", Some(&img));
+        assert!(html.contains(&format!(r#"src="/schedule/image/advanced?v={}""#, img.version())));
+        assert!(html.contains(r#"<a class="chip active" href="/schedule?track=advanced""#));
+        assert!(!html.contains("sheet-empty"));
+    }
+
+    /// Nothing uploaded yet is a normal state, not an error or a broken <img>.
+    #[test]
+    fn missing_image_says_so() {
+        let html = schedule(&student(), "beginner", None);
+        assert!(html.contains("henüz yüklenmedi"));
+        // the shell has its own <img> (the logo), so check for the image route itself
+        assert!(!html.contains("/schedule/image/"), "no <img> pointing at a 404");
+    }
+
+    /// Every track gets an upload slot; the one already on file also gets a Kaldır.
+    #[test]
+    fn admin_panel_has_a_slot_per_track() {
+        let panel = admin_schedule_panel(&[image("beginner")]);
+        for (key, _) in SCHEDULE_TRACKS {
+            assert!(panel.contains(&format!(r#"<input type="hidden" name="track" value="{key}">"#)), "{key}");
+        }
+        assert!(panel.contains("/admin/schedule/delete"), "beginner is on file, so it can be removed");
+        assert!(panel.contains(r#"enctype="multipart/form-data""#));
+    }
 }

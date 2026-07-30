@@ -203,6 +203,43 @@ impl LeaderRow {
     }
 }
 
+// ---- Haftalık program ----
+
+/// The two student groups that run their own schedule: (url key, what students see).
+/// The key is also the primary key of schedule_image_exposure_academy, so it is baked
+/// into a CHECK constraint — rename the right-hand side freely, never the left.
+pub const SCHEDULE_TRACKS: [(&str, &str); 2] = [("beginner", "Beginner"), ("advanced", "Advanced")];
+
+/// A track we're willing to look up, matched case-insensitively. Anything else falls
+/// back to the first, so a hand-typed `?track=` renders a page instead of an error.
+pub fn valid_schedule_track(t: Option<&str>) -> &'static str {
+    let want = t.unwrap_or_default().trim().to_ascii_lowercase();
+    SCHEDULE_TRACKS.iter().find(|(k, _)| *k == want).map(|(k, _)| *k).unwrap_or(SCHEDULE_TRACKS[0].0)
+}
+
+pub fn schedule_track_name(t: &str) -> &'static str {
+    SCHEDULE_TRACKS.iter().find(|(k, _)| *k == t).map(|(_, v)| *v).unwrap_or("?")
+}
+
+/// What's on file for one track — never the bytes, which are only ever streamed
+/// straight out of `/schedule/image/{track}`. `uploaded_at` doubles as the image's
+/// cache-busting version, so a re-upload is visible immediately despite a long
+/// max-age on the image response.
+#[derive(FromRow)]
+pub struct ScheduleImage {
+    pub track: String,
+    pub content_type: String,
+    pub uploaded_at: DateTime<Utc>,
+    pub bytes: i64,
+}
+
+impl ScheduleImage {
+    /// Cache key for the <img> src: changes exactly when a new image is uploaded.
+    pub fn version(&self) -> i64 {
+        self.uploaded_at.timestamp()
+    }
+}
+
 /// One row in the admin "Öğrenciler" list — enough to identify and remove a member.
 #[derive(FromRow)]
 pub struct MemberRow {

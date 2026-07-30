@@ -150,3 +150,14 @@ create table if not exists task_interest_exposure_academy (
   created_at timestamptz not null default now(),
   primary key (task_id, user_id)
 );
+
+-- Haftalık program: the schedule lives in a spreadsheet the team keeps outside the
+-- portal, and what students see is an image of it the admin uploads (one per track).
+-- Stored as bytes here rather than on disk so a redeploy can't lose it, same as
+-- screenshot_cache_exposure_academy. One row per track, replaced on re-upload.
+create table if not exists schedule_image_exposure_academy (
+  track text primary key check (track in ('beginner','advanced')),
+  image bytea not null,
+  content_type text not null,
+  uploaded_at timestamptz not null default now()
+);
