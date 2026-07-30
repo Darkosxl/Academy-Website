@@ -6,3 +6,6 @@ video_links.md
 
 # applicant exports — PII (names, emails, phones, essays), never commit
 academy-applicants-*.csv
+
+# harness runner benchmark caches — set up per-host, see worker/runner.py header
+worker/cache/

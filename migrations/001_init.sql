@@ -195,3 +195,6 @@ create index if not exists harness_runs_team_idx
 -- submit race can't slip past the handler's friendly pre-check.
 create unique index if not exists harness_runs_one_active_per_team
   on harness_runs_exposure_academy (team_id) where stage not in ('done','failed');
+-- live progress blob written by the runner mid-stage (JSON: done/total/score/detail),
+-- shown under the active stepper step; cleared when the run reaches a terminal state.
+alter table harness_runs_exposure_academy add column if not exists progress text;

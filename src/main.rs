@@ -105,6 +105,7 @@ async fn main() {
         .route("/api/worker/result", post(worker_result))
         .route("/api/worker/harness/pending", get(worker_harness_pending))
         .route("/api/worker/harness/stage", post(worker_harness_stage))
+        .route("/api/worker/harness/progress", post(worker_harness_progress))
         .route("/api/worker/harness/result", post(worker_harness_result))
         // rolling session refresh — applies to the routes above only; static assets
         // are mounted after the layer so they don't each cost a session write
@@ -709,13 +710,13 @@ async fn harness_submit(State(app): State<App>, headers: HeaderMap, Form(f): For
 /// session — no run id in the URL, so nothing cross-team is addressable.
 async fn harness_status(State(app): State<App>, headers: HeaderMap) -> Result<Json<serde_json::Value>, Response> {
     let user = require(current_user(&app, &headers).await)?;
-    let row: Option<(String, Option<String>)> = sqlx::query_as(
-        "select r.stage, r.commit_sha from harness_runs_exposure_academy r
+    let row: Option<(String, Option<String>, Option<String>)> = sqlx::query_as(
+        "select r.stage, r.commit_sha, r.progress from harness_runs_exposure_academy r
          join harness_team_members_exposure_academy tm on tm.team_id = r.team_id
          where tm.user_id = $1 order by r.created_at desc limit 1")
         .bind(user.id).fetch_optional(&app.pool).await.unwrap();
     Ok(Json(match row {
-        Some((stage, sha)) => serde_json::json!({"stage": stage, "commit_sha": sha}),
+        Some((stage, sha, progress)) => serde_json::json!({"stage": stage, "commit_sha": sha, "progress": progress}),
         None => serde_json::json!({"stage": null}),
     }))
 }
@@ -1627,6 +1628,28 @@ async fn worker_harness_stage(State(app): State<App>, headers: HeaderMap, Json(r
 }
 
 #[derive(Deserialize)]
+struct HarnessProgressReq { id: Uuid, progress: String }
+
+/// Repeatable mid-stage progress report — no stage transition, just the live blob
+/// the student's stepper renders ("task 12/70 · score 5.7"). Capped and only
+/// accepted while the run is still in flight; a stale report gets a 409.
+async fn worker_harness_progress(State(app): State<App>, headers: HeaderMap, Json(r): Json<HarnessProgressReq>) -> Result<StatusCode, Response> {
+    check_worker(&app, &headers)?;
+    if r.progress.len() > 2000 {
+        return Err(StatusCode::BAD_REQUEST.into_response());
+    }
+    let res = sqlx::query(
+        "update harness_runs_exposure_academy set progress = $2, updated_at = now()
+         where id = $1 and stage not in ('done','failed')")
+        .bind(r.id).bind(&r.progress)
+        .execute(&app.pool).await.unwrap();
+    if res.rows_affected() == 0 {
+        return Err(StatusCode::CONFLICT.into_response());
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Deserialize)]
 struct HarnessResultReq {
     id: Uuid,
     status: String,
@@ -1658,7 +1681,7 @@ async fn worker_harness_result(State(app): State<App>, headers: HeaderMap, Json(
     let res = sqlx::query(
         "update harness_runs_exposure_academy
          set stage = $2, score_arc = $3, score_frontier = $4, ram_1session_mb = $5,
-             ram_10session_mb = $6, error_log = $7, updated_at = now()
+             ram_10session_mb = $6, error_log = $7, progress = null, updated_at = now()
          where id = $1 and stage not in ('done','failed')")
         .bind(r.id).bind(&r.status).bind(arc).bind(frontier).bind(ram1).bind(ram10).bind(&log)
         .execute(&app.pool).await.unwrap();

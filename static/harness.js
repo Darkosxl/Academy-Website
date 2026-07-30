@@ -5,8 +5,22 @@
   var stepper = document.getElementById('harness-stepper');
   if (!stepper || stepper.dataset.active !== 'true') return;
   var STAGES = ['queued', 'cloning', 'building', 'arc_agi_3', 'frontier_bench', 'ram_bench'];
+  var progressLine = document.getElementById('harness-progress');
 
-  function apply(stage) {
+  function renderProgress(raw) {
+    if (!progressLine) return;
+    if (!raw) { progressLine.textContent = ''; return; }
+    var p;
+    try { p = JSON.parse(raw); } catch (e) { progressLine.textContent = raw; return; }
+    var parts = [];
+    if (p.done != null && p.total != null) parts.push(p.done + '/' + p.total);
+    if (p.score != null) parts.push('skor ' + p.score);
+    if (p.detail) parts.push(p.detail);
+    progressLine.textContent = parts.join(' · ');
+  }
+
+  function apply(s) {
+    var stage = s.stage;
     if (stage === null || stage === 'done' || stage === 'failed') {
       location.reload();
       return;
@@ -17,12 +31,13 @@
       li.classList.toggle('done', i < cur);
       li.classList.toggle('active', i === cur);
     });
+    renderProgress(s.progress);
   }
 
   function tick() {
     fetch('/agentic-harness/status')
       .then(function (r) { return r.json(); })
-      .then(function (s) { apply(s.stage); })
+      .then(apply)
       .catch(function () {}); // transient network error — next tick retries
   }
 

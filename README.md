@@ -96,8 +96,11 @@ network egress except package registries, memory/time limits, throwaway filesyst
 
 ### Agentic Harness runner API
 
-Server side is done; the runner daemon is not built yet. Same auth (`X-Worker-Token`),
-same pull model. One team submission = one run = scores for all three boards
+Server side is done; the real runner lives at `worker/runner.py` (see its header for
+one-time host setup: ARC starter checkout + `make setup` and the frontier-bench dataset
+under `worker/cache/`, `uv tool install harbor`, Docker). `SMOKE_MODE=1` caps the run
+to 2 frontier tasks and 2 short ARC games for pipeline checks; `--once` processes a
+single run and exits. Same auth (`X-Worker-Token`), same pull model. One team submission = one run = scores for all three boards
 (ARC-AGI-3, Frontier-bench, RAM-bench). Stages are forward-only; every update is
 guarded on the expected current stage — on a `409` drop the run and move on.
 
@@ -112,6 +115,10 @@ guarded on the expected current stage — on a `409` drop the run and move on.
   ram_10session_mb, error_log}`. `done` requires all four scores (RAM values are PSS MB
   measured during active sessions — 1 and 10 concurrent; lower is better). `failed`
   stores only `error_log` (shown to the team in the history tab, so keep it readable).
+- `POST /api/worker/harness/progress` — `{id, progress}` repeatable mid-stage report;
+  `progress` is a JSON string `{"done", "total", "score", "detail"}` rendered live
+  under the student's stepper. Cleared automatically on the terminal result.
+  `204` ok, `400` too long (>2000 bytes), `409` run already terminal.
 
 The student page polls `/agentic-harness/status` every 5s and moves a stepper through
 the stages, so report each transition as it happens rather than batching at the end.

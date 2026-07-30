@@ -422,7 +422,8 @@ fn harness_stepper(run: &HarnessRun) -> String {
     format!(
         r##"<div class="substatus st-reviewing">Değerlendirme devam ediyor</div>
 <p class="fieldnote harness-repo">{repo}{sha}</p>
-<ol class="stepper" id="harness-stepper" data-active="true">{steps}</ol>"##,
+<ol class="stepper" id="harness-stepper" data-active="true">{steps}</ol>
+<p class="fieldnote" id="harness-progress"></p>"##,
         repo = esc(&run.repo_url))
 }
 
@@ -521,7 +522,7 @@ pub fn agentic_harness_main(
   Tek gönderim üç sıralamada da puanlanır.</p>
 </div>
 </div>
-<script src="/static/harness.js?v=1" defer></script>"##);
+<script src="/static/harness.js?v=2" defer></script>"##);
     harness_shell(user, "main", "Ajanınızı gönderin ve üç skor tablosunda da puan alın.", &inner)
 }
 
@@ -578,24 +579,63 @@ pub fn agentic_harness_instructions(user: &User) -> String {
 </section>
 <section class="panel">
   <h2>Repo yapısı</h2>
-  <p>Reponuz aşağıdaki yapıyı takip etmelidir. Onu kopyalayıp otomatik olarak çalıştırıyoruz;
-  kurallara uymayan bir gönderim puanlanmadan başarısız olur.</p>
+  <p>Deponuzda iki ajan bulunmalıdır: biri <span lang="en">ARC-AGI-3</span> için, diğeri
+  <span lang="en">Frontier-bench</span> için. Depoyu klonlayıp tam otomatik olarak çalıştırıyoruz;
+  yapıya uymayan bir gönderim puanlanmadan başarısız olur.</p>
   <pre class="plan-pre" lang="en">takim-repo/
-├── agent/            # ajan kodunuz — iç yapısı size kalmış
-├── main.py           # giriş noktası
-└── requirements.txt  # bağımlılıklar</pre>
-  <p><code>agent/</code> klasörünün içi size kalmış — kodunuzu istediğiniz gibi düzenleyin, bir dosya
-  veya on dosya. Bizim zorunlu tuttuklarımız yalnızca reponun kökündeki <code>main.py</code> giriş
-  noktası ve <code>requirements.txt</code> dosyasıdır. <code>main.py</code> ajanınızı oluşturur ve
-  <code>run()</code> metodunu çağırır:</p>
-  <pre class="plan-pre" lang="en">from agent.my_agent import MyAgent
+├── agent/
+│   ├── my_agent.py       # ARC-AGI-3: class MyAgent(Agent)
+│   ├── harbor_agent.py   # Frontier-bench: class HarborAgent(BaseAgent)
+│   └── ...               # geri kalanı size kalmış
+├── main.py               # duman testi giriş noktası
+└── requirements.txt      # bağımlılıklar</pre>
+  <p><code>main.py</code> yalnızca bir duman testidir: 60 saniye içinde başarıyla çıkması gerekir.
+  Deponuzun içe aktarılabileceğini kanıtlar.</p>
+</section>
+<section class="panel">
+  <h2 lang="en">agent/my_agent.py — ARC-AGI-3</h2>
+  <p>Bu dosya <span lang="en">ARC-AGI-3</span> oyun motorunun içinde çalışır. Sınıfınızın adı
+  <code>MyAgent</code> olmalıdır, her adımda bir eylem seçer ve ne zaman biteceğine karar verir.
+  <code>requirements.txt</code> dosyasındaki bağımlılıklar bu benchmark çalıştırılmadan önce yüklenir.</p>
+  <pre class="plan-pre" lang="en">from arcengine import FrameData, GameAction, GameState
+from agents.agent import Agent
 
-agent = MyAgent()
-agent.run()</pre>
-  <p>Bir istisna: <span lang="en">ARC-AGI-3 SDK</span>, ajan sınıfınızın kendi kurallarına uygun
-  olarak belirli bir konumda (<code>agent/my_agent.py</code>) olmasını bekler. Bu gereksinim bizden
-  değil, SDK'dan gelir — gerekli sınıf yapısı için
-  <a href="https://docs.arcprize.org/arc-prize-2026" target="_blank" rel="noopener" lang="en">SDK belgelerine</a> bakın.</p>
+class MyAgent(Agent):
+    MAX_ACTIONS = 200
+
+    def is_done(self, frames, latest_frame) -> bool:
+        return latest_frame.state is GameState.WIN
+
+    def choose_action(self, frames, latest_frame) -> GameAction:
+        ...  # sizin stratejiniz</pre>
+</section>
+<section class="panel">
+  <h2 lang="en">agent/harbor_agent.py — Frontier-bench</h2>
+  <p>Bu dosya <span lang="en">Frontier-bench (Harbor)</span> ortamının içinde çalışır. Her görevi,
+  yalıtılmış bir konteyner içinde kabuk komutları çalıştırarak çözer. Önemli: bu dosya yalnızca
+  Python standart kütüphanesini kullanabilir — <code>requirements.txt</code> onun için yüklenmez.
+  LLM'yi <code>urllib</code> ile çağırın ve bir <code lang="en">User-Agent</code> başlığı
+  ekleyin — varsayılan başlık 403 ile reddedilir.</p>
+  <pre class="plan-pre" lang="en">from harbor.agents.base import BaseAgent
+
+class HarborAgent(BaseAgent):
+    @staticmethod
+    def name() -> str: return "takim-ajani"
+    def version(self) -> str: return "1.0"
+    async def setup(self, environment): pass
+    async def run(self, instruction, environment, context):
+        # environment.exec("komut") ile görevi çöz
+        ...</pre>
+</section>
+<section class="panel">
+  <h2>LLM erişimi</h2>
+  <p>Ajanınız çalışırken LLM erişimini ortam değişkenleri olarak enjekte ederiz.
+  API anahtarlarını asla deponuza koymayın.</p>
+  <table><tr><th>Değişken</th><th>Açıklama</th></tr>
+    <tr><td><code>HARNESS_LLM_BASE</code></td><td><span lang="en">OpenAI</span> uyumlu API adresi</td></tr>
+    <tr><td><code>HARNESS_LLM_KEY</code></td><td>API anahtarı</td></tr>
+    <tr><td><code>HARNESS_LLM_MODEL</code></td><td>Model adı</td></tr>
+  </table>
 </section>
 <section class="panel">
   <h2>Kurallar</h2>
@@ -603,17 +643,22 @@ agent.run()</pre>
     <li>Tüm bağımlılıklar <code>requirements.txt</code> dosyasında listelenmelidir.</li>
     <li>Ajanın başsız (<span lang="en">headless</span>) çalışması gerekir: GUI penceresi ve
     etkileşimli bilgi istemi yok.</li>
+    <li><span lang="en">Frontier-bench</span>, görev başına bir denemeyle 70 görevi (4 GPU görevi
+    hariç) çalıştırır. Puan, çözülen görevlerin yüzdesidir. Tam bir çalıştırma saatler sürebilir —
+    aşama göstergesinin altındaki ilerleme satırı mevcut görevi canlı olarak gösterir.</li>
     <li>Bellek kullanımı (<span lang="en">PSS</span>), ajanınız çalışırken bir kez 1 etkin oturumla
     ve bir kez 10 etkin oturumla ölçülür. Daha düşük olması daha iyidir.</li>
   </ul>
 </section>
 <section class="panel">
-  <h2>Yararlı bağlantılar</h2>
+  <h2>Örnek repo ve bağlantılar</h2>
+  <p>Aşağıdaki örnek depo her aşamayı geçer ve her iki ajan sözleşmesini de gösterir — ondan başlayın.</p>
   <ul class="harness-rules" lang="en">
+    <li><a href="https://github.com/Darkosxl/harness-mockup-agent" target="_blank" rel="noopener">harness-mockup-agent — reference example</a></li>
     <li><a href="https://docs.arcprize.org/arc-prize-2026" target="_blank" rel="noopener">ARC Prize 2026 SDK docs</a></li>
     <li><a href="https://arcprize.org/arc-agi/3" target="_blank" rel="noopener">ARC-AGI-3 — what it tests</a></li>
     <li><a href="https://www.frontierbench.ai/run" target="_blank" rel="noopener">Frontier-bench run instructions</a></li>
-    <li><a href="https://www.tbench.ai/" target="_blank" rel="noopener">Terminal-Bench — task conventions</a></li>
+    <li><a href="https://harborframework.com/" target="_blank" rel="noopener">Harbor — BaseAgent docs</a></li>
   </ul>
 </section>
 </div>"##;
