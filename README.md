@@ -76,6 +76,10 @@ The students are under 18, so a parent/legal guardian has to sign for them. `/do
 is where the signed forms are uploaded — one card per form in `CONSENT_DOCS` (`model.rs`),
 which is also where the titles and the deadline string live.
 
+- **The blank form is on the card**: a "Formu indir" button (the Drive share link rewritten
+  to `uc?export=download`, so it downloads rather than opening a preview) plus a
+  "tarayıcıda aç" link to the original — one of the two fails on somebody's phone every
+  time. The URL comes from `CONSENT_DOCS`, overridable per form on `/admin`.
 - **One row per FILE, not per form.** A form is usually photographed a page at a time, so
   a student uploads several files against the same `kind` and they accumulate (up to
   `CONSENT_MAX_FILES`). The file picker takes several at once.
@@ -103,8 +107,9 @@ order — so the QNBEYOND folder is exactly what gets handed to QNBEYOND — plu
 A form whose document isn't ready to hand out yet is **closed**: students see the card
 blurred behind a "yakında" overlay (no `<input>` is rendered at all) and the server refuses
 uploads and deletes for it. Paribu ships closed — `CONSENT_LOCKED_BY_DEFAULT` — because its
-form didn't exist yet. Open it with **Yüklemeye aç** on `/admin` once it does; the state is
-a row in `app_settings_exposure_academy` (`consent_lock_<kind>`), so it's a button, not a deploy.
+form didn't exist yet. Open it with **Yüklemeye aç** on `/admin` once it does, and paste its link in the field
+beside it. Both live in `app_settings_exposure_academy` (`consent_lock_<kind>`,
+`consent_url_<kind>`), so it's two form fields, not a deploy.
 
 ## Phase 3 — auto-eval pipeline (NOT BUILT YET)
 

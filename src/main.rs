@@ -104,6 +104,7 @@ async fn main() {
         .route("/admin/venue", post(admin_venue))
         .route("/admin/documents.zip", get(admin_documents_zip))
         .route("/admin/documents/lock", post(admin_documents_lock))
+        .route("/admin/documents/link", post(admin_documents_link))
         .route("/admin/user", post(admin_user))
         .route("/admin/user/delete", post(admin_user_delete))
         .route("/admin/user/hidden", post(admin_user_hidden))
@@ -790,6 +791,21 @@ async fn consent_locks(app: &App) -> Vec<(&'static str, bool)> {
     }).collect()
 }
 
+/// Where each blank form can be downloaded, in CONSENT_DOCS order: the admin's override
+/// if there is one, else the default baked into CONSENT_DOCS. Empty = no link yet, which
+/// is Paribu's state until its document exists.
+async fn consent_urls(app: &App) -> Vec<(&'static str, String)> {
+    let rows: Vec<(String, String)> = sqlx::query_as(
+        r"select key, value from app_settings_exposure_academy where key like 'consent\_url\_%'")
+        .fetch_all(&app.pool).await.unwrap_or_default();
+    CONSENT_DOCS.iter().map(|(kind, _, _, default_url)| {
+        let stored = rows.iter()
+            .find(|(key, _)| *key == consent_url_key(kind))
+            .map(|(_, v)| v.trim().to_string());
+        (*kind, stored.unwrap_or_else(|| default_url.to_string()))
+    }).collect()
+}
+
 fn consent_is_locked(locks: &[(&'static str, bool)], kind: &str) -> bool {
     locks.iter().find(|(k, _)| *k == kind).map(|(_, l)| *l).unwrap_or(true)
 }
@@ -806,7 +822,8 @@ async fn user_consent_docs(app: &App, uid: Uuid) -> Vec<ConsentDoc> {
 async fn documents_page(app: &App, user: &User, error: Option<&str>, notice: Option<&str>) -> Response {
     let docs = user_consent_docs(app, user.id).await;
     let locks = consent_locks(app).await;
-    Html(html::documents(user, &docs, &locks, error, notice)).into_response()
+    let urls = consent_urls(app).await;
+    Html(html::documents(user, &docs, &locks, &urls, error, notice)).into_response()
 }
 
 #[derive(Deserialize)]
@@ -1023,6 +1040,30 @@ async fn admin_documents_lock(State(app): State<App>, headers: HeaderMap, Form(f
     Ok(Redirect::to("/admin"))
 }
 
+#[derive(Deserialize)]
+struct ConsentUrlForm { kind: String, url: String }
+
+/// Point a form's "Formu indir" button somewhere — a Drive share link, or anything else
+/// public. Blank takes the button off the card, which is where Paribu starts.
+async fn admin_documents_link(State(app): State<App>, headers: HeaderMap, Form(f): Form<ConsentUrlForm>) -> Result<Redirect, Response> {
+    require_admin(current_user(&app, &headers).await)?;
+    let Some(kind) = valid_consent_kind(&f.kind) else {
+        return Err((StatusCode::BAD_REQUEST, "Geçersiz form.").into_response());
+    };
+    // scheme-gate before it ever reaches an href: a javascript:/data: value must never
+    // become a link on a page students click through
+    let url = f.url.trim();
+    if !url.is_empty() && !valid_http_url(url) {
+        return Err((StatusCode::BAD_REQUEST, "Bağlantı http:// veya https:// ile başlamalı.").into_response());
+    }
+    sqlx::query(
+        "insert into app_settings_exposure_academy (key, value, updated_at) values ($1,$2, now())
+         on conflict (key) do update set value = $2, updated_at = now()")
+        .bind(consent_url_key(kind)).bind(url)
+        .execute(&app.pool).await.map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
+    Ok(Redirect::to("/admin"))
+}
+
 /// Every consent form on file, as one ZIP: a folder per form, a folder per student
 /// inside it, files numbered in upload order. Stored (uncompressed) because the payload
 /// is PDFs and phone photos, which don't get smaller — this is a copy, not a squeeze.
@@ -1068,7 +1109,7 @@ type DocRow = (String, String, String, String, Vec<u8>);
 /// or `[ ]` so it reads as a checklist for whoever is chasing the missing ones.
 fn consent_summary(docs: &[DocRow], students: &[(String, String)]) -> String {
     let mut out = String::new();
-    for (kind, title, _) in CONSENT_DOCS {
+    for (kind, title, ..) in CONSENT_DOCS {
         let has = |email: &str| docs.iter().any(|(_, e, k, ..)| e == email && k == kind);
         let uploaded = students.iter().filter(|(_, email)| has(email)).count();
         out.push_str(&format!("\n=== {title} ===\nYükleyen: {uploaded}/{}\n", students.len()));
@@ -1432,8 +1473,9 @@ async fn admin_page(State(app): State<App>, headers: HeaderMap) -> Result<Html<S
          from consent_docs_exposure_academy order by kind, uploaded_at")
         .fetch_all(&app.pool).await.unwrap_or_default();
     let consent_locks = consent_locks(&app).await;
+    let consent_urls = consent_urls(&app).await;
     Ok(Html(html::admin(&user, &stats, &subs, &videos, &tasks, &members, &invite_code, &app.base_url,
-        &schedule_images, &load_venues(&app).await, &consent_docs, &consent_locks)))
+        &schedule_images, &load_venues(&app).await, &consent_docs, &consent_locks, &consent_urls)))
 }
 
 fn parse_youtube_id(input: &str) -> String {

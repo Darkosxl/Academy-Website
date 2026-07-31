@@ -984,6 +984,19 @@ form.inline input, form.inline select { margin-top:0; width:auto; }
 .doc-lockmsg b { font-size:var(--fs-body); font-weight:700; color:var(--text); }
 .doc-lockmsg span { font-size:var(--fs-mini); color:var(--text-muted); line-height:1.5; max-width:24rem; }
 
+/* boş formu indirme — kart açıklamasının hemen altında, yükleme alanından önce.
+   İki yol: buton dosyayı doğrudan indirir, yanındaki bağlantı Drive önizlemesini açar
+   (telefonda biri ya da diğeri her seferinde birinde tıkanıyor). */
+.doc-get { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:0 0 14px; }
+.portal .doc-getbtn { display:inline-flex; align-items:center; gap:6px; }
+.doc-getbtn .ico { width:16px; height:16px; }
+.doc-getalt { font-size:var(--fs-mini); color:var(--text-subtle); }
+.doc-getalt:hover { color:var(--blue-text); }
+/* yönetici satırı: başlık | bağlantı formu | aç-kapat, dar ekranda alt alta */
+.consent-switch-id { flex:1 1 220px; min-width:0; }
+.consent-urlform { flex:1 1 260px; display:flex; gap:6px; align-items:center; }
+.portal .consent-urlform input { margin-top:0; flex:1; min-width:150px; font-size:var(--fs-xs); }
+
 /* Ana Sayfa uyarı şeridi — açık formlardan biri eksikken üç kapının üstünde durur */
 .alertbar {
   display:flex; align-items:center; gap:12px; margin:20px 0 4px; padding:14px 16px;

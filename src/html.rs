@@ -72,7 +72,8 @@ const P_LOCK: &str = "M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.2
 const P_CAL: &str = "M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5";
 const P_PIN: &str = "M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1 1 15 0Z";
 const P_DOC: &str = "M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z";
-const P_TRASH: &str = "m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0";
+const P_DOWNLOAD: &str = "M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3";
+const P_TRASH: &str ="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0";
 
 fn nav_link(href: &str, page: &str, key: &str, icon: &str, label: &str) -> String {
     let active = if page == key { "active" } else { "" };
@@ -167,7 +168,7 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/style.css?v=31">
+<link rel="stylesheet" href="/static/style.css?v=32">
 <script>if('scrollRestoration'in history)history.scrollRestoration='manual';</script>
 </head>
 <body class="{body_class}">
@@ -925,17 +926,29 @@ fn consent_file_list(docs: &[ConsentDoc], kind: &str, locked: bool) -> String {
 /// "yakında" overlay instead of being hidden: students should know it is coming, and
 /// know they don't have to do anything about it yet. The admin opens it from /admin,
 /// and the same lock is enforced server-side on upload.
-pub fn documents(user: &User, docs: &[ConsentDoc], locks: &[(&str, bool)], error: Option<&str>, notice: Option<&str>) -> String {
+pub fn documents(user: &User, docs: &[ConsentDoc], locks: &[(&str, bool)], urls: &[(&str, String)],
+                 error: Option<&str>, notice: Option<&str>) -> String {
     let banner = error.map(|e| format!(r#"<p class="error portal-error">{}</p>"#, esc(e)))
         .or_else(|| notice.map(|m| format!(r#"<p class="notice portal-notice">{}</p>"#, esc(m))))
         .unwrap_or_default();
 
-    let cards: String = CONSENT_DOCS.iter().map(|(kind, title, note)| {
+    let cards: String = CONSENT_DOCS.iter().map(|(kind, title, note, _)| {
         let locked = locks.iter().find(|(k, _)| k == kind).map(|(_, l)| *l).unwrap_or(false);
         let count = docs.iter().filter(|d| d.kind == *kind).count();
         let (badge, badge_cls) = if locked { ("Yakında", "doc-st-soon") }
             else if count > 0 { ("Yüklendi", "doc-st-done") }
             else { ("Bekleniyor", "doc-st-wait") };
+
+        // The blank form to print and sign. Two ways in, because one of them fails on
+        // somebody's phone every time: the button downloads the file directly, the link
+        // beside it opens Drive's own preview. Both are validated http(s) on save.
+        let url = urls.iter().find(|(k, _)| k == kind).map(|(_, u)| u.trim()).unwrap_or("");
+        let get_form = if url.is_empty() || locked { String::new() } else { format!(
+            r##"<div class="doc-get">
+    <a class="btn-outline doc-getbtn" href="{download}" target="_blank" rel="noopener">{down} Formu indir</a>
+    <a class="doc-getalt" href="{view}" target="_blank" rel="noopener">tarayıcıda aç ↗</a>
+  </div>"##,
+            download = esc(&direct_download_url(url)), view = esc(url), down = ico(P_DOWNLOAD)) };
 
         // Locked: everything below the heading is inert and blurred, with the overlay
         // explaining why. No <input> is rendered at all — there is nothing to click.
@@ -981,6 +994,7 @@ pub fn documents(user: &User, docs: &[ConsentDoc], locks: &[(&str, bool)], error
     <span class="badge {badge_cls}">{badge}</span>
   </div>
   <p class="desc">{note}</p>
+  {get_form}
   {body}
 </section>"##,
             done = if count > 0 && !locked { "has-docs" } else { "" },
@@ -1009,28 +1023,34 @@ arada saklanır. Belgelerinizi yalnızca siz ve akademi ekibi görebilir.</p>
 /// The admin side of the consent forms: a download-everything button, a per-form
 /// open/close switch, and a student × form grid of what has actually arrived.
 /// Every file is a direct download link, and the whole set is one ZIP.
-fn admin_consent_panel(members: &[MemberRow], docs: &[ConsentDoc], locks: &[(&str, bool)]) -> String {
+fn admin_consent_panel(members: &[MemberRow], docs: &[ConsentDoc], locks: &[(&str, bool)], urls: &[(&str, String)]) -> String {
     // students only: admins hand in nothing, and an admin row in the grid is noise
     let students: Vec<&MemberRow> = members.iter().filter(|m| !m.is_admin).collect();
 
-    let switches: String = CONSENT_DOCS.iter().map(|(kind, title, _)| {
+    let switches: String = CONSENT_DOCS.iter().map(|(kind, title, _, _)| {
         let locked = locks.iter().find(|(k, _)| k == kind).map(|(_, l)| *l).unwrap_or(false);
+        let url = urls.iter().find(|(k, _)| k == kind).map(|(_, u)| u.as_str()).unwrap_or("");
         let have = students.iter()
             .filter(|m| docs.iter().any(|d| d.user_id == m.id && d.kind == *kind))
             .count();
         format!(
             r##"<div class="consent-switch">
-  <div>
+  <div class="consent-switch-id">
     <b>{title}</b>
     <span class="item-meta">{have}/{total} öğrenci yükledi · {state}</span>
   </div>
+  <form method="post" action="/admin/documents/link" class="inline consent-urlform">
+    <input type="hidden" name="kind" value="{kind}">
+    <input name="url" type="url" value="{url}" placeholder="Boş formun bağlantısı — https://…">
+    <button class="btn-dark small">Kaydet</button>
+  </form>
   <form method="post" action="/admin/documents/lock" class="inline">
     <input type="hidden" name="kind" value="{kind}">
     <input type="hidden" name="locked" value="{next}">
     <button class="btn-outline small">{action}</button>
   </form>
 </div>"##,
-            title = esc(title), total = students.len(),
+            title = esc(title), total = students.len(), url = esc(url),
             state = if locked { "kapalı (öğrencilere bulanık görünüyor)" } else { "açık" },
             next = if locked { "false" } else { "true" },
             action = if locked { "Yüklemeye aç" } else { "Yüklemeyi kapat" },
@@ -1038,7 +1058,7 @@ fn admin_consent_panel(members: &[MemberRow], docs: &[ConsentDoc], locks: &[(&st
     }).collect();
 
     let head: String = CONSENT_DOCS.iter()
-        .map(|(_, title, _)| format!("<th>{}</th>", esc(title)))
+        .map(|(_, title, _, _)| format!("<th>{}</th>", esc(title)))
         .collect();
     let rows: String = if students.is_empty() {
         "<tr><td colspan=\"4\" class=\"muted\">Henüz öğrenci yok</td></tr>".into()
@@ -1178,11 +1198,11 @@ fn admin_venue_panel(venues: &[Venue]) -> String {
     )
 }
 
-pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[Video], tasks: &[Task], members: &[MemberRow], invite_code: &str, base_url: &str, schedule_images: &[ScheduleImage], venues: &[Venue], consent_docs: &[ConsentDoc], consent_locks: &[(&str, bool)]) -> String {
+pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[Video], tasks: &[Task], members: &[MemberRow], invite_code: &str, base_url: &str, schedule_images: &[ScheduleImage], venues: &[Venue], consent_docs: &[ConsentDoc], consent_locks: &[(&str, bool)], consent_urls: &[(&str, String)]) -> String {
     let invite_link = format!("{}/join/{}", base_url.trim_end_matches('/'), invite_code);
     let schedule_panel = admin_schedule_panel(schedule_images);
     let venue_panel = admin_venue_panel(venues);
-    let consent_panel = admin_consent_panel(members, consent_docs, consent_locks);
+    let consent_panel = admin_consent_panel(members, consent_docs, consent_locks, consent_urls);
     let level_opts = level_options("");
     let stat_rows: String = stats.iter().map(|s| {
         let pct = if s.duration > 0.0 { (s.max_position / s.duration * 100.0).min(100.0) } else { 0.0 };
@@ -1557,12 +1577,22 @@ mod tests {
         }
     }
 
+    /// Paribu closed, the other two open — the state this shipped in.
+    fn default_locks() -> Vec<(&'static str, bool)> {
+        CONSENT_DOCS.iter().map(|(k, ..)| (*k, CONSENT_LOCKED_BY_DEFAULT.contains(k))).collect()
+    }
+
+    /// The blank-form links as they come out of CONSENT_DOCS (Paribu's is still empty).
+    fn test_urls() -> Vec<(&'static str, String)> {
+        CONSENT_DOCS.iter().map(|(k, _, _, u)| (*k, u.to_string())).collect()
+    }
+
     /// Open forms get a real file input; a locked one gets none at all — the blurred
     /// card is decoration, so there is nothing for a student to click or a script to
     /// find and post to.
     #[test]
     fn locked_form_is_blurred_and_has_no_input() {
-        let html = documents(&student(), &[], &[("exposure", false), ("qnbeyond", false), ("paribu", true)], None, None);
+        let html = documents(&student(), &[], &default_locks(), &test_urls(), None, None);
         assert!(html.contains("doc-blur") && html.contains("doc-lockmsg"));
         assert!(html.contains("Bu form henüz hazır değil"));
         // exposure + qnbeyond are open, paribu is not: two upload forms, two file inputs
@@ -1579,8 +1609,8 @@ mod tests {
     #[test]
     fn every_form_gets_a_card() {
         let locks: Vec<(&str, bool)> = CONSENT_DOCS.iter().map(|(k, ..)| (*k, false)).collect();
-        let html = documents(&student(), &[], &locks, None, None);
-        for (kind, title, _) in CONSENT_DOCS {
+        let html = documents(&student(), &[], &locks, &test_urls(), None, None);
+        for (kind, title, ..) in CONSENT_DOCS {
             assert!(html.contains(&format!(r#"<input type="hidden" name="kind" value="{kind}">"#)), "{kind}");
             assert!(html.contains(&esc(title)), "{kind}");
         }
@@ -1595,7 +1625,7 @@ mod tests {
     fn uploaded_files_are_listed_with_a_download_and_a_delete() {
         let d = doc("exposure", "veli-onay-1.pdf");
         let id = d.id;
-        let html = documents(&student(), &[d], &[("exposure", false), ("qnbeyond", false), ("paribu", true)], None, None);
+        let html = documents(&student(), &[d], &default_locks(), &test_urls(), None, None);
         assert!(html.contains(&format!(r#"href="/documents/file/{id}""#)));
         assert!(html.contains("veli-onay-1.pdf"));
         assert!(html.contains(r#"action="/documents/delete""#));
@@ -1610,7 +1640,7 @@ mod tests {
     #[test]
     fn a_closed_form_cannot_be_edited() {
         let d = doc("qnbeyond", "izin.jpg");
-        let html = documents(&student(), &[d], &[("exposure", false), ("qnbeyond", true), ("paribu", true)], None, None);
+        let html = documents(&student(), &[d], &[("exposure", false), ("qnbeyond", true), ("paribu", true)], &test_urls(), None, None);
         assert_eq!(html.matches(r#"action="/documents/delete""#).count(), 0);
         assert_eq!(html.matches(r#"action="/documents/upload""#).count(), 1);
     }
@@ -1620,7 +1650,7 @@ mod tests {
     #[test]
     fn student_filenames_are_escaped() {
         let d = doc("exposure", r#"<img src=x onerror=alert(1)>.pdf"#);
-        let html = documents(&student(), &[d], &[("exposure", false)], None, None);
+        let html = documents(&student(), &[d], &[("exposure", false)], &test_urls(), None, None);
         assert!(!html.contains("<img src=x"));
         assert!(html.contains("&lt;img src=x onerror=alert(1)&gt;.pdf"));
     }
@@ -1641,8 +1671,7 @@ mod tests {
         d.user_id = a;
         let did = d.id;
         let members = [member("ada", a), member("bora", b)];
-        let panel = admin_consent_panel(&members, &[d],
-            &[("exposure", false), ("qnbeyond", false), ("paribu", true)]);
+        let panel = admin_consent_panel(&members, &[d], &default_locks(), &test_urls());
         assert!(panel.contains("/admin/documents.zip"));
         assert!(panel.contains(&format!(r#"href="/documents/file/{did}""#)));
         assert!(panel.contains("1/2 öğrenci yükledi"), "one of two students is in");
@@ -1652,13 +1681,54 @@ mod tests {
         assert!(panel.contains("Yüklemeye aç") && panel.contains("Yüklemeyi kapat"));
     }
 
+    /// Each open form offers the blank document two ways — a direct download and the
+    /// Drive preview — and a form with no link yet simply has no button.
+    #[test]
+    fn the_blank_form_is_downloadable_from_the_card() {
+        let html = documents(&student(), &[], &default_locks(), &test_urls(), None, None);
+        assert_eq!(html.matches("doc-getbtn").count(), 2, "exposure + qnbeyond, not paribu");
+        // the /view share link becomes a link that actually downloads
+        assert!(html.contains("https://drive.google.com/uc?export=download&amp;id=1gkxQLuguXfVFmjjjjcBF0Y39JTKeFXr6"));
+        assert!(html.contains("https://drive.google.com/uc?export=download&amp;id=10YgFIm28qjhTy3stEXS5BukS_tmn-9_a"));
+        // …with the original preview URL still reachable beside it
+        assert!(html.contains("/file/d/1gkxQLuguXfVFmjjjjcBF0Y39JTKeFXr6/view"));
+        assert!(html.contains("Formu indir"));
+
+        // an open form with no link yet shows no button rather than a dead one
+        let no_link: Vec<(&str, String)> = CONSENT_DOCS.iter().map(|(k, ..)| (*k, String::new())).collect();
+        let bare = documents(&student(), &[], &default_locks(), &no_link, None, None);
+        assert!(!bare.contains("doc-getbtn"));
+    }
+
+    /// Drive links of either shape become downloads; anything else is left alone.
+    #[test]
+    fn drive_links_become_downloads() {
+        assert_eq!(direct_download_url("https://drive.google.com/file/d/ABC123/view?usp=sharing"),
+                   "https://drive.google.com/uc?export=download&id=ABC123");
+        assert_eq!(direct_download_url("https://drive.google.com/open?id=ABC123"),
+                   "https://drive.google.com/uc?export=download&id=ABC123");
+        // not Drive, or Drive in a shape we don't recognise: untouched
+        assert_eq!(direct_download_url("https://example.com/form.pdf"), "https://example.com/form.pdf");
+        assert_eq!(direct_download_url("https://drive.google.com/drive/folders/XYZ"),
+                   "https://drive.google.com/drive/folders/XYZ");
+    }
+
+    /// The admin can retarget any form's link, including Paribu's, from the panel.
+    #[test]
+    fn admin_can_set_each_form_link() {
+        let panel = admin_consent_panel(&[member("ada", uuid::Uuid::new_v4())], &[],
+            &default_locks(), &test_urls());
+        assert_eq!(panel.matches(r#"action="/admin/documents/link""#).count(), CONSENT_DOCS.len());
+        assert!(panel.contains("1gkxQLuguXfVFmjjjjcBF0Y39JTKeFXr6"), "current link is pre-filled");
+    }
+
     /// Admins hand nothing in, so they are not rows in the collection grid.
     #[test]
     fn admins_are_not_chased_for_forms() {
         let mut boss = member("onur", uuid::Uuid::new_v4());
         boss.is_admin = true;
         let panel = admin_consent_panel(&[boss, member("ada", uuid::Uuid::new_v4())], &[],
-            &[("exposure", false), ("qnbeyond", false), ("paribu", true)]);
+            &default_locks(), &test_urls());
         assert!(!panel.contains("onur@ornek.com"));
         assert!(panel.contains("0/1 öğrenci yükledi"));
     }

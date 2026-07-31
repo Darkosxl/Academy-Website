@@ -288,16 +288,25 @@ impl Venue {
 
 // ---- Veli onay formları ----
 
-/// The consent forms, in the order students see them: `(key, title, what it is for)`.
-/// The key is the `kind` column and is baked into a CHECK constraint, so the title and
-/// the note change freely — the left-hand side never does.
-pub const CONSENT_DOCS: [(&str, &str, &str); 3] = [
+/// The consent forms, in the order students see them:
+/// `(key, title, what it is for, where the blank form lives)`.
+/// The key is the `kind` column and is baked into a CHECK constraint, so everything to
+/// its right changes freely — the key itself never does.
+///
+/// The URL here is only the default. `/admin` stores an override in
+/// app_settings_exposure_academy (`consent_url_<kind>`), which is how Paribu's link gets
+/// added when the document exists — a form field, not a deploy. Empty = no download
+/// button on the card.
+pub const CONSENT_DOCS: [(&str, &str, &str, &str); 3] = [
     ("exposure", "Exposure AI Academy Veli İzin ve Katılım Formu",
-     "Programa katılım için veli/yasal temsilci onayı."),
+     "Programa katılım için veli/yasal temsilci onayı.",
+     "https://drive.google.com/file/d/1gkxQLuguXfVFmjjjjcBF0Y39JTKeFXr6/view?usp=sharing"),
     ("qnbeyond", "QNBEYOND Lokasyon/Katılım İzin Formu",
-     "1. haftanın yapılacağı QNBEYOND lokasyonu için veli/yasal temsilci onayı."),
+     "1. haftanın yapılacağı QNBEYOND lokasyonu için veli/yasal temsilci onayı.",
+     "https://drive.google.com/file/d/10YgFIm28qjhTy3stEXS5BukS_tmn-9_a/view?usp=sharing"),
     ("paribu", "Paribu Lokasyon/Katılım İzin Formu",
-     "Programın 2. haftasında kullanılacak. Form hazır olduğunda paylaşılacak."),
+     "Programın 2. haftasında kullanılacak. Form hazır olduğunda paylaşılacak.",
+     ""),
 ];
 
 /// Forms that start out closed: the document itself isn't ready to hand out yet, so the
@@ -317,12 +326,35 @@ pub fn valid_consent_kind(k: &str) -> Option<&'static str> {
 }
 
 pub fn consent_title(kind: &str) -> &'static str {
-    CONSENT_DOCS.iter().find(|(k, ..)| *k == kind).map(|(_, t, _)| *t).unwrap_or("?")
+    CONSENT_DOCS.iter().find(|(k, ..)| *k == kind).map(|(_, t, ..)| *t).unwrap_or("?")
 }
 
 /// Settings key holding whether this form is closed for uploads.
 pub fn consent_lock_key(kind: &str) -> String {
     format!("consent_lock_{kind}")
+}
+
+/// Settings key holding where the blank form can be downloaded.
+pub fn consent_url_key(kind: &str) -> String {
+    format!("consent_url_{kind}")
+}
+
+/// A Google Drive share link turned into one that downloads the file instead of opening
+/// the preview page. Anything that isn't a recognisable Drive file link is returned as-is,
+/// so pasting a plain PDF URL keeps working.
+///
+/// Both shapes Drive hands out are accepted: `/file/d/<id>/view` and `open?id=<id>`.
+pub fn direct_download_url(url: &str) -> String {
+    let u = url.trim();
+    if !u.contains("drive.google.com") {
+        return u.to_string();
+    }
+    let id = u.split_once("/file/d/").map(|(_, rest)| rest.split('/').next().unwrap_or(""))
+        .or_else(|| u.split_once("id=").map(|(_, rest)| rest.split('&').next().unwrap_or("")))
+        .unwrap_or("");
+    // an id we can't find means a Drive URL shaped some way we don't know — leave it be
+    // rather than building a link that 404s
+    if id.is_empty() { u.to_string() } else { format!("https://drive.google.com/uc?export=download&id={id}") }
 }
 
 /// One uploaded file. Never carries the bytes — those only ever leave through
