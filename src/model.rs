@@ -286,6 +286,80 @@ impl Venue {
     }
 }
 
+// ---- Veli onay formları ----
+
+/// The consent forms, in the order students see them: `(key, title, what it is for)`.
+/// The key is the `kind` column and is baked into a CHECK constraint, so the title and
+/// the note change freely — the left-hand side never does.
+pub const CONSENT_DOCS: [(&str, &str, &str); 3] = [
+    ("exposure", "Exposure AI Academy Veli İzin ve Katılım Formu",
+     "Programa katılım için veli/yasal temsilci onayı."),
+    ("qnbeyond", "QNBEYOND Lokasyon/Katılım İzin Formu",
+     "1. haftanın yapılacağı QNBEYOND lokasyonu için veli/yasal temsilci onayı."),
+    ("paribu", "Paribu Lokasyon/Katılım İzin Formu",
+     "Programın 2. haftasında kullanılacak. Form hazır olduğunda paylaşılacak."),
+];
+
+/// Forms that start out closed: the document itself isn't ready to hand out yet, so the
+/// card is blurred and uploads are refused until an admin opens it from /admin. Stored
+/// per form in app_settings, so opening one is a button, not a deploy.
+pub const CONSENT_LOCKED_BY_DEFAULT: [&str; 1] = ["paribu"];
+
+/// When the two forms that already exist have to be in. Stated on the student page and
+/// in the admin panel from this one place.
+pub const CONSENT_DEADLINE: &str = "3 Ağustos Pazartesi";
+
+/// A `kind` we're willing to touch, or `None`. Everything that reaches the database or
+/// a filesystem-ish name goes through here first, so a hand-rolled POST can't invent one.
+pub fn valid_consent_kind(k: &str) -> Option<&'static str> {
+    let want = k.trim().to_ascii_lowercase();
+    CONSENT_DOCS.iter().find(|(key, ..)| *key == want).map(|(key, ..)| *key)
+}
+
+pub fn consent_title(kind: &str) -> &'static str {
+    CONSENT_DOCS.iter().find(|(k, ..)| *k == kind).map(|(_, t, _)| *t).unwrap_or("?")
+}
+
+/// Settings key holding whether this form is closed for uploads.
+pub fn consent_lock_key(kind: &str) -> String {
+    format!("consent_lock_{kind}")
+}
+
+/// One uploaded file. Never carries the bytes — those only ever leave through
+/// `/documents/file/{id}` or the admin ZIP, so listing a page of documents doesn't
+/// drag megabytes out of the database.
+#[derive(FromRow)]
+pub struct ConsentDoc {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub kind: String,
+    pub filename: String,
+    pub bytes: i64,
+    pub uploaded_at: DateTime<Utc>,
+}
+
+impl ConsentDoc {
+    /// Human size for the file list: KB up to a megabyte, then MB with one decimal.
+    pub fn size_label(&self) -> String {
+        if self.bytes < 1024 * 1024 {
+            format!("{} KB", (self.bytes / 1024).max(1))
+        } else {
+            format!("{:.1} MB", self.bytes as f64 / (1024.0 * 1024.0))
+        }
+    }
+}
+
+/// A file name safe to put in a Content-Disposition header or a ZIP entry: no path
+/// separators, quotes, control characters or leading dots, and never empty.
+pub fn safe_filename(name: &str) -> String {
+    let cleaned: String = name.trim()
+        .chars()
+        .map(|c| if c.is_control() || matches!(c, '/' | '\\' | '"' | '\'' | ':' | '*' | '?' | '<' | '>' | '|') { '_' } else { c })
+        .collect();
+    let cleaned = cleaned.trim_matches(['.', ' ', '_']).to_string();
+    if cleaned.is_empty() { "belge".to_string() } else { cleaned.chars().take(120).collect() }
+}
+
 /// One row in the admin "Öğrenciler" list — enough to identify and remove a member.
 #[derive(FromRow)]
 pub struct MemberRow {

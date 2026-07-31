@@ -60,12 +60,51 @@ visible for even one page load), or hit *Puan tablosunda gizle* on their row aft
 | `/app` | video grid, level chips |
 | `/watch/:id` | player + level playlist, resumes from last position |
 | `/board` | task board: tasks per level, GitHub repo submission, status + feedback + demo video |
-| `/admin` | add student/video/task, watch statistics, review submissions |
+| `/documents` | veli onay formları — student uploads the signed consent forms (see below) |
+| `/documents/file/{id}` | download one uploaded document (its owner, or any admin) |
+| `/admin` | add student/video/task, watch statistics, review submissions, collect consent forms |
+| `/admin/documents.zip` | every consent form on file, as one archive |
 | `/api/progress` | watch-time heartbeat (student session) |
 | `/api/worker/*` | Phase 3 pipeline API (see below) |
 
 Watch data per (student, video): `seconds_watched` (accumulated, rewatches count),
 `max_position` (furthest point), `duration`. Progress % = max_position/duration; ≥90% counts as completed.
+
+## Veli onay formları (parental consent)
+
+The students are under 18, so a parent/legal guardian has to sign for them. `/documents`
+is where the signed forms are uploaded — one card per form in `CONSENT_DOCS` (`model.rs`),
+which is also where the titles and the deadline string live.
+
+- **One row per FILE, not per form.** A form is usually photographed a page at a time, so
+  a student uploads several files against the same `kind` and they accumulate (up to
+  `CONSENT_MAX_FILES`). The file picker takes several at once.
+- **Formats** are decided by the file's own bytes (`sniff_document`), not by what the
+  browser claims: PDF, JPEG, PNG, GIF, WebP, HEIC/HEIF (iPhone's default) and Word
+  DOC/DOCX/ODT. The stored name gets the extension the bytes actually are, so the admin
+  can open the file by double-clicking it. Everything is served back as
+  `Content-Disposition: attachment` with `nosniff` — student bytes never render in our origin.
+- **Bytes live in Postgres** (`consent_docs_exposure_academy`), same reasoning as the
+  schedule image: a redeploy must not lose a document, and this is the one thing you can't
+  ask a family to re-do at short notice.
+- **Who can see a document**: the student who uploaded it, and admins. Nobody else — a
+  signed form carries a minor's details and a parent's signature.
+
+### Collecting them
+
+`/admin` → **Veli onay formları** is the whole collection view: a student × form grid where
+every uploaded file is a download link, per-form counters, and **⬇ Tüm belgeler (.zip)**.
+The ZIP is a folder per form, a folder per student inside it, files numbered in upload
+order — so the QNBEYOND folder is exactly what gets handed to QNBEYOND — plus
+`_EKSIKLER.txt` at the root, a `[X]`/`[ ]` checklist of who has and hasn't uploaded.
+
+### Opening and closing a form
+
+A form whose document isn't ready to hand out yet is **closed**: students see the card
+blurred behind a "yakında" overlay (no `<input>` is rendered at all) and the server refuses
+uploads and deletes for it. Paribu ships closed — `CONSENT_LOCKED_BY_DEFAULT` — because its
+form didn't exist yet. Open it with **Yüklemeye aç** on `/admin` once it does; the state is
+a row in `app_settings_exposure_academy` (`consent_lock_<kind>`), so it's a button, not a deploy.
 
 ## Phase 3 — auto-eval pipeline (NOT BUILT YET)
 

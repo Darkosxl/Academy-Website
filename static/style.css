@@ -903,3 +903,122 @@ form.inline input, form.inline select { margin-top:0; width:auto; }
 @media (max-width:768px) {
   .venue-slots { grid-template-columns:1fr; }
 }
+
+/* ============================================================================
+   VELİ ONAY FORMLARI (/documents) — imzalı formların yüklendiği yer. Her form
+   bir kart; belgesi henüz hazır olmayan form gizlenmez, bulanıklaştırılır ve
+   üstüne "yakında" katmanı gelir (html.rs → documents).
+   ============================================================================ */
+/* portal koyu yüzeyinde .notice/.error açık tema renklerinde kalıyor — burada koyu karşılıkları */
+.portal .portal-notice {
+  background:var(--ok-bg); border:1px solid var(--ok-border); color:var(--ok-text-2);
+}
+.portal .portal-error {
+  background:var(--err-bg); border:1px solid var(--err-border); color:var(--err-text);
+}
+/* son tarih şeridi — sayfadaki tek zorunlu tarih, kartlardan önce gelir */
+.doc-deadline {
+  display:flex; align-items:flex-start; gap:12px; margin:20px 0 14px; padding:14px 16px;
+  background:var(--warn-bg); border:1px solid var(--warn-border); border-radius:var(--r-xl);
+}
+.doc-deadline .ico { width:20px; height:20px; color:var(--warn-text); flex:none; margin-top:1px; }
+.doc-deadline b { display:block; font-size:var(--fs-body); font-weight:700; color:var(--warn-text-2); }
+.doc-deadline span { font-size:var(--fs-xs); color:var(--text-muted); line-height:1.6; }
+.portal .doc-howto { margin:0 0 4px; max-width:60rem; }
+.portal .doc-howto b { color:var(--text-body); font-weight:600; }
+
+.doccards { display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:16px; margin-top:20px; }
+.doccards > * { min-width:0; }
+.doccard { position:relative; display:flex; flex-direction:column; overflow:hidden; }
+.doccard.has-docs { border-color:var(--ok-border); }
+.dochead { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+.docico {
+  display:inline-flex; align-items:center; justify-content:center; flex:none;
+  width:36px; height:36px; border-radius:var(--r-xl);
+  background:var(--blue-10); color:var(--blue-text);
+}
+.docico .ico { width:20px; height:20px; }
+.portal .dochead h3 { font-size:var(--fs-h3); font-weight:700; color:var(--text); flex:1; line-height:1.35; }
+.badge.doc-st-done { background:var(--ok); }
+.badge.doc-st-wait { background:transparent; color:var(--warn-text); border:1px solid var(--warn-border); }
+.badge.doc-st-soon { background:transparent; color:var(--text-subtle); border:1px solid var(--border-input); }
+.doccard .desc { font-size:var(--fs-sm); color:var(--text-muted); margin-bottom:14px; }
+.doc-form { margin-top:12px; }
+.doc-form .dropzone { margin-bottom:10px; }
+.portal .doc-none { margin:0 0 4px; }
+
+/* yüklenen dosyalar — adına tıklayınca geri indirilir, çöp kutusu kaldırır */
+.doc-files { list-style:none; display:flex; flex-direction:column; gap:6px; margin:0 0 4px; }
+.doc-file {
+  display:flex; align-items:center; gap:8px; padding:8px 10px;
+  background:rgba(9,9,11,0.50); border:1px solid var(--border-subtle); border-radius:var(--r-xl);
+}
+.doc-file > a {
+  flex:1; min-width:0; font-size:var(--fs-xs); font-weight:500; color:var(--text-body);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.doc-file > a:hover { color:var(--blue-text); }
+.doc-meta { font-size:var(--fs-mini); color:var(--text-subtle); white-space:nowrap; }
+.doc-del {
+  display:inline-flex; align-items:center; justify-content:center;
+  background:none; border:none; padding:2px; cursor:pointer; color:var(--text-faint);
+}
+.doc-del:hover { color:var(--err-text); }
+.doc-del .ico { width:16px; height:16px; }
+
+/* kilitli form: içerik bulanık ve tıklanamaz, üstünde neden kapalı olduğunu
+   söyleyen katman. Gerçek bir <input> render EDİLMEZ — arkada tıklanacak bir şey yok. */
+.doc-locked { position:relative; margin-top:4px; }
+.doc-blur { filter:blur(5px); opacity:0.55; pointer-events:none; user-select:none; }
+.doc-fake { cursor:default; }
+.doc-fake-btn {
+  margin-top:10px; padding:10px 20px; border-radius:var(--r-xl); text-align:center;
+  background:var(--blue); color:#fff; font-size:var(--fs-sm); font-weight:900;
+  text-transform:uppercase; letter-spacing:0.1em;
+}
+.doc-lockmsg {
+  position:absolute; inset:0; display:flex; flex-direction:column;
+  align-items:center; justify-content:center; text-align:center; gap:4px; padding:12px;
+}
+.doc-lockmsg .ico { width:22px; height:22px; color:var(--text-muted); }
+.doc-lockmsg b { font-size:var(--fs-body); font-weight:700; color:var(--text); }
+.doc-lockmsg span { font-size:var(--fs-mini); color:var(--text-muted); line-height:1.5; max-width:24rem; }
+
+/* Ana Sayfa uyarı şeridi — açık formlardan biri eksikken üç kapının üstünde durur */
+.alertbar {
+  display:flex; align-items:center; gap:12px; margin:20px 0 4px; padding:14px 16px;
+  background:var(--warn-bg); border:1px solid var(--warn-border); border-radius:var(--r-xl);
+  transition:border-color 150ms;
+}
+.alertbar:hover { border-color:var(--warn-text); }
+.alertbar > .ico { width:22px; height:22px; color:var(--warn-text); flex:none; }
+.alertbar div { flex:1; min-width:0; }
+.alertbar b { display:block; font-size:var(--fs-body); font-weight:700; color:var(--warn-text-2); }
+.alertbar span { font-size:var(--fs-xs); color:var(--text-muted); }
+.alertgo { font-size:var(--fs-xs); font-weight:700; color:var(--warn-text-2); white-space:nowrap; }
+
+/* yönetici paneli: form başına aç/kapat + öğrenci × form ızgarası */
+.consent-switches { display:flex; flex-direction:column; gap:8px; margin:14px 0 18px; }
+.consent-switch {
+  display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap;
+  padding:10px 14px; background:rgba(9,9,11,0.50);
+  border:1px solid var(--border-subtle); border-radius:var(--r-xl);
+}
+.consent-switch b { display:block; font-size:var(--fs-sm); font-weight:600; color:var(--text); }
+.consent-switch .item-meta { font-size:var(--fs-mini); color:var(--text-subtle); }
+.consent-table { width:100%; }
+.portal .consent-table td.consent-missing { color:var(--text-faint); }
+.consent-have .item-meta { display:block; font-size:var(--fs-mini); color:var(--text-subtle); margin-top:2px; }
+.consent-files { display:inline-flex; flex-wrap:wrap; gap:4px; }
+.consent-files a {
+  display:inline-flex; align-items:center; justify-content:center;
+  min-width:24px; height:24px; padding:0 6px; border-radius:var(--r-lg);
+  background:var(--ok-bg); border:1px solid var(--ok-border); color:var(--ok-text);
+  font-size:var(--fs-mini); font-weight:700;
+}
+.consent-files a:hover { background:var(--ok); color:#fff; }
+
+@media (max-width:768px) {
+  .doccards { grid-template-columns:1fr; }
+  .doc-deadline, .alertbar { flex-wrap:wrap; }
+}

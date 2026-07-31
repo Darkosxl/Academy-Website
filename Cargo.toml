@@ -15,6 +15,9 @@ rand = "0.8"
 uuid = { version = "1", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 dotenvy = "0.15"
+# store-only ZIP for the admin's "download every consent form" button. No compression
+# features: the payload is PDFs and phone photos, which are already compressed.
+zip = { version = "2", default-features = false }
 
 [profile.release]
 strip = true

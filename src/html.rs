@@ -71,6 +71,8 @@ const P_CLOSE: &str = "M6 18 18 6M6 6l12 12";
 const P_LOCK: &str = "M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z";
 const P_CAL: &str = "M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5";
 const P_PIN: &str = "M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1 1 15 0Z";
+const P_DOC: &str = "M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z";
+const P_TRASH: &str = "m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0";
 
 fn nav_link(href: &str, page: &str, key: &str, icon: &str, label: &str) -> String {
     let active = if page == key { "active" } else { "" };
@@ -108,6 +110,7 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
     {demos}
     {schedule}
     {location}
+    {documents}
     {admin_block}
   </nav>
   <div class="sb-footer">
@@ -126,6 +129,7 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
                 home = nav_link("/app", active, "home", &ico(P_HOME), "Ana Sayfa"),
                 schedule = nav_link("/schedule", active, "schedule", &ico(P_CAL), "Haftalık Program"),
                 location = nav_link("/location", active, "location", &ico(P_PIN), "Konum"),
+                documents = nav_link("/documents", active, "documents", &ico(P_DOC), "Veli Onay Formları"),
                 board = nav_link("/board", active, "board", &ico(P_BOARD), "Görev Panosu"),
                 leaderboard = nav_link("/leaderboard", active, "leaderboard", &ico(P_TROPHY), "Puan Tablosu"),
                 // Haftalar (Agentic Harness / AI Monopoly) geçici olarak gizli — rotalar duruyor,
@@ -163,7 +167,7 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/style.css?v=30">
+<link rel="stylesheet" href="/static/style.css?v=31">
 <script>if('scrollRestoration'in history)history.scrollRestoration='manual';</script>
 </head>
 <body class="{body_class}">
@@ -397,14 +401,31 @@ pub fn demos(user: &User, lang: &str) -> String {
 
 /// Ana Sayfa — portalın giriş kapısı. İçerik yok, yalnızca üç büyük hedef:
 /// solda videolar, sağda görevler, altta puan tablosu.
-pub fn home(user: &User, videos_done: i64, videos_total: i64, open_tasks: i64, points: i64, rank: Option<i64>) -> String {
+///
+/// `consent_done`/`consent_open` count the parental-consent forms that are open for
+/// upload: while any is missing, the page leads with that instead of the three doors.
+/// It is the one thing on the portal with a hard deadline attached.
+pub fn home(user: &User, videos_done: i64, videos_total: i64, open_tasks: i64, points: i64, rank: Option<i64>,
+            consent_done: usize, consent_open: usize) -> String {
     let rank_line = match rank {
         Some(r) => format!("{r}. sıradasın"),
         None => "Henüz sıralamada değilsin".into(),
     };
+    let consent_alert = if consent_open > consent_done {
+        format!(
+            r##"<a class="alertbar" href="/documents">{doc}
+  <div><b>Veli onay formların eksik ({consent_done}/{consent_open})</b>
+  <span>İmzalı formları {deadline} gününden önce yükle.</span></div>
+  <span class="alertgo">Yükle →</span>
+</a>"##,
+            doc = ico(P_DOC), deadline = CONSENT_DEADLINE)
+    } else {
+        String::new()
+    };
     let content = format!(
         r##"<h1 class="pagetitle">Merhaba {name} 👋</h1>
 <p class="muted">Nereden devam etmek istersin?</p>
+{consent_alert}
 <div class="hubgrid">
   <a class="hubcard" href="/videos">
     <span class="hubico">{ico_video}</span>
@@ -434,12 +455,20 @@ pub fn home(user: &User, videos_done: i64, videos_total: i64, open_tasks: i64, p
     <span class="hubstat">{demo_count} demo</span>
     <span class="hubgo">Demolara git →</span>
   </a>
+  <a class="hubcard" href="/documents">
+    <span class="hubico">{ico_doc}</span>
+    <h2>Veli Onay Formları</h2>
+    <p>Veli/yasal temsilcinin imzaladığı formları yükle.</p>
+    <span class="hubstat">{consent_done}/{consent_open} form yüklendi</span>
+    <span class="hubgo">Formlara git →</span>
+  </a>
 </div>"##,
         name = esc(u_first_name(user)),
         ico_video = ico(P_PLAY),
         ico_board = ico(P_BOARD),
         ico_trophy = ico(P_TROPHY),
         ico_demo = ico(P_DEMO),
+        ico_doc = ico(P_DOC),
         demo_count = DEMOS.len(),
     );
     layout("Ana Sayfa", Some(user), "home", &content)
@@ -854,6 +883,205 @@ pub fn location(user: &User, venues: &[Venue]) -> String {
     layout("Konum", Some(user), "location", &content)
 }
 
+// ---- Veli onay formları ----
+
+/// What the upload control says it takes. The server re-checks the bytes themselves
+/// (`sniff_document`), so this is a filter for the file picker, not a security boundary.
+const CONSENT_ACCEPT: &str =
+    ".pdf,.jpg,.jpeg,.png,.heic,.heif,.webp,.gif,.doc,.docx,.odt,application/pdf,image/*";
+/// Human list of the same thing, for the line under the dropzone.
+const CONSENT_FORMATS: &str = "PDF, JPG, PNG, HEIC, WebP veya Word (DOC/DOCX)";
+
+/// One student's file list for one form: what they've uploaded, each downloadable back
+/// (so they can check they sent the right page) and removable while the form is open.
+fn consent_file_list(docs: &[ConsentDoc], kind: &str, locked: bool) -> String {
+    let files: Vec<&ConsentDoc> = docs.iter().filter(|d| d.kind == kind).collect();
+    if files.is_empty() {
+        return r#"<p class="fieldnote doc-none">Henüz bir dosya yüklemedin.</p>"#.to_string();
+    }
+    let rows: String = files.iter().map(|d| format!(
+        r##"<li class="doc-file">
+  <a href="/documents/file/{id}">{name}</a>
+  <span class="doc-meta">{size} · {when}</span>
+  {remove}
+</li>"##,
+        id = d.id,
+        name = esc(&d.filename),
+        size = d.size_label(),
+        when = d.uploaded_at.format("%d.%m.%Y %H:%M"),
+        remove = if locked { String::new() } else { format!(
+            r##"<form method="post" action="/documents/delete" class="inline"
+    onsubmit="return confirm('{name} silinsin mi?')">
+  <input type="hidden" name="id" value="{id}">
+  <button class="doc-del" title="Sil" aria-label="Sil">{trash}</button>
+</form>"##,
+            id = d.id, name = esc(&d.filename), trash = ico(P_TRASH)) },
+    )).collect();
+    format!(r#"<ul class="doc-files">{rows}</ul>"#)
+}
+
+/// Veli Onay Formları. One card per form in CONSENT_DOCS. A form whose document isn't
+/// ready to hand out yet (Paribu, at the time of writing) is rendered blurred behind a
+/// "yakında" overlay instead of being hidden: students should know it is coming, and
+/// know they don't have to do anything about it yet. The admin opens it from /admin,
+/// and the same lock is enforced server-side on upload.
+pub fn documents(user: &User, docs: &[ConsentDoc], locks: &[(&str, bool)], error: Option<&str>, notice: Option<&str>) -> String {
+    let banner = error.map(|e| format!(r#"<p class="error portal-error">{}</p>"#, esc(e)))
+        .or_else(|| notice.map(|m| format!(r#"<p class="notice portal-notice">{}</p>"#, esc(m))))
+        .unwrap_or_default();
+
+    let cards: String = CONSENT_DOCS.iter().map(|(kind, title, note)| {
+        let locked = locks.iter().find(|(k, _)| k == kind).map(|(_, l)| *l).unwrap_or(false);
+        let count = docs.iter().filter(|d| d.kind == *kind).count();
+        let (badge, badge_cls) = if locked { ("Yakında", "doc-st-soon") }
+            else if count > 0 { ("Yüklendi", "doc-st-done") }
+            else { ("Bekleniyor", "doc-st-wait") };
+
+        // Locked: everything below the heading is inert and blurred, with the overlay
+        // explaining why. No <input> is rendered at all — there is nothing to click.
+        let body = if locked {
+            format!(
+                r##"<div class="doc-locked">
+    <div class="doc-blur" aria-hidden="true">
+      <p class="fieldnote doc-none">Henüz bir dosya yüklemedin.</p>
+      <div class="dropzone doc-fake">{up}<b>Dosyalarını sürükle veya seç</b><span>{formats}</span></div>
+      <div class="doc-fake-btn">Yükle →</div>
+    </div>
+    <div class="doc-lockmsg">{lock}<b>Bu form henüz hazır değil</b>
+      <span>Hazır olduğunda burada açılacak ve WhatsApp grubundan haber verilecek.</span></div>
+  </div>"##,
+                up = ico(P_UPLOAD), lock = ico(P_LOCK), formats = CONSENT_FORMATS)
+        } else {
+            format!(
+                r##"{files}
+  <form method="post" action="/documents/upload" enctype="multipart/form-data" class="doc-form">
+    <input type="hidden" name="kind" value="{kind}">
+    <label class="dropzone">
+      <input name="files" type="file" accept="{accept}" multiple required
+        onchange="var z=this.closest('.dropzone');z.classList.toggle('has-file',this.files.length>0);z.querySelector('b').textContent=this.files.length?(this.files.length===1?this.files[0].name:this.files.length+' dosya seçildi'):'Dosyalarını sürükle veya seç'"
+        ondragenter="this.closest('.dropzone').classList.add('drag')"
+        ondragleave="this.closest('.dropzone').classList.remove('drag')"
+        ondrop="this.closest('.dropzone').classList.remove('drag')">
+      {up}
+      <b>Dosyalarını sürükle veya seç</b>
+      <span>{formats} · birden fazla sayfa seçebilirsin</span>
+    </label>
+    <button class="btn-dark">{verb}</button>
+  </form>"##,
+                files = consent_file_list(docs, kind, locked),
+                accept = CONSENT_ACCEPT, up = ico(P_UPLOAD), formats = CONSENT_FORMATS,
+                verb = if count > 0 { "Dosya ekle →" } else { "Yükle →" })
+        };
+
+        format!(
+            r##"<section class="panel doccard {done}">
+  <div class="dochead">
+    <span class="docico">{doc}</span>
+    <h3>{title}</h3>
+    <span class="badge {badge_cls}">{badge}</span>
+  </div>
+  <p class="desc">{note}</p>
+  {body}
+</section>"##,
+            done = if count > 0 && !locked { "has-docs" } else { "" },
+            doc = ico(P_DOC), title = esc(title), note = esc(note),
+        )
+    }).collect();
+
+    let content = format!(
+        r##"<h1 class="pagetitle">Veli Onay Formları ve Sözleşmeler</h1>
+<p class="muted">Yaşınız 18'den küçük olduğu için programa katılım bazı formların
+veli/yasal temsilciniz tarafından onaylanmasını gerektiriyor. Aşağıdaki belgeleri
+veli/yasal temsilcinize imzalatıp buraya yükleyin.</p>
+{banner}
+<div class="doc-deadline">{cal}<div><b>Son tarih: {deadline}</b>
+<span>Exposure AI Academy ve QNBEYOND formlarının bu tarihten önce yüklenmiş olması gerekiyor.</span></div></div>
+<p class="fieldnote doc-howto">Belgeleri imzaladıktan sonra tarayarak ya da <b>tüm sayfaları net
+görünecek şekilde</b> fotoğraflayarak yükleyebilirsiniz. İmzanın, tarihin ve tüm sayfaların
+okunaklı olduğundan emin olun. Bir formun sayfalarını tek tek yükleyebilirsiniz — hepsi bir
+arada saklanır. Belgelerinizi yalnızca siz ve akademi ekibi görebilir.</p>
+<div class="doccards">{cards}</div>"##,
+        cal = ico(P_CAL), deadline = CONSENT_DEADLINE,
+    );
+    layout("Veli Onay Formları", Some(user), "documents", &content)
+}
+
+/// The admin side of the consent forms: a download-everything button, a per-form
+/// open/close switch, and a student × form grid of what has actually arrived.
+/// Every file is a direct download link, and the whole set is one ZIP.
+fn admin_consent_panel(members: &[MemberRow], docs: &[ConsentDoc], locks: &[(&str, bool)]) -> String {
+    // students only: admins hand in nothing, and an admin row in the grid is noise
+    let students: Vec<&MemberRow> = members.iter().filter(|m| !m.is_admin).collect();
+
+    let switches: String = CONSENT_DOCS.iter().map(|(kind, title, _)| {
+        let locked = locks.iter().find(|(k, _)| k == kind).map(|(_, l)| *l).unwrap_or(false);
+        let have = students.iter()
+            .filter(|m| docs.iter().any(|d| d.user_id == m.id && d.kind == *kind))
+            .count();
+        format!(
+            r##"<div class="consent-switch">
+  <div>
+    <b>{title}</b>
+    <span class="item-meta">{have}/{total} öğrenci yükledi · {state}</span>
+  </div>
+  <form method="post" action="/admin/documents/lock" class="inline">
+    <input type="hidden" name="kind" value="{kind}">
+    <input type="hidden" name="locked" value="{next}">
+    <button class="btn-outline small">{action}</button>
+  </form>
+</div>"##,
+            title = esc(title), total = students.len(),
+            state = if locked { "kapalı (öğrencilere bulanık görünüyor)" } else { "açık" },
+            next = if locked { "false" } else { "true" },
+            action = if locked { "Yüklemeye aç" } else { "Yüklemeyi kapat" },
+        )
+    }).collect();
+
+    let head: String = CONSENT_DOCS.iter()
+        .map(|(_, title, _)| format!("<th>{}</th>", esc(title)))
+        .collect();
+    let rows: String = if students.is_empty() {
+        "<tr><td colspan=\"4\" class=\"muted\">Henüz öğrenci yok</td></tr>".into()
+    } else {
+        students.iter().map(|m| {
+            let cells: String = CONSENT_DOCS.iter().map(|(kind, ..)| {
+                let files: Vec<&ConsentDoc> = docs.iter()
+                    .filter(|d| d.user_id == m.id && d.kind == *kind).collect();
+                if files.is_empty() {
+                    return r#"<td class="consent-missing">—</td>"#.to_string();
+                }
+                let links: String = files.iter().enumerate().map(|(i, d)| format!(
+                    r#"<a href="/documents/file/{id}" title="{name} · {size}">{n}</a>"#,
+                    id = d.id, name = esc(&d.filename), size = d.size_label(), n = i + 1,
+                )).collect();
+                format!(r#"<td class="consent-have"><span class="consent-files">{links}</span>
+<span class="item-meta">{n} dosya · {when}</span></td>"#,
+                    n = files.len(),
+                    when = files.iter().map(|d| d.uploaded_at).max()
+                        .map(|t| t.format("%d.%m.%Y").to_string()).unwrap_or_default())
+            }).collect();
+            format!("<tr><td>{name}</td><td>{email}</td>{cells}</tr>",
+                name = esc(&m.display_name), email = esc(&m.email))
+        }).collect()
+    };
+
+    format!(
+        r##"<section class="panel wide">
+  <div class="panel-head">
+    <h2>Veli onay formları</h2>
+    <a class="btn-dark small" href="/admin/documents.zip">⬇ Tüm belgeler (.zip)</a>
+  </div>
+  <p class="muted">Öğrenciler bunları <b>Veli Onay Formları</b> sayfasından yükler. Son tarih:
+  <b>{deadline}</b>. ZIP her form için ayrı klasör, içinde öğrenci başına bir klasör açar ve
+  kökündeki <b>_EKSIKLER.txt</b> kimin yüklemediğini listeler. Kapattığın form öğrencilere
+  bulanık görünür ve yükleme kabul etmez.</p>
+  <div class="consent-switches">{switches}</div>
+  <table class="consent-table"><tr><th>Öğrenci</th><th>E-posta</th>{head}</tr>{rows}</table>
+</section>"##,
+        deadline = CONSENT_DEADLINE,
+    )
+}
+
 /// Upload ceiling for a schedule screenshot, in MB. Stated on the form and enforced
 /// by the route's body limit in main.rs, which reads this same number.
 pub const SCHEDULE_IMAGE_MAX_MB: usize = 8;
@@ -950,10 +1178,11 @@ fn admin_venue_panel(venues: &[Venue]) -> String {
     )
 }
 
-pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[Video], tasks: &[Task], members: &[MemberRow], invite_code: &str, base_url: &str, schedule_images: &[ScheduleImage], venues: &[Venue]) -> String {
+pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[Video], tasks: &[Task], members: &[MemberRow], invite_code: &str, base_url: &str, schedule_images: &[ScheduleImage], venues: &[Venue], consent_docs: &[ConsentDoc], consent_locks: &[(&str, bool)]) -> String {
     let invite_link = format!("{}/join/{}", base_url.trim_end_matches('/'), invite_code);
     let schedule_panel = admin_schedule_panel(schedule_images);
     let venue_panel = admin_venue_panel(venues);
+    let consent_panel = admin_consent_panel(members, consent_docs, consent_locks);
     let level_opts = level_options("");
     let stat_rows: String = stats.iter().map(|s| {
         let pct = if s.duration > 0.0 { (s.max_position / s.duration * 100.0).min(100.0) } else { 0.0 };
@@ -1107,6 +1336,8 @@ pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[
     layout("Yönetici paneli", Some(user), "admin", &format!(
         r##"<div id="admin-root">
 <h1 class="pagetitle">Yönetici paneli</h1>
+
+{consent_panel}
 
 {schedule_panel}
 
@@ -1314,6 +1545,134 @@ mod tests {
         let html = location(&student(), &[v]);
         assert!(!html.contains("<script>alert(1)"));
         assert!(html.contains("&lt;script&gt;alert(1)&lt;/script&gt;"));
+    }
+
+    // ---- veli onay formları ----
+
+    fn doc(kind: &str, name: &str) -> ConsentDoc {
+        ConsentDoc {
+            id: uuid::Uuid::new_v4(), user_id: uuid::Uuid::new_v4(), kind: kind.into(),
+            filename: name.into(), bytes: 2_400_000,
+            uploaded_at: chrono::DateTime::from_timestamp(1_780_000_000, 0).unwrap(),
+        }
+    }
+
+    /// Open forms get a real file input; a locked one gets none at all — the blurred
+    /// card is decoration, so there is nothing for a student to click or a script to
+    /// find and post to.
+    #[test]
+    fn locked_form_is_blurred_and_has_no_input() {
+        let html = documents(&student(), &[], &[("exposure", false), ("qnbeyond", false), ("paribu", true)], None, None);
+        assert!(html.contains("doc-blur") && html.contains("doc-lockmsg"));
+        assert!(html.contains("Bu form henüz hazır değil"));
+        // exposure + qnbeyond are open, paribu is not: two upload forms, two file inputs
+        assert_eq!(html.matches(r#"action="/documents/upload""#).count(), 2);
+        assert_eq!(html.matches(r#"name="files""#).count(), 2);
+        assert_eq!(html.matches(r#"value="paribu""#).count(), 0);
+        // and it is still named, so nobody is surprised by a third form later
+        assert!(html.contains("Paribu Lokasyon/Katılım İzin Formu"));
+        assert!(html.contains("Yakında"));
+    }
+
+    /// Every form in CONSENT_DOCS has a card, uploads are multipart, and the deadline
+    /// is stated once, from the constant.
+    #[test]
+    fn every_form_gets_a_card() {
+        let locks: Vec<(&str, bool)> = CONSENT_DOCS.iter().map(|(k, ..)| (*k, false)).collect();
+        let html = documents(&student(), &[], &locks, None, None);
+        for (kind, title, _) in CONSENT_DOCS {
+            assert!(html.contains(&format!(r#"<input type="hidden" name="kind" value="{kind}">"#)), "{kind}");
+            assert!(html.contains(&esc(title)), "{kind}");
+        }
+        assert!(html.contains(r#"enctype="multipart/form-data""#));
+        assert!(html.contains("multiple"), "several pages can be picked at once");
+        assert!(html.contains(CONSENT_DEADLINE));
+    }
+
+    /// Uploaded files are listed back, downloadable, and removable while the form is
+    /// open — a student has to be able to see what actually arrived.
+    #[test]
+    fn uploaded_files_are_listed_with_a_download_and_a_delete() {
+        let d = doc("exposure", "veli-onay-1.pdf");
+        let id = d.id;
+        let html = documents(&student(), &[d], &[("exposure", false), ("qnbeyond", false), ("paribu", true)], None, None);
+        assert!(html.contains(&format!(r#"href="/documents/file/{id}""#)));
+        assert!(html.contains("veli-onay-1.pdf"));
+        assert!(html.contains(r#"action="/documents/delete""#));
+        assert!(html.contains("2.3 MB"));
+        assert!(html.contains("doc-st-done"), "the card reads as done");
+        // the still-empty QNBEYOND card says so rather than showing an empty list
+        assert!(html.contains("Henüz bir dosya yüklemedin"));
+    }
+
+    /// A closed form is closed both ways: no upload control and no delete button, so a
+    /// collected set of files can't move once the admin closes it.
+    #[test]
+    fn a_closed_form_cannot_be_edited() {
+        let d = doc("qnbeyond", "izin.jpg");
+        let html = documents(&student(), &[d], &[("exposure", false), ("qnbeyond", true), ("paribu", true)], None, None);
+        assert_eq!(html.matches(r#"action="/documents/delete""#).count(), 0);
+        assert_eq!(html.matches(r#"action="/documents/upload""#).count(), 1);
+    }
+
+    /// The file name a student picked is escaped on the way into the list and into the
+    /// confirm() string — it is the one piece of this page they control.
+    #[test]
+    fn student_filenames_are_escaped() {
+        let d = doc("exposure", r#"<img src=x onerror=alert(1)>.pdf"#);
+        let html = documents(&student(), &[d], &[("exposure", false)], None, None);
+        assert!(!html.contains("<img src=x"));
+        assert!(html.contains("&lt;img src=x onerror=alert(1)&gt;.pdf"));
+    }
+
+    fn member(name: &str, id: uuid::Uuid) -> MemberRow {
+        MemberRow {
+            id, display_name: name.into(), email: format!("{name}@ornek.com"),
+            nickname: Some(name.into()), is_admin: false, hidden_from_leaderboard: false,
+        }
+    }
+
+    /// The admin grid says who handed in what, links every file, and offers the whole
+    /// set as one download.
+    #[test]
+    fn admin_grid_shows_who_uploaded_what() {
+        let (a, b) = (uuid::Uuid::new_v4(), uuid::Uuid::new_v4());
+        let mut d = doc("exposure", "ada.pdf");
+        d.user_id = a;
+        let did = d.id;
+        let members = [member("ada", a), member("bora", b)];
+        let panel = admin_consent_panel(&members, &[d],
+            &[("exposure", false), ("qnbeyond", false), ("paribu", true)]);
+        assert!(panel.contains("/admin/documents.zip"));
+        assert!(panel.contains(&format!(r#"href="/documents/file/{did}""#)));
+        assert!(panel.contains("1/2 öğrenci yükledi"), "one of two students is in");
+        assert!(panel.contains("consent-missing"), "bora's cell is empty");
+        // every form gets an open/close switch, and paribu's says it is closed
+        assert_eq!(panel.matches(r#"action="/admin/documents/lock""#).count(), CONSENT_DOCS.len());
+        assert!(panel.contains("Yüklemeye aç") && panel.contains("Yüklemeyi kapat"));
+    }
+
+    /// Admins hand nothing in, so they are not rows in the collection grid.
+    #[test]
+    fn admins_are_not_chased_for_forms() {
+        let mut boss = member("onur", uuid::Uuid::new_v4());
+        boss.is_admin = true;
+        let panel = admin_consent_panel(&[boss, member("ada", uuid::Uuid::new_v4())], &[],
+            &[("exposure", false), ("qnbeyond", false), ("paribu", true)]);
+        assert!(!panel.contains("onur@ornek.com"));
+        assert!(panel.contains("0/1 öğrenci yükledi"));
+    }
+
+    /// Ana Sayfa leads with the missing forms while any open one is outstanding, and
+    /// stops nagging once they are all in.
+    #[test]
+    fn home_nags_only_while_a_form_is_missing() {
+        let missing = home(&student(), 0, 10, 3, 0, None, 1, 2);
+        assert!(missing.contains("alertbar") && missing.contains("Veli onay formların eksik (1/2)"));
+        assert!(missing.contains(CONSENT_DEADLINE));
+        let done = home(&student(), 0, 10, 3, 0, None, 2, 2);
+        assert!(!done.contains("alertbar"));
+        assert!(done.contains("2/2 form yüklendi"), "the card still shows the state");
     }
 
     /// Both weeks get their own form, each posting its own week number.
