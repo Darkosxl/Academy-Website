@@ -111,6 +111,11 @@ docker buildx build \
   "$source_directory"
 (cd "$artifacts" && sha256sum -c SHA256SUMS)
 
+# Docker's local exporter can create root-only files. The unprivileged executor
+# must be able to read the pinned wheel bundle during offline environment setup.
+chmod -R a+rX "$artifacts"
+run_executor test -r "$artifacts/python/requirements.lock"
+
 clone_exact \
   https://github.com/arcprize/ARC-AGI-3-Kaggle-Starter.git \
   "$arc" "$arc_sha"
