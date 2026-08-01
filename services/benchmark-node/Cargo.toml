@@ -6,6 +6,8 @@ edition.workspace = true
 [dependencies]
 anyhow.workspace = true
 aws-config = "1"
+aws-sdk-autoscaling = "1"
+aws-sdk-cloudwatch = "1"
 aws-sdk-secretsmanager = "1"
 axum.workspace = true
 benchmark-protocol = { path = "../../crates/benchmark-protocol" }

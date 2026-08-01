@@ -30,6 +30,15 @@ pub struct ControllerConfig {
     pub executor_socket: PathBuf,
     pub gateway_directory: PathBuf,
     pub metrics_bind: SocketAddr,
+    pub fleet: Option<FleetConfig>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FleetConfig {
+    pub auto_scaling_group: String,
+    pub instance_id: String,
+    pub termination_hook: String,
+    pub metric_namespace: String,
 }
 
 impl ControllerConfig {
@@ -80,6 +89,12 @@ impl ControllerConfig {
         if !metrics_bind.ip().is_loopback() {
             bail!("BENCHMARK_METRICS_BIND must be loopback-only");
         }
+        let fleet = fleet_config(
+            env::var("BENCHMARK_ASG_NAME").ok(),
+            env::var("BENCHMARK_INSTANCE_ID").ok(),
+            env::var("BENCHMARK_TERMINATION_HOOK").ok(),
+            value("BENCHMARK_METRIC_NAMESPACE", "Exposure/Benchmark"),
+        )?;
         Ok(Self {
             academy_base_url,
             worker_token: secrets.worker_token,
@@ -100,6 +115,7 @@ impl ControllerConfig {
             )
             .into(),
             metrics_bind,
+            fleet,
         })
     }
 }
@@ -189,6 +205,36 @@ fn deployment_environment(current: Option<&str>, legacy: Option<&str>) -> Result
     }
 }
 
+fn fleet_config(
+    auto_scaling_group: Option<String>,
+    instance_id: Option<String>,
+    termination_hook: Option<String>,
+    metric_namespace: String,
+) -> Result<Option<FleetConfig>> {
+    let values = [
+        auto_scaling_group.as_deref().unwrap_or_default().trim(),
+        instance_id.as_deref().unwrap_or_default().trim(),
+        termination_hook.as_deref().unwrap_or_default().trim(),
+    ];
+    if values.iter().all(|value| value.is_empty()) {
+        return Ok(None);
+    }
+    if values.iter().any(|value| value.is_empty()) {
+        bail!(
+            "BENCHMARK_ASG_NAME, BENCHMARK_INSTANCE_ID, and BENCHMARK_TERMINATION_HOOK must be set together"
+        );
+    }
+    if metric_namespace.trim().is_empty() {
+        bail!("BENCHMARK_METRIC_NAMESPACE must not be empty");
+    }
+    Ok(Some(FleetConfig {
+        auto_scaling_group: values[0].to_owned(),
+        instance_id: values[1].to_owned(),
+        termination_hook: values[2].to_owned(),
+        metric_namespace: metric_namespace.trim().to_owned(),
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -216,5 +262,38 @@ mod tests {
             Environment::Prod
         );
         assert!(deployment_environment(Some("staging"), None).is_err());
+    }
+
+    #[test]
+    fn fleet_configuration_is_optional_but_never_partial() {
+        assert_eq!(
+            fleet_config(None, None, None, "Exposure/Benchmark".into()).unwrap(),
+            None
+        );
+        assert!(
+            fleet_config(
+                Some("workers".into()),
+                None,
+                Some("drain".into()),
+                "Exposure/Benchmark".into()
+            )
+            .is_err()
+        );
+        assert_eq!(
+            fleet_config(
+                Some("workers".into()),
+                Some("i-123".into()),
+                Some("drain".into()),
+                "Exposure/Benchmark".into()
+            )
+            .unwrap()
+            .unwrap(),
+            FleetConfig {
+                auto_scaling_group: "workers".into(),
+                instance_id: "i-123".into(),
+                termination_hook: "drain".into(),
+                metric_namespace: "Exposure/Benchmark".into(),
+            }
+        );
     }
 }

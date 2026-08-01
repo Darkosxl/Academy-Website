@@ -10,6 +10,7 @@ use benchmark_node::{
     MAX_NDJSON_BYTES,
     academy::{AcademyClient, ApiError},
     config::ControllerConfig,
+    fleet::FleetManager,
     gateway::{GatewayHandle, GatewayMetrics},
     ndjson,
 };
@@ -44,6 +45,7 @@ struct ControllerMetrics {
     failed: AtomicU64,
     academy_errors: AtomicU64,
     executor_errors: AtomicU64,
+    fleet_errors: AtomicU64,
     frames_dropped: AtomicU64,
     model: Mutex<ModelTotals>,
 }
@@ -115,6 +117,10 @@ async fn main() -> Result<()> {
     let config = ControllerConfig::load().await?;
     let academy = AcademyClient::new(config.academy_base_url.clone(), config.worker_token.clone())
         .context("build Academy client")?;
+    let fleet = match config.fleet.as_ref() {
+        Some(fleet) => Some(FleetManager::new(fleet, &config.aws_region).await),
+        None => None,
+    };
     let metrics = Arc::new(ControllerMetrics::default());
     metrics.healthy.store(true, Ordering::Relaxed);
     touch(&metrics);
@@ -130,24 +136,59 @@ async fn main() -> Result<()> {
             eprintln!("monitoring listener stopped: {error}");
         }
     });
-    run(&config, &academy, &metrics).await
+    if let Some(fleet) = fleet.clone() {
+        tokio::spawn(report_capacity(academy.clone(), fleet, metrics.clone()));
+    }
+    run(&config, &academy, &metrics, fleet.as_ref()).await
 }
 
 async fn run(
     config: &ControllerConfig,
     academy: &AcademyClient,
     metrics: &Arc<ControllerMetrics>,
+    fleet: Option<&FleetManager>,
 ) -> Result<()> {
+    if drain_if_terminating(fleet, metrics).await? {
+        return park_for_termination().await;
+    }
+    if let Some(fleet) = fleet {
+        fleet
+            .set_protected(false)
+            .await
+            .context("mark initialized benchmark node idle")?;
+    }
     let mut delay = Duration::from_secs(2);
     loop {
         touch(metrics);
+        if drain_if_terminating(fleet, metrics).await? {
+            return park_for_termination().await;
+        }
         match academy.claim().await {
             Ok(Some(claim)) => {
                 delay = Duration::from_secs(2);
                 metrics.claims.fetch_add(1, Ordering::Relaxed);
+                if let Err(error) = protect_claimed_work(fleet).await {
+                    metrics.fleet_errors.fetch_add(1, Ordering::Relaxed);
+                    post_run_result(
+                        academy,
+                        metrics,
+                        failure_result(
+                            &claim,
+                            &format!("could not protect worker capacity: {error}"),
+                        ),
+                    )
+                    .await;
+                    if release_work(fleet, metrics).await? {
+                        return park_for_termination().await;
+                    }
+                    continue;
+                }
                 metrics.running.store(true, Ordering::Relaxed);
                 process_run(config, academy, metrics, claim).await;
                 metrics.running.store(false, Ordering::Relaxed);
+                if release_work(fleet, metrics).await? {
+                    return park_for_termination().await;
+                }
                 continue;
             }
             Ok(None) => {}
@@ -164,9 +205,26 @@ async fn run(
             Ok(Some(claim)) => {
                 delay = Duration::from_secs(2);
                 metrics.claims.fetch_add(1, Ordering::Relaxed);
+                if let Err(error) = protect_claimed_work(fleet).await {
+                    metrics.fleet_errors.fetch_add(1, Ordering::Relaxed);
+                    fail_kaggle_claim(
+                        academy,
+                        metrics,
+                        &claim,
+                        &format!("could not protect worker capacity: {error}"),
+                    )
+                    .await;
+                    if release_work(fleet, metrics).await? {
+                        return park_for_termination().await;
+                    }
+                    continue;
+                }
                 metrics.running.store(true, Ordering::Relaxed);
                 process_kaggle(config, academy, metrics, claim).await;
                 metrics.running.store(false, Ordering::Relaxed);
+                if release_work(fleet, metrics).await? {
+                    return park_for_termination().await;
+                }
                 continue;
             }
             Ok(None) => {
@@ -180,6 +238,80 @@ async fn run(
         }
         tokio::time::sleep(delay).await;
     }
+}
+
+async fn report_capacity(
+    academy: AcademyClient,
+    fleet: FleetManager,
+    metrics: Arc<ControllerMetrics>,
+) {
+    let mut interval = tokio::time::interval(Duration::from_secs(30));
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    loop {
+        interval.tick().await;
+        match academy.capacity().await {
+            Ok(capacity) => {
+                if let Err(error) = fleet.publish_capacity(&capacity).await {
+                    metrics.fleet_errors.fetch_add(1, Ordering::Relaxed);
+                    eprintln!("capacity metric publish failed: {error}");
+                }
+            }
+            Err(error) => {
+                metrics.academy_errors.fetch_add(1, Ordering::Relaxed);
+                eprintln!("capacity snapshot failed: {error}");
+            }
+        }
+    }
+}
+
+async fn protect_claimed_work(fleet: Option<&FleetManager>) -> Result<()> {
+    let Some(fleet) = fleet else {
+        return Ok(());
+    };
+    if let Err(protection_error) = fleet.set_protected(true).await {
+        // A scale-in can win the few milliseconds between claim and protection. The
+        // termination hook still gives the claimed run its full deadline to drain.
+        if fleet.termination_waiting().await.unwrap_or(false) {
+            eprintln!("node entered termination while claiming; draining under lifecycle hook");
+            return Ok(());
+        }
+        return Err(protection_error);
+    }
+    Ok(())
+}
+
+async fn release_work(fleet: Option<&FleetManager>, metrics: &ControllerMetrics) -> Result<bool> {
+    let Some(fleet) = fleet else {
+        return Ok(false);
+    };
+    if drain_if_terminating(Some(fleet), metrics).await? {
+        return Ok(true);
+    }
+    fleet
+        .set_protected(false)
+        .await
+        .context("release benchmark node scale-in protection")?;
+    Ok(false)
+}
+
+async fn drain_if_terminating(
+    fleet: Option<&FleetManager>,
+    metrics: &ControllerMetrics,
+) -> Result<bool> {
+    let Some(fleet) = fleet else {
+        return Ok(false);
+    };
+    if !fleet.termination_waiting().await? {
+        return Ok(false);
+    }
+    fleet.complete_termination().await?;
+    metrics.healthy.store(false, Ordering::Relaxed);
+    Ok(true)
+}
+
+async fn park_for_termination() -> Result<()> {
+    std::future::pending::<()>().await;
+    Ok(())
 }
 
 async fn process_run(
@@ -493,8 +625,36 @@ async fn process_kaggle(
             private_score: None,
             status_message: Some(error.to_string().chars().take(2000).collect()),
         });
+    post_kaggle_result(academy, metrics, &result).await;
+}
+
+async fn fail_kaggle_claim(
+    academy: &AcademyClient,
+    metrics: &Arc<ControllerMetrics>,
+    claim: &KaggleClaim,
+    message: &str,
+) {
+    let result = KaggleResultRequest {
+        id: claim.id,
+        lease_token: claim.lease_token,
+        status: "failed".into(),
+        kernel_slug: claim.kernel_slug.clone(),
+        kernel_version: claim.kernel_version,
+        submission_ref: claim.submission_ref.clone(),
+        public_score: None,
+        private_score: None,
+        status_message: Some(message.chars().take(2000).collect()),
+    };
+    post_kaggle_result(academy, metrics, &result).await;
+}
+
+async fn post_kaggle_result(
+    academy: &AcademyClient,
+    metrics: &Arc<ControllerMetrics>,
+    result: &KaggleResultRequest,
+) {
     for attempt in 0..4 {
-        match academy.kaggle_result(&result).await {
+        match academy.kaggle_result(result).await {
             Ok(()) | Err(ApiError::StaleLease) => return,
             Err(error) if error.is_temporary() && attempt < 3 => {
                 metrics.academy_errors.fetch_add(1, Ordering::Relaxed);
@@ -502,7 +662,7 @@ async fn process_kaggle(
             }
             Err(error) => {
                 metrics.academy_errors.fetch_add(1, Ordering::Relaxed);
-                eprintln!("Kaggle result rejected for {}: {error}", claim.id);
+                eprintln!("Kaggle result rejected for {}: {error}", result.id);
                 return;
             }
         }
@@ -621,6 +781,7 @@ async fn prometheus(State(metrics): State<Arc<ControllerMetrics>>) -> Response {
             "exposure_benchmark_failed_total {}\n",
             "exposure_benchmark_academy_errors_total {}\n",
             "exposure_benchmark_executor_errors_total {}\n",
+            "exposure_benchmark_fleet_errors_total {}\n",
             "exposure_benchmark_frames_dropped_total {}\n",
             "exposure_benchmark_model_requests_total {}\n",
             "exposure_benchmark_model_errors_total {}\n",
@@ -635,6 +796,7 @@ async fn prometheus(State(metrics): State<Arc<ControllerMetrics>>) -> Response {
         metrics.failed.load(Ordering::Relaxed),
         metrics.academy_errors.load(Ordering::Relaxed),
         metrics.executor_errors.load(Ordering::Relaxed),
+        metrics.fleet_errors.load(Ordering::Relaxed),
         metrics.frames_dropped.load(Ordering::Relaxed),
         model.requests,
         model.errors,

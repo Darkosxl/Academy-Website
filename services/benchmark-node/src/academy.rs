@@ -1,5 +1,5 @@
 use benchmark_protocol::{
-    ArcFramesRequest, HarnessClaim, HarnessLeaseRequest, HarnessProgressRequest,
+    ArcFramesRequest, HarnessCapacity, HarnessClaim, HarnessLeaseRequest, HarnessProgressRequest,
     HarnessResultRequest, HarnessStageRequest, KaggleClaim, KaggleResultRequest,
 };
 use reqwest::StatusCode;
@@ -61,6 +61,11 @@ impl AcademyClient {
 
     pub async fn claim(&self) -> Result<Option<HarnessClaim>, ApiError> {
         self.post_response("/api/worker/harness/claim", &serde_json::json!({}))
+            .await
+    }
+
+    pub async fn capacity(&self) -> Result<HarnessCapacity, ApiError> {
+        self.post_response("/api/worker/harness/capacity", &serde_json::json!({}))
             .await
     }
 

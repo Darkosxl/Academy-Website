@@ -1,5 +1,6 @@
 pub mod academy;
 pub mod config;
+pub mod fleet;
 pub mod gateway;
 pub mod ndjson;
 
