@@ -6,7 +6,9 @@
   var root = document.getElementById('arc-live');
   if (!root || root.dataset.active !== 'true') return;
 
-  var POLL_MS = 2000;   // same heartbeat as harness.js
+  // 2s matches harness.js. The main tab's preview sets data-poll="5000": every poll
+  // returns all 25 grids and the preview only shows one, so it does not need the pace.
+  var POLL_MS = Number(root.dataset.poll) || 2000;
   var IDLE_MS = 15000;  // nothing running: slow enough to be free, fast enough to catch a new run
   var FRAME_MS = 250;   // ~4fps, so an action's animation reads as motion between polls
   var PAGE = 200;       // the endpoint's focus page size — a shorter page means we caught up
@@ -19,6 +21,7 @@
     WIN: 'Kazandı',
     GAME_OVER: 'Bitti'
   };
+  var RANK = {NOT_FINISHED: 0, WIN: 1, GAME_OVER: 1, NOT_PLAYED: 2};   // rail order
   // the engine's canonical 16-colour map, alpha dropped
   var PALETTE = ['#FFFFFF', '#CCCCCC', '#999999', '#666666', '#333333', '#000000', '#E53AA3',
                  '#FF7BCC', '#F93C31', '#1E93FF', '#88D8F1', '#FFDC00', '#FF851B', '#921231',
@@ -34,6 +37,12 @@
   var focusBox = document.getElementById('arc-focus');
   var idle = document.getElementById('arc-idle');
 
+  // The main tab has no board wall — just these three, mirrored from the focused game.
+  var prevCanvas = document.getElementById('arc-preview');
+  var prevMeta = document.getElementById('arc-preview-meta');
+  var prevGame = document.getElementById('arc-preview-game');
+  var counters = document.querySelectorAll('[data-arc-count]');
+
   var replay = root.dataset.replay === 'true';
   var runId = root.dataset.run || '';
   var currentRun = root.dataset.currentRun || '';
@@ -45,7 +54,8 @@
   var paused = false;    // the student took the scrubber over
   var tailing = true;    // following a run in flight, so falling behind is worth skipping
   var wasLive = false;   // saw a non-terminal stage: a terminal one is now a transition
-  var big = null, bigMeta = null, scrub = null, timer = null, pace = 0;
+  var picked = false;    // auto-focus has run once; a student's click owns it from here
+  var big = null, bigMeta = null, scrub = null, playBtn = null, timer = null, pace = 0;
 
   function el(tag, cls, text) {
     var node = document.createElement(tag);
@@ -112,19 +122,64 @@
             STATE_TR[game.state] || game.state || ''].join(' · ');
   }
 
-  function renderGames(games) {
-    if (!games || !games.length) return;
-    if (idle) idle.hidden = true;
-    for (var i = 0; i < games.length; i++) {
-      var game = games[i];
-      var tile = tileFor(game.game);
-      tile.button.dataset.state = game.state || '';
-      tile.meta.textContent = line(game);
-      draw(tile.canvas, game.grid);
+  // "5 oynuyor · 8 bitti / 25" on the main tab's preview card.
+  function counts(playing, done, all) {
+    for (var i = 0; i < counters.length; i++) {
+      var node = counters[i];
+      var key = node.dataset.arcCount;
+      node.textContent = key === 'playing' ? String(playing)
+        : key === 'done' ? String(done)
+        : key === 'total' ? String(all)
+        : playing + ' oyun oynanıyor';
     }
   }
 
+  // Nothing is focused until something is clicked, but the main tab's preview has no
+  // tile to click and the watch page should be watching the moment it opens. Runs once:
+  // `focused` is set from here on, and focusGame early-returns on a repeat, so a student
+  // clicking another board always wins.
+  function autoFocus(games) {
+    if (picked || focused) return;
+    picked = true;
+    var pick = games[0].game;
+    for (var i = 0; i < games.length; i++) {
+      if (games[i].state === 'NOT_FINISHED') { pick = games[i].game; break; }
+    }
+    focusGame(pick);
+  }
+
+  function renderGames(games) {
+    if (!games || !games.length) return;
+    if (idle) idle.hidden = true;
+    var playing = 0, done = 0;
+    for (var i = 0; i < games.length; i++) {
+      var game = games[i];
+      if (game.state === 'NOT_FINISHED') playing++;
+      else if (game.state === 'WIN' || game.state === 'GAME_OVER') done++;
+      if (!boards) continue;   // main-tab preview: focus panel only, no board wall
+      var tile = tileFor(game.game);
+      tile.button.dataset.state = game.state || '';
+      tile.meta.textContent = line(game);
+      // The five that are actually playing lead the column, then the finished ones,
+      // then the queue. `order` on a grid item, so nothing is moved in the DOM and
+      // equal ranks keep ARC_GAMES order.
+      tile.button.style.order = RANK[game.state] != null ? RANK[game.state] : 3;
+      draw(tile.canvas, game.grid);
+    }
+    counts(playing, done, games.length);
+    autoFocus(games);
+  }
+
   // ---- the focused board ----------------------------------------------------
+  // `paused` used to be a one-way door: the scrubber sets it and nothing clears it
+  // except focusing a *different* game, so scrubbing once froze the board for good.
+  function setPaused(value) {
+    paused = value;
+    if (!playBtn) return;
+    playBtn.textContent = paused ? '▶' : '❚❚';
+    playBtn.setAttribute('aria-label', paused ? 'Oynat' : 'Duraklat');
+  }
+
   function buildFocus() {
     big = document.createElement('canvas');
     big.width = SIDE;
@@ -133,15 +188,23 @@
     focusBox.appendChild(big);
     bigMeta = el('p', 'arc-focus-meta', '');
     focusBox.appendChild(bigMeta);
+    playBtn = el('button', 'arc-play');
+    playBtn.type = 'button';
+    playBtn.onclick = function () { setPaused(!paused); };
+    focusBox.appendChild(playBtn);
+    setPaused(false);
   }
 
   function focusGame(game) {
     if (focused === game) return;
     focused = game;
+    picked = true;
     film = [];
     at = -1;
     bufSeq = null;
-    paused = false;
+    // the player only earns the two-column watch layout once there is a board wall
+    // beside it to be the playlist
+    if (boards) root.classList.add('watching');
     if (scrub) { scrub.parentNode.removeChild(scrub); scrub = null; }
     for (var key in tiles) {
       if (Object.prototype.hasOwnProperty.call(tiles, key)) {
@@ -150,6 +213,8 @@
     }
     focusBox.hidden = false;
     if (!big) buildFocus();
+    setPaused(false);
+    if (prevGame) prevGame.textContent = game;
     // Blank the board before the first frame of the new game lands. Without this, a failed
     // or slow fetch leaves the PREVIOUS game's board on screen under the new game's label.
     big.getContext('2d').clearRect(0, 0, SIDE, SIDE);
@@ -189,6 +254,8 @@
     if (!cell) return;
     draw(big, cell.hex);
     bigMeta.textContent = cell.text;
+    if (prevCanvas) draw(prevCanvas, cell.hex);
+    if (prevMeta) prevMeta.textContent = cell.text;
     if (scrub && document.activeElement !== scrub) scrub.value = String(at);
   }
 
@@ -210,7 +277,7 @@
     scrub.value = String(at < 0 ? 0 : at);
     scrub.setAttribute('aria-label', 'Kare seçici');
     scrub.oninput = function () {
-      paused = true;   // the student is steering now; playback stops chasing them
+      setPaused(true);   // the student is steering now; playback stops chasing them
       at = Number(scrub.value);
       show();
     };

@@ -552,13 +552,72 @@ fn harness_shell(user: &User, tab: &str, sub: &str, inner: &str) -> String {
         "Agentic Harness",
         Some(user),
         "agentic-harness",
+        // .arcade is the skin's only hook. It goes on the content div, never on <body>:
+        // the sidebar emits .avatar-fb (html.rs:134), which harness.css also restyles.
+        // The <link> rides in the content instead of layout()'s <head> so layout() keeps
+        // byte-identical output for every other page — <link rel=stylesheet> is body-ok.
         &format!(
-            r##"<h1 class="pagetitle" lang="en">Agentic Harness</h1>
+            r##"<div class="arcade">
+<link rel="stylesheet" href="/static/harness.css?v=1">
+<h1 class="pagetitle" lang="en">Agentic Harness</h1>
 <p class="muted">{sub}</p>
 <div class="chips">{chips}</div>
-{inner}"##
+{inner}
+</div>"##
         ),
     )
+}
+
+/// Does the top of this board get a podium? Splits on rank, never on index:
+/// `dense_ranks_by` keys on the display-rounded score, so ties are routine and
+/// `rows[..3]` would put one tied team on the podium and its equal in the list
+/// with the same number beside it. Below three teams a "podium" reads as a bug,
+/// and above six podium rows (pathological ties) an all-podium board is worse
+/// than none — both fall back to the plain 1..n list.
+fn harness_has_podium(ranks: &[i64]) -> bool {
+    ranks.len() >= 3 && ranks.iter().filter(|r| **r <= 3).count() <= 6
+}
+
+/// One podium card. `mine` is `is-mine`, not the shared `mine`, because a student
+/// in the top three has no list row left and has to be findable here.
+fn harness_pod_card(
+    rank: i64,
+    mine: bool,
+    name: &str,
+    kids: &str,
+    score: &str,
+    unit: &str,
+) -> String {
+    let you = if mine {
+        r#"<div class="pod-you">senin takımın</div>"#
+    } else {
+        ""
+    };
+    format!(
+        r##"<div class="pod p{place}{is_mine}">
+  <span class="pod-rank">{rank}</span>
+  <div class="who">{name}</div>
+  <div class="kids">{kids}</div>
+  <div class="pts">{score}<small>{unit}</small></div>{you}
+</div>"##,
+        place = rank.min(3),
+        is_mine = if mine { " is-mine" } else { "" },
+    )
+}
+
+/// Podium + the list under it. A full podium with nothing left over gets a line
+/// rather than an empty container.
+fn harness_board(pods: &str, list: &str) -> String {
+    let podium = if pods.is_empty() {
+        String::new()
+    } else {
+        format!(r#"<div class="podium">{pods}</div>"#)
+    };
+    if list.is_empty() {
+        format!(r#"{podium}<p class="lbnote">Şimdilik sıralamada bu kadar takım var.</p>"#)
+    } else {
+        format!(r#"{podium}<div class="lb">{list}</div>"#)
+    }
 }
 
 fn harness_benchmark_card(run: &HarnessRun, key: &str, title: &str, rule: &str) -> String {
@@ -728,7 +787,7 @@ pub fn agentic_harness_main(
     };
     let left = match team {
         None => format!(
-            r##"<section class="panel harness-left">
+            r##"<section class="harness-left">
   <div class="gate-lock">{lock}</div>
   <h2>Takımın henüz yok</h2>
   <p class="fieldnote">Henüz bir takımda değilsin — eğitmenine yaz. Takımlar şimdilik eğitmen tarafından atanıyor.</p>
@@ -773,7 +832,7 @@ pub fn agentic_harness_main(
                 }
             };
             format!(
-                r##"<section class="panel harness-left">
+                r##"<section class="harness-left">
   <h2>{name}</h2>
   <div class="chips interest-names">{member_chips}</div>
   {action}
@@ -794,9 +853,26 @@ pub fn agentic_harness_main(
             empty_note.into()
         } else {
             let ranks = dense_ranks_by(ram_rows, |r| format!("{:.1}", r.ram_10session_mb));
-            ram_rows
+            let podium = harness_has_podium(&ranks);
+            let pods: String = ram_rows
                 .iter()
                 .zip(&ranks)
+                .filter(|(_, rank)| podium && **rank <= 3)
+                .map(|(r, rank)| {
+                    harness_pod_card(
+                        *rank,
+                        my_team_id == Some(r.id),
+                        &esc(&r.name),
+                        &kid_names(r.id),
+                        &format!("{:.1}", r.ram_10session_mb),
+                        "MB",
+                    )
+                })
+                .collect();
+            let list: String = ram_rows
+                .iter()
+                .zip(&ranks)
+                .filter(|(_, rank)| !podium || **rank > 3)
                 .map(|(r, rank)| {
                     format!(
                         r##"<div class="lbrow {mine} {medal}">
@@ -826,14 +902,33 @@ pub fn agentic_harness_main(
                         r10 = r.ram_10session_mb,
                     )
                 })
-                .collect()
+                .collect();
+            harness_board(&pods, &list)
         }
     } else if rows.is_empty() {
         empty_note.into()
     } else {
         let ranks = dense_ranks_by(rows, |r| format!("{:.1}", r.best));
-        rows.iter()
+        let podium = harness_has_podium(&ranks);
+        let pods: String = rows
+            .iter()
             .zip(&ranks)
+            .filter(|(_, rank)| podium && **rank <= 3)
+            .map(|(r, rank)| {
+                harness_pod_card(
+                    *rank,
+                    my_team_id == Some(r.id),
+                    &esc(&r.name),
+                    &kid_names(r.id),
+                    &format!("{:.1}", r.best),
+                    "p",
+                )
+            })
+            .collect();
+        let list: String = rows
+            .iter()
+            .zip(&ranks)
+            .filter(|(_, rank)| !podium || **rank > 3)
             .map(|(r, rank)| {
                 format!(
                     r##"<div class="lbrow {mine} {medal}">
@@ -861,18 +956,56 @@ pub fn agentic_harness_main(
                     best = r.best,
                 )
             })
-            .collect()
+            .collect();
+        harness_board(&pods, &list)
+    };
+    // While a run is in flight the main tab gets one large board that actually plays.
+    // #arc-live is the hidden root arc.js binds to — it carries #arc-focus so every
+    // existing focus/playback path works untouched, and arc.js mirrors each frame into
+    // the visible preview canvas below. No #arc-boards here: the 25-tile wall stays on
+    // the Canlı tab. data-poll slows the heartbeat to 5s, because each poll returns all
+    // 25 grids (~100KB) and the preview only needs the focused one.
+    let preview = match active_run {
+        Some(run) => format!(
+            r##"<div id="arc-live" class="arc-live" data-active="true" data-run="" data-current-run="{run_id}" data-replay="false" data-poll="5000" hidden>
+  <div class="arc-focus" id="arc-focus" hidden></div>
+</div>
+<a class="panel ah-preview" href="/agentic-harness?tab=live">
+  <div class="ah-preview-head"><h2>Canlı</h2>
+    <span class="substatus st-reviewing" data-arc-count="label">Tahtalar bekleniyor…</span></div>
+  <div class="ah-prev">
+    <div class="ah-prev-board">
+      <canvas id="arc-preview" width="64" height="64" role="img" aria-label="Canlı oyun tahtası"></canvas>
+      <span class="ah-prev-live">CANLI</span>
+    </div>
+    <div class="ah-prev-side">
+      <h3 id="arc-preview-game" lang="en">—</h3>
+      <p class="arc-focus-meta" id="arc-preview-meta">Ajanın ilk hamlesi bekleniyor…</p>
+      <div class="ah-counts">
+        <span><b data-arc-count="playing">0</b> oynuyor</span>
+        <span><b data-arc-count="done">0</b> bitti</span>
+        <span><b data-arc-count="total">25</b> toplam</span>
+      </div>
+      <span class="ah-cta">Canlı izle →</span>
+    </div>
+  </div>
+</a>
+<script src="/static/arc.js?v=4" defer></script>"##,
+            run_id = run.id
+        ),
+        None => String::new(),
     };
     let inner = format!(
         r##"<div class="harnesswrap">
 {left}
 <div class="harness-right">
   <div class="chips">{bench_chips}</div>
-  <div class="lb">{board_rows}</div>
+  {board_rows}
   <p class="lbnote">Her takımın bu harness sürümündeki en iyi puanı gösterilir. RAM-bench'te
   düşük olan daha iyidir. Kısmi çalıştırmalardaki tamamlanmış puanlar korunur.</p>
 </div>
 </div>
+{preview}
 <script src="/static/harness.js?v=5" defer></script>"##
     );
     harness_shell(
@@ -962,7 +1095,7 @@ pub fn agentic_harness_live(user: &User, run: Option<&HarnessRun>, replay: bool)
   <div class="arc-focus" id="arc-focus" hidden></div>
   <div class="arc-grid" id="arc-boards"></div>
 </div>
-<script src="/static/arc.js?v=3" defer></script>"##
+<script src="/static/arc.js?v=4" defer></script>"##
     );
     harness_shell(
         user,
@@ -1207,8 +1340,8 @@ class HarborAgent(Terminus2):
   <code lang="en">User-Agent</code> başlığı ekleyin — varsayılan başlık 403 ile reddedilir.</p>
   <p>Sprint tam Frontier-bench değildir: sürümlenmiş beş görev aynı anda başlar. Her ajanın
   sert süresi 120 saniye, doğrulayıcının süresi 60 saniyedir. İki dakika bilinçli bir sprint
-  bütçesidir; derin görevler zaman aşımına uğrayabilir ve bu puanın parçasıdır. Hız hedefi,
-  tüm aktif görevlerde toplam 100 tur / 30 saniyedir.</p>
+  bütçesidir; derin görevler zaman aşımına uğrayabilir ve bu puanın parçasıdır. Konteyner
+  çalıştırması 15 dakikalık toplam bütçeye ulaştığında durdurulur ve ardından temizlenir.</p>
 </section>
 <section class="panel">
   <h2>LLM erişimi</h2>
@@ -3052,5 +3185,157 @@ mod tests {
         assert!(html.contains(r#"action="/agentic-harness/stop""#));
         assert!(html.contains(&format!(r#"name="id" value="{run_id}""#)));
         assert!(html.contains("Durdur"));
+    }
+
+    fn leader(n: u128, name: &str, best: f32) -> HarnessLeaderRow {
+        HarnessLeaderRow {
+            id: Uuid::from_u128(n),
+            name: name.into(),
+            best,
+        }
+    }
+
+    fn viewer() -> User {
+        User {
+            id: Uuid::nil(),
+            display_name: "A".into(),
+            nickname: Some("a".into()),
+            is_admin: false,
+        }
+    }
+
+    /// The top three are drawn once, on the podium, and the list under it starts at 4.
+    /// Showing a team in both places is the bug this replaced.
+    #[test]
+    fn harness_podium_takes_the_top_three_and_the_list_starts_at_four() {
+        let rows = [
+            leader(1, "Bir", 90.0),
+            leader(2, "Iki", 80.0),
+            leader(3, "Uc", 70.0),
+            leader(4, "Dort", 60.0),
+        ];
+        let html = agentic_harness_main(&viewer(), "arc", None, &[], None, &rows, &[]);
+        assert_eq!(html.matches(r#"<div class="pod p"#).count(), 3);
+        assert_eq!(html.matches(r#"<div class="lbrow "#).count(), 1);
+        assert!(html.contains(r#"<span class="lbrank">4</span>"#));
+        for name in ["Bir", "Iki", "Uc", "Dort"] {
+            assert_eq!(html.matches(name).count(), 1, "{name} rendered twice");
+        }
+    }
+
+    /// dense_ranks_by keys on the display-rounded score, so a tie puts four rows at
+    /// rank <= 3. Splitting on index instead of rank would podium two of the tied
+    /// teams and leave the third in the list with the same number beside it.
+    #[test]
+    fn harness_podium_grows_with_a_tie_and_never_repeats_a_rank() {
+        let rows = [
+            leader(1, "Bir", 90.0),
+            leader(2, "Iki", 80.0),
+            leader(3, "Uc", 70.04),
+            leader(4, "Dort", 70.0), // both render 70.0 -> both rank 3
+            leader(5, "Bes", 60.0),
+        ];
+        let html = agentic_harness_main(&viewer(), "arc", None, &[], None, &rows, &[]);
+        assert_eq!(html.matches(r#"<div class="pod p"#).count(), 4);
+        assert!(html.contains(r#"<span class="lbrank">4</span>"#));
+        assert!(!html.contains(r#"<span class="lbrank">3</span>"#));
+    }
+
+    /// Under three teams a "podium" is one lonely card, so the plain list stands in.
+    #[test]
+    fn harness_podium_is_skipped_for_a_short_board() {
+        let rows = [leader(1, "Bir", 90.0), leader(2, "Iki", 80.0)];
+        let html = agentic_harness_main(&viewer(), "arc", None, &[], None, &rows, &[]);
+        assert!(!html.contains(r#"class="pod p"#));
+        assert!(html.contains(r#"<span class="lbrank">1</span>"#));
+    }
+
+    /// Dumps every harness screen to $HARNESS_RENDER_DIR for a browser pass — these
+    /// pages need no database, so a layout regression is checkable without a server.
+    /// `HARNESS_RENDER_DIR=/tmp/h cargo test -p academy -- --ignored render_harness`
+    #[test]
+    #[ignore]
+    fn render_harness_pages() {
+        let Ok(dir) = std::env::var("HARNESS_RENDER_DIR") else {
+            panic!("set HARNESS_RENDER_DIR to the output directory");
+        };
+        let dir = std::path::PathBuf::from(dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let user = viewer();
+        let team = HarnessTeam {
+            id: Uuid::from_u128(9),
+            name: "Test Takımı".into(),
+        };
+        let members = [
+            TeamMemberRow {
+                team_id: team.id,
+                user_id: Uuid::from_u128(1),
+                display_name: "Berke Arslan".into(),
+                public: true,
+            },
+            TeamMemberRow {
+                team_id: team.id,
+                user_id: Uuid::from_u128(2),
+                display_name: "Onur Çelik".into(),
+                public: true,
+            },
+        ];
+        let run = HarnessRun {
+            id: Uuid::from_u128(7),
+            repo_url: "forge".into(),
+            model_id: "google.gemma-4-31b".into(),
+            commit_sha: Some("be0f06c1d2e3f4a5".into()),
+            stage: "running".into(),
+            benchmark_version: "v2".into(),
+            benchmark_state: serde_json::json!({
+                "arc": {"status": "running", "done": 8, "total": 25, "score": 32.0},
+                "frontier": {"status": "pending"},
+                "ram": {"status": "done", "one_session_mb": 118.4, "ten_session_mb": 942.1},
+            }),
+            bedrock_profile: Some("eu-central-1".into()),
+            deadline_at: Some(chrono::Utc::now() + chrono::Duration::minutes(7)),
+            score_arc: Some(32.0),
+            score_frontier: None,
+            ram_1session_mb: Some(118.4),
+            ram_10session_mb: Some(942.1),
+            error_log: None,
+            created_at: chrono::Utc::now(),
+        };
+        let rows = [
+            leader(1, "Kuantum Kediler", 88.6),
+            leader(2, "Devre Kırıcılar", 81.2),
+            leader(9, "Test Takımı", 74.5),
+            leader(4, "Piksel Avcıları", 68.0),
+            leader(5, "Sonsuz Döngü", 61.3),
+            leader(6, "Yarım Elma", 47.9),
+        ];
+        let pages: Vec<(&str, String)> = vec![
+            (
+                "main-idle",
+                agentic_harness_main(&user, "arc", Some(&team), &members, None, &rows, &[]),
+            ),
+            (
+                "main-running",
+                agentic_harness_main(&user, "arc", Some(&team), &members, Some(&run), &rows, &[]),
+            ),
+            (
+                "main-empty",
+                agentic_harness_main(&user, "arc", None, &[], None, &[], &[]),
+            ),
+            (
+                "live-running",
+                agentic_harness_live(&user, Some(&run), false),
+            ),
+            ("live-idle", agentic_harness_live(&user, None, false)),
+            (
+                "history",
+                agentic_harness_history(&user, Some(&team), &[run], true, Some("test-takimi"), &[]),
+            ),
+            ("instructions", agentic_harness_instructions(&user)),
+        ];
+        for (name, html) in pages {
+            std::fs::write(dir.join(format!("{name}.html")), html).unwrap();
+        }
+        eprintln!("wrote harness pages to {}", dir.display());
     }
 }
