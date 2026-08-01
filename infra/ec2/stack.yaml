@@ -20,6 +20,11 @@ Parameters:
     Default: ''
     AllowedPattern: '^$|^ami-[0-9a-f]+$'
     Description: Golden AMI containing the verified artifacts, caches, venv, and sandbox image
+  WorkerEnabled:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+    Description: Set false only while the 16-vCPU quota is being used by a dedicated image build
   EnableAutoscaling:
     Type: String
     Default: 'false'
@@ -28,14 +33,19 @@ Parameters:
   MaxCapacity:
     Type: Number
     Default: 5
-    MinValue: 2
+    MinValue: 1
     MaxValue: 5
   InstanceType:
     Type: String
-    Default: c8i.8xlarge
-    AllowedValues: [c8i.8xlarge, c8i.12xlarge]
+    Default: r8i.4xlarge
+    AllowedValues: [r8i.4xlarge, c8i.8xlarge, c8i.12xlarge]
 
 Rules:
+  AutoscalingRequiresWorker:
+    RuleCondition: !Equals [!Ref EnableAutoscaling, 'true']
+    Assertions:
+      - Assert: !Equals [!Ref WorkerEnabled, 'true']
+        AssertDescription: WorkerEnabled must be true when autoscaling is enabled
   AutoscalingRequiresPreparedImage:
     RuleCondition: !Equals [!Ref EnableAutoscaling, 'true']
     Assertions:
@@ -43,7 +53,10 @@ Rules:
         AssertDescription: PreparedWorkerAmi is required before autoscaling can be enabled
 
 Conditions:
-  AutoscalingEnabled: !Equals [!Ref EnableAutoscaling, 'true']
+  WorkerFleetEnabled: !Equals [!Ref WorkerEnabled, 'true']
+  AutoscalingEnabled: !And
+    - !Equals [!Ref WorkerEnabled, 'true']
+    - !Equals [!Ref EnableAutoscaling, 'true']
   HasPreparedWorkerAmi: !Not [!Equals [!Ref PreparedWorkerAmi, '']]
 
 Resources:
@@ -134,11 +147,13 @@ Resources:
             #cloud-config
             package_update: true
             package_upgrade: false
+            apt:
+              preserve_sources_list: true
             groups: [exposure-benchmark]
             users:
               - default
-              - {name: exposure-controller, system: true, shell: /usr/sbin/nologin, home: /var/lib/exposure-benchmark/controller, groups: [exposure-benchmark]}
-              - {name: exposure-executor, system: true, shell: /usr/sbin/nologin, home: /var/lib/exposure-benchmark/executor, groups: [exposure-benchmark]}
+              - {name: exposure-controller, system: true, shell: /usr/sbin/nologin, homedir: /var/lib/exposure-benchmark/controller, groups: [exposure-benchmark]}
+              - {name: exposure-executor, system: true, shell: /usr/sbin/nologin, homedir: /var/lib/exposure-benchmark/executor, groups: [exposure-benchmark]}
             bootcmd:
               - sed -i 's|http://|https://|g' /etc/apt/sources.list.d/ubuntu.sources
             packages:
@@ -146,6 +161,7 @@ Resources:
               - ca-certificates
               - curl
               - docker-compose-v2
+              - docker-buildx
               - docker.io
               - fuse-overlayfs
               - git
@@ -160,6 +176,7 @@ Resources:
               - path: /etc/exposure-benchmark/controller.env
                 owner: root:exposure-controller
                 permissions: '0640'
+                defer: true
                 content: |
                   ACADEMY_BASE_URL=${AcademyBaseUrl}
                   AWS_REGION=${AWS::Region}
@@ -205,9 +222,12 @@ Resources:
     Properties:
       AutoScalingGroupName: !Sub ${AWS::StackName}-workers
       VPCZoneIdentifier: [!Ref PrivateSubnetId]
-      MinSize: '1'
-      DesiredCapacity: '1'
-      MaxSize: !If [AutoscalingEnabled, !Ref MaxCapacity, '1']
+      MinSize: !If [WorkerFleetEnabled, '1', '0']
+      DesiredCapacity: !If [WorkerFleetEnabled, '1', '0']
+      MaxSize: !If
+        - WorkerFleetEnabled
+        - !If [AutoscalingEnabled, !Ref MaxCapacity, '1']
+        - '0'
       DefaultInstanceWarmup: 300
       HealthCheckGracePeriod: 600
       HealthCheckType: EC2
@@ -223,7 +243,7 @@ Resources:
         - {Key: Service, Value: exposure-benchmark, PropagateAtLaunch: true}
     UpdatePolicy:
       AutoScalingRollingUpdate:
-        MinInstancesInService: 1
+        MinInstancesInService: 0
         MaxBatchSize: 1
         PauseTime: PT10M
         WaitOnResourceSignals: false
@@ -234,7 +254,7 @@ Resources:
       LifecycleHookName: !Sub ${AWS::StackName}-termination-drain
       AutoScalingGroupName: !Ref WorkerGroup
       LifecycleTransition: autoscaling:EC2_INSTANCE_TERMINATING
-      HeartbeatTimeout: 900
+      HeartbeatTimeout: 7200
       DefaultResult: CONTINUE
 
   ScaleOutPolicy:
@@ -357,5 +377,13 @@ Outputs:
     Value: !Ref WorkerLaunchTemplate
   SecurityGroupId:
     Value: !Ref SecurityGroup
+  InstanceProfileName:
+    Value: !Ref InstanceProfile
+  InstanceProfileArn:
+    Value: !GetAtt InstanceProfile.Arn
+  InstanceRoleArn:
+    Value: !GetAtt InstanceRole.Arn
   AutoscalingEnabled:
     Value: !Ref EnableAutoscaling
+  WorkerEnabled:
+    Value: !Ref WorkerEnabled

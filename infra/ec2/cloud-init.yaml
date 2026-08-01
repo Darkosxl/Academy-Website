@@ -1,6 +1,8 @@
 #cloud-config
 package_update: true
 package_upgrade: false
+apt:
+  preserve_sources_list: true
 
 groups:
   - exposure-benchmark
@@ -10,12 +12,12 @@ users:
   - name: exposure-controller
     system: true
     shell: /usr/sbin/nologin
-    home: /var/lib/exposure-benchmark/controller
+    homedir: /var/lib/exposure-benchmark/controller
     groups: [exposure-benchmark]
   - name: exposure-executor
     system: true
     shell: /usr/sbin/nologin
-    home: /var/lib/exposure-benchmark/executor
+    homedir: /var/lib/exposure-benchmark/executor
     groups: [exposure-benchmark]
 
 bootcmd:
@@ -25,6 +27,7 @@ packages:
   - bubblewrap
   - ca-certificates
   - docker-compose-v2
+  - docker-buildx
   - docker.io
   - fuse-overlayfs
   - git

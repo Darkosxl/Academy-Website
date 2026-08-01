@@ -1,0 +1,92 @@
+name: Deploy benchmark worker AMI
+
+on:
+  push:
+    branches: [arc-live-viewer]
+    paths:
+      - Cargo.toml
+      - Cargo.lock
+      - crates/benchmark-protocol/**
+      - services/academy/Cargo.toml
+      - services/academy/src/**
+      - services/academy/migrations/**
+      - services/academy/videos.dat
+      - services/benchmark-node/**
+      - infra/ec2/cloud-init.yaml
+      - infra/ec2/deploy-worker-image.sh
+      - infra/ec2/install-artifacts.sh
+      - infra/ec2/prepare-worker-image.sh
+      - infra/ec2/seal-worker-image.sh
+      - infra/ec2/verify-isolation.sh
+      - infra/ec2/verify-running-worker.sh
+      - infra/ec2/verify-worker-image.sh
+      - infra/ec2/worker.pkr.hcl
+      - .github/workflows/deploy-benchmark-worker.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: exposure-benchmark-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/arc-live-viewer'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    steps:
+      - name: Check out the exact deployment commit
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
+
+      - name: Authenticate to AWS through GitHub OIDC
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        with:
+          aws-region: us-east-1
+          role-to-assume: ${{ vars.BENCHMARK_DEPLOY_ROLE_ARN }}
+          role-session-name: benchmark-${{ github.run_id }}
+          role-duration-seconds: 21600
+
+      - name: Install pinned Packer
+        uses: hashicorp/setup-packer@ce93c3c08a6c2ff2275bf4b54ff0d9a75f6c9789 # v3.4.0
+        with:
+          version: 1.16.0
+
+      - name: Install the AWS Session Manager plugin
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --silent --show-error \
+            https://s3.amazonaws.com/session-manager-downloads/plugin/1.2.835.0/ubuntu_64bit/session-manager-plugin.deb \
+            --output "$RUNNER_TEMP/session-manager-plugin.deb"
+          sudo dpkg --install "$RUNNER_TEMP/session-manager-plugin.deb"
+          session-manager-plugin --version
+
+      - name: Validate deployment inputs
+        shell: bash
+        env:
+          BENCHMARK_CLOUDFORMATION_ROLE_ARN: ${{ vars.BENCHMARK_CLOUDFORMATION_ROLE_ARN }}
+        run: |
+          set -euo pipefail
+          test -n "${BENCHMARK_CLOUDFORMATION_ROLE_ARN}"
+          bash -n infra/ec2/*.sh
+          git diff --exit-code
+          packer version
+          aws sts get-caller-identity
+
+      - name: Build, verify, deploy, and automatically roll back on failure
+        shell: bash
+        env:
+          AWS_REGION: us-east-1
+          BENCHMARK_STACK_NAME: exposure-benchmark
+          BENCHMARK_CLOUDFORMATION_ROLE_ARN: ${{ vars.BENCHMARK_CLOUDFORMATION_ROLE_ARN }}
+        run: |
+          set -euo pipefail
+          git archive --format=tar.gz \
+            --output "$RUNNER_TEMP/exposure-source.tar.gz" "$GITHUB_SHA"
+          infra/ec2/deploy-worker-image.sh \
+            "$RUNNER_TEMP/exposure-source.tar.gz" "$GITHUB_SHA"

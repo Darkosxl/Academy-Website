@@ -30,7 +30,8 @@ COPY --from=python-builder /bundle/requirements.lock ./python/requirements.lock
 COPY --from=python-builder /bundle/wheels ./python/wheels
 COPY services/benchmark-node/sandbox ./sandbox
 COPY services/benchmark-node/systemd ./systemd
-COPY infra/ec2/install-artifacts.sh infra/ec2/verify-isolation.sh ./infra/
+COPY infra/ec2/install-artifacts.sh infra/ec2/verify-isolation.sh \
+     infra/ec2/verify-running-worker.sh infra/ec2/verify-worker-image.sh ./infra/
 RUN find . -type f ! -name SHA256SUMS -print0 \
       | sort -z | xargs -0 sha256sum > /artifacts/SHA256SUMS
 
