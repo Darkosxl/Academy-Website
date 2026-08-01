@@ -6,6 +6,9 @@ alter table harness_runs_exposure_academy
   drop constraint if exists harness_runs_exposure_academy_stage_check;
 
 alter table harness_runs_exposure_academy
+  -- Stays v1 forever: this line only fires on a database that predates the column, and a
+  -- `not null default` backfills EVERY existing row. Bumping it here silently relabels
+  -- historical runs with today's version, which is exactly what versioning exists to prevent.
   add column if not exists benchmark_version text not null default 'harness-2026-sprint-v1',
   add column if not exists benchmark_state jsonb not null default
     '{"arc":{"status":"pending"},"frontier":{"status":"pending"},"ram":{"status":"pending"}}'::jsonb,
@@ -16,6 +19,12 @@ alter table harness_runs_exposure_academy
   add column if not exists lease_expires_at timestamptz,
   add column if not exists worker_heartbeat_at timestamptz,
   add column if not exists claim_attempts integer not null default 0;
+
+-- `add column if not exists` is a no-op on a database that already has the column, so a
+-- version bump has to be restated here to reach one. Existing rows keep the version they
+-- were scored under; only new runs get the new default (HARNESS_VERSION binds it anyway).
+alter table harness_runs_exposure_academy
+  alter column benchmark_version set default 'harness-2026-sprint-v2';
 
 -- Preserve useful legacy scores while converting the old all-or-nothing state.
 update harness_runs_exposure_academy

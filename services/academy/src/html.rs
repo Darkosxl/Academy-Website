@@ -205,7 +205,7 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/style.css?v=30">
+<link rel="stylesheet" href="/static/style.css?v=31">
 <script>if('scrollRestoration'in history)history.scrollRestoration='manual';</script>
 </head>
 <body class="{body_class}">
@@ -450,8 +450,9 @@ const HARNESS_BENCHES: [(&str, &str); 3] = [
 ];
 
 /// (tab key, href, label). "Instructions" stays English per the spec.
-const HARNESS_TABS: [(&str, &str, &str); 3] = [
+const HARNESS_TABS: [(&str, &str, &str); 4] = [
     ("main", "/agentic-harness", "Gönderim ve Sıralama"),
+    ("live", "/agentic-harness?tab=live", "Canlı"),
     ("history", "/agentic-harness?tab=history", "Geçmiş"),
     (
         "instructions",
@@ -618,7 +619,7 @@ fn harness_stepper(run: &HarnessRun) -> String {
         run,
         "arc",
         "ARC-AGI-3",
-        "10 public oyun · doğal bitiş koşulları",
+        "13 public oyun · doğal bitiş koşulları",
     );
     let frontier = harness_benchmark_card(
         run,
@@ -811,6 +812,88 @@ pub fn agentic_harness_main(
     )
 }
 
+/// Live tab: the 13 ARC-AGI-3 boards. Everything inside `#arc-live` is drawn by arc.js
+/// from the poll payload — the server renders only the frame and the idle state, so there
+/// is exactly one implementation of a board and it lives in the JS.
+/// `replay` pages a finished run's frames instead of following the live one.
+pub fn agentic_harness_live(user: &User, run: Option<&HarnessRun>, replay: bool) -> String {
+    // data-run is set only for a replay. Live mode leaves it empty on purpose: the endpoint
+    // resolves the team's latest run per request, so a student sitting on this tab sees the
+    // boards appear the moment a run starts, with no reload.
+    let run_attr = if replay {
+        run.map(|r| r.id.to_string()).unwrap_or_default()
+    } else {
+        String::new()
+    };
+    let meta = match run {
+        Some(r) => {
+            let (label, class) = harness_stage_tr(&r.stage);
+            let sha = r
+                .commit_sha
+                .as_deref()
+                .map(|s| esc(&s.chars().take(7).collect::<String>()))
+                .unwrap_or_else(|| "—".into());
+            let back = if replay {
+                r#"<a class="chip" href="/agentic-harness?tab=live">Canlıya dön</a>"#
+            } else {
+                ""
+            };
+            format!(
+                r##"<p class="arc-run"><span class="substatus {class}">{label}</span>
+  <span class="fieldnote">{repo} · <code>{sha}</code> · {date}</span>{back}</p>"##,
+                repo = esc(&r.repo_url),
+                date = r.created_at.format("%d.%m.%Y %H:%M"),
+            )
+        }
+        None => String::new(),
+    };
+    // Idle is a real state, not an empty page: say what will show up here and when.
+    let idle = match (run, replay) {
+        // A ?run= that resolved to nothing is deleted or another team's. Say so and stay
+        // inactive: falling through to live would play a *different* run under the
+        // requested run's chrome, and the student would never know.
+        (None, true) => {
+            r##"<h2>Çalıştırma bulunamadı</h2>
+  <p class="muted">Bu tekrar silinmiş olabilir veya takımınıza ait değil.</p>
+  <a class="btn-outline" href="/agentic-harness?tab=live">Canlıya dön</a>"##
+        }
+        (None, false) => {
+            r##"<h2>Henüz çalıştırma yok</h2>
+  <p class="muted">Takımın bir ajan gönderdiğinde 13 ARC-AGI-3 oyunu burada canlı akar.</p>
+  <a class="btn-outline" href="/agentic-harness">Gönderim sekmesine git</a>"##
+        }
+        (Some(_), true) => {
+            r##"<h2>Tekrar hazırlanıyor…</h2>
+  <p class="muted">Bu çalıştırmanın kareleri getiriliyor.</p>"##
+        }
+        (Some(_), false) => {
+            r##"<h2>Kareler bekleniyor…</h2>
+  <p class="muted">Ajanın ilk hamlesi geldiği anda tahtalar burada belirir.</p>"##
+        }
+    };
+    // The one case the viewer must not run: a replay whose run did not resolve.
+    let active = !(replay && run.is_none());
+    let inner = format!(
+        r##"<div id="arc-live" class="arc-live" data-active="{active}" data-run="{run_attr}" data-replay="{replay}">
+  {meta}
+  <div class="arc-idle" id="arc-idle">{idle}</div>
+  <div class="arc-focus" id="arc-focus" hidden></div>
+  <div class="arc-grid" id="arc-boards"></div>
+</div>
+<script src="/static/arc.js?v=1" defer></script>"##
+    );
+    harness_shell(
+        user,
+        "live",
+        if replay {
+            "Biten bir çalıştırmanın tekrarı — bir tahtaya tıkla, kareleri ileri geri sar."
+        } else {
+            "13 ARC-AGI-3 oyunu canlı — bir tahtaya tıkla, büyüt ve hamleleri izle."
+        },
+        &inner,
+    )
+}
+
 /// History tab: every run of the viewer's team — which commit went in, what it scored.
 pub fn agentic_harness_history(
     user: &User,
@@ -897,9 +980,17 @@ pub fn agentic_harness_history(
   <input type="hidden" name="run_id" value="{}"><button class="btn-outline">Resmi gönder</button></form>"#, r.id),
                 _ => "—".into(),
             };
+            // an ARC score means the run got far enough to have stored frames worth replaying
+            let replay = match r.score_arc {
+                Some(_) => format!(
+                    r#"<a class="btn-outline small" href="/agentic-harness?tab=live&amp;run={}">İzle</a>"#,
+                    r.id
+                ),
+                None => "—".into(),
+            };
             format!(
                 "<tr><td>{date}</td><td>{commit}</td><td><span class=\"substatus {class}\">{label}</span></td>\
-                 <td>{arc}</td><td>{frontier}</td><td>{r1}</td><td>{r10}</td><td>{official_cell}</td><td>{log}</td></tr>",
+                 <td>{arc}</td><td>{frontier}</td><td>{r1}</td><td>{r10}</td><td>{official_cell}</td><td>{replay}</td><td>{log}</td></tr>",
                 date = r.created_at.format("%d.%m.%Y %H:%M"),
                 arc = fmt(r.score_arc), frontier = fmt(r.score_frontier),
                 r1 = fmt(r.ram_1session_mb), r10 = fmt(r.ram_10session_mb),
@@ -907,7 +998,7 @@ pub fn agentic_harness_history(
         }).collect();
         format!(
             r##"<section class="panel wide">
-  <table><tr><th>Tarih</th><th>Commit</th><th>Durum</th><th lang="en">ARC-AGI-3</th><th lang="en">Frontier Sprint</th><th>RAM 1 oturum (MB)</th><th>RAM 10 oturum (MB)</th><th>Official Kaggle</th><th></th></tr>{table_rows}</table>
+  <table><tr><th>Tarih</th><th>Commit</th><th>Durum</th><th lang="en">ARC-AGI-3</th><th lang="en">Frontier Sprint</th><th>RAM 1 oturum (MB)</th><th>RAM 10 oturum (MB)</th><th>Official Kaggle</th><th>Tekrar</th><th></th></tr>{table_rows}</table>
 </section>"##
         )
     };
@@ -977,10 +1068,11 @@ class MyAgent(LLM):
   <p>Sıfırdan yazmak isterseniz <code>agents.agent.Agent</code>'ı devralıp
   <code>choose_action(frames, latest_frame)</code> ve <code>is_done(...)</code> metotlarını
   kendiniz yazın.</p>
-  <p>Yerel puan, sabitlenmiş <code>arc-agi==0.9.9</code> public veri setindeki 10 oyunun
+  <p>Yerel puan, sabitlenmiş <code>arc-agi==0.9.9</code> public veri setindeki 13 oyunun
   paralel çalıştırılan ortalamasıdır. Harness eylem sayısına yapay bir sınır koymaz: oyun
-  kazanıldığında veya ölüm/hamle tükenmesiyle <code>GAME_OVER</code> olduğunda biter. On oyunun
-  tamamı, çalıştırmanın ortak 10 dakikalık sınırına tabidir.</p>
+  kazanıldığında veya ölüm/hamle tükenmesiyle <code>GAME_OVER</code> olduğunda biter. On üç oyunun
+  tamamı, çalıştırmanın ortak 10 dakikalık sınırına tabidir. Her tahtayı
+  <a href="/agentic-harness?tab=live">Canlı</a> sekmesinden izleyebilirsiniz.</p>
   <p>Uç nokta size <code lang="en">OPENAI_BASE_URL</code> ve <code lang="en">OPENAI_API_KEY</code>
   ile verilir; <span lang="en">OpenAI SDK</span> bunları kendi kendine okur.
   <span lang="en">LLM</span> şablonunu devralırsanız <code>requirements.txt</code> dosyanıza

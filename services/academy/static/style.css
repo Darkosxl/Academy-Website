@@ -878,11 +878,63 @@ form.inline input, form.inline select { margin-top:0; width:auto; }
 .official-state small { color:var(--text-subtle); overflow-wrap:anywhere; }
 .official-state .btn-outline { margin-top:4px; }
 
+/* ARC-AGI-3 live viewer — 13 boards on one grid, the clicked one big above them.
+   arc.js owns every canvas: the backing store stays 64x64 and CSS does the scaling,
+   so `pixelated` is what makes a 64px frame legible at 512px. */
+.arc-live { display:grid; gap:16px; margin-top:16px; }
+.arc-live [hidden] { display:none; }
+.arc-run { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.arc-run .fieldnote { overflow-wrap:anywhere; }
+.arc-idle {
+  background:var(--bg-card); border:1px solid var(--border-card);
+  border-radius:var(--r-2xl); padding:40px 24px; text-align:center;
+}
+.arc-idle h2 { font-size:var(--fs-title); margin-bottom:8px; }
+.arc-idle .btn-outline { margin-top:16px; }
+
+.arc-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(150px,1fr)); gap:12px; }
+.arc-tile {
+  display:grid; gap:5px; padding:8px; text-align:left;
+  background:var(--bg-card); border:1px solid var(--border-card);
+  border-radius:var(--r-xl); color:var(--text-body); transition:all 150ms;
+}
+.arc-tile:hover { border-color:var(--border-strong); }
+.arc-tile:focus-visible { outline:2px solid var(--blue-text); outline-offset:2px; }
+.arc-tile canvas {
+  width:100%; height:auto; display:block; image-rendering:pixelated;
+  border-radius:var(--r-lg); background:var(--bg-canvas);
+}
+.arc-name {
+  font-size:var(--fs-label); font-weight:900; text-transform:uppercase;
+  letter-spacing:0.06em; color:var(--text);
+}
+.arc-meta { font-size:var(--fs-mini); color:var(--text-subtle); font-variant-numeric:tabular-nums; }
+/* the four engine states, as the tile border — same convention as [data-status] above */
+.arc-tile[data-state="NOT_PLAYED"] { opacity:0.5; }
+.arc-tile[data-state="NOT_FINISHED"] { border-color:var(--blue-text); }
+.arc-tile[data-state="WIN"] { border-color:var(--ok); }
+.arc-tile[data-state="GAME_OVER"] { border-color:var(--err); }
+/* pressed rides on background + ring, so it never fights the state border */
+.arc-tile[aria-pressed="true"] { background:var(--blue-15); box-shadow:0 0 0 2px var(--blue-40); }
+
+.arc-focus {
+  display:grid; gap:10px; justify-items:center; padding:16px;
+  background:var(--bg-card); border:1px solid var(--border-card); border-radius:var(--r-2xl);
+}
+.arc-focus canvas {
+  max-width:512px; width:100%; height:auto; image-rendering:pixelated;
+  border-radius:var(--r-xl); background:var(--bg-canvas);
+}
+.arc-focus input[type="range"] { width:100%; max-width:512px; accent-color:var(--blue-text); }
+.arc-focus-meta { font-size:var(--fs-xs); color:var(--text-muted); font-variant-numeric:tabular-nums; }
+
 /* This override must follow the desktop harness rules above. */
 @media (max-width:760px) {
   .harnesswrap { flex-direction:column; align-items:stretch; }
   .harness-left { width:auto; }
   .kaggle-credentials { flex-direction:column; align-items:stretch; }
+  /* 150px tiles give a phone two columns; 110px keeps all 13 boards in view */
+  .arc-grid { grid-template-columns:repeat(auto-fill, minmax(110px,1fr)); gap:8px; }
 }
 
 /* ============================================================================

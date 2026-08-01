@@ -464,13 +464,16 @@ pub fn ct_eq(a: &[u8], b: &[u8]) -> bool {
     diff == 0
 }
 
-pub fn check_worker(app: &App, headers: &HeaderMap) -> Result<(), Response> {
-    let ok = !app.worker_token.is_empty()
+fn worker_authorized(worker_token: &str, headers: &HeaderMap) -> bool {
+    !worker_token.is_empty()
         && headers
             .get("x-worker-token")
             .and_then(|v| v.to_str().ok())
-            .is_some_and(|t| ct_eq(t.as_bytes(), app.worker_token.as_bytes()));
-    if ok {
+            .is_some_and(|token| ct_eq(token.as_bytes(), worker_token.as_bytes()))
+}
+
+pub fn check_worker(app: &App, headers: &HeaderMap) -> Result<(), Response> {
+    if worker_authorized(&app.worker_token, headers) {
         Ok(())
     } else {
         Err(StatusCode::UNAUTHORIZED.into_response())
@@ -501,5 +504,16 @@ mod tests {
         assert!(!ct_eq(b"secret-token", b"secret-toke")); // length differs
         assert!(!ct_eq(b"secret-token", b"Secret-token")); // one byte differs
         assert!(!ct_eq(b"", b"x"));
+    }
+
+    #[test]
+    fn worker_auth_rejects_missing_disabled_and_wrong_tokens() {
+        let mut headers = HeaderMap::new();
+        assert!(!worker_authorized("", &headers));
+        assert!(!worker_authorized("worker-secret", &headers));
+        headers.insert("x-worker-token", HeaderValue::from_static("wrong-secret"));
+        assert!(!worker_authorized("worker-secret", &headers));
+        headers.insert("x-worker-token", HeaderValue::from_static("worker-secret"));
+        assert!(worker_authorized("worker-secret", &headers));
     }
 }

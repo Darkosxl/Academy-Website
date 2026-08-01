@@ -3,6 +3,8 @@ use serde::Deserialize;
 use sqlx::FromRow;
 use uuid::Uuid;
 
+pub use benchmark_protocol::BENCHMARK_VERSION as HARNESS_VERSION;
+
 #[derive(FromRow, Clone)]
 pub struct User {
     pub id: Uuid,
@@ -246,8 +248,6 @@ pub struct MemberRow {
 }
 
 // ---- Agentic Harness ----
-
-pub const HARNESS_VERSION: &str = "harness-2026-sprint-v1";
 
 #[derive(FromRow, Clone)]
 pub struct HarnessTeam {

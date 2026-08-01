@@ -75,6 +75,14 @@ async fn main() {
         .execute(&pool)
         .await
         .expect("harness v2 migration failed");
+    sqlx::raw_sql(include_str!("../migrations/003_arc_frames.sql"))
+        .execute(&pool)
+        .await
+        .expect("arc frames migration failed");
+    sqlx::raw_sql(include_str!("../migrations/004_worker_protocol.sql"))
+        .execute(&pool)
+        .await
+        .expect("worker protocol migration failed");
     seed_admin(&pool).await;
     seed_invite_code(&pool).await;
     seed_videos(&pool).await;
@@ -123,6 +131,7 @@ async fn main() {
         .route("/agentic-harness", get(agentic_harness))
         .route("/agentic-harness/submit", post(harness_submit))
         .route("/agentic-harness/status", get(harness_status))
+        .route("/agentic-harness/arc/live", get(harness_arc_live))
         .route(
             "/agentic-harness/kaggle/credentials",
             post(harness_kaggle_credentials),
@@ -206,6 +215,11 @@ async fn main() {
             post(worker_harness_progress),
         )
         .route("/api/worker/harness/result", post(worker_harness_result))
+        // 64 frames x a 16-grid animation buffer is ~4 MB of hex, over the 2 MB default
+        .route(
+            "/api/worker/harness/arc/frames",
+            post(worker_harness_arc_frames).layer(DefaultBodyLimit::max(6 * 1024 * 1024)),
+        )
         .route(
             "/api/worker/harness/kaggle/claim",
             post(worker_harness_kaggle_claim),
@@ -238,7 +252,13 @@ async fn main() {
         // after the layer so they don't cost a session write and need no auth
         .route("/preview/{id}", get(task_preview))
         .route("/preview/sub/{id}", get(submission_preview))
-        .nest_service("/static", tower_http::services::ServeDir::new("static"))
+        .nest_service(
+            "/static",
+            tower_http::services::ServeDir::new(concat!(env!("CARGO_MANIFEST_DIR"), "/static")),
+        )
+        // last, so it covers every route above: one ARC live poll is ~53 KB of 16-symbol
+        // hex and gzips ~20x, which is the difference between a watchable grid and not
+        .layer(tower_http::compression::CompressionLayer::new())
         .with_state(app);
 
     let addr = std::env::var("BIND").unwrap_or_else(|_| "0.0.0.0:3000".into());
