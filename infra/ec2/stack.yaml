@@ -1,0 +1,144 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Private, always-on Exposure benchmark node (Ubuntu 24.04 x86-64)
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  PrivateSubnetId:
+    Type: AWS::EC2::Subnet::Id
+  BenchmarkSecretArn:
+    Type: String
+    Description: Secrets Manager JSON with worker_token and bedrock_api_key
+  AcademyBaseUrl:
+    Type: String
+    AllowedPattern: '^https://.+$'
+  UbuntuAmi:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id
+
+Resources:
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: No ingress; benchmark node outbound HTTPS only
+      VpcId: !Ref VpcId
+      SecurityGroupIngress: []
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: Academy, AWS APIs, GitHub, and package registries over TLS
+
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: ec2.amazonaws.com}
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: ReadBenchmarkSecret
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: !Ref BenchmarkSecretArn
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles: [!Ref InstanceRole]
+
+  Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref UbuntuAmi
+      InstanceType: c8i.8xlarge
+      IamInstanceProfile: !Ref InstanceProfile
+      NetworkInterfaces:
+        - DeviceIndex: '0'
+          AssociatePublicIpAddress: false
+          DeleteOnTermination: true
+          SubnetId: !Ref PrivateSubnetId
+          GroupSet: [!Ref SecurityGroup]
+      MetadataOptions:
+        HttpEndpoint: enabled
+        HttpTokens: required
+        HttpPutResponseHopLimit: 1
+        InstanceMetadataTags: disabled
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            VolumeType: gp3
+            VolumeSize: 200
+            Encrypted: true
+            DeleteOnTermination: true
+      UserData:
+        Fn::Base64: !Sub |
+          #cloud-config
+          package_update: true
+          package_upgrade: false
+          groups: [exposure-benchmark]
+          users:
+            - default
+            - {name: exposure-controller, system: true, shell: /usr/sbin/nologin, home: /var/lib/exposure-benchmark/controller, groups: [exposure-benchmark]}
+            - {name: exposure-executor, system: true, shell: /usr/sbin/nologin, home: /var/lib/exposure-benchmark/executor, groups: [exposure-benchmark]}
+          bootcmd:
+            - sed -i 's|http://|https://|g' /etc/apt/sources.list.d/ubuntu.sources
+          packages:
+            - bubblewrap
+            - ca-certificates
+            - docker-compose-v2
+            - docker.io
+            - fuse-overlayfs
+            - git
+            - jq
+            - podman
+            - python3.12-venv
+            - slirp4netns
+            - socat
+            - uidmap
+            - unzip
+          write_files:
+            - path: /etc/exposure-benchmark/controller.env
+              owner: root:exposure-controller
+              permissions: '0640'
+              content: |
+                ACADEMY_BASE_URL=${AcademyBaseUrl}
+                AWS_REGION=${AWS::Region}
+                BENCHMARK_SECRET_ID=${BenchmarkSecretArn}
+                BEDROCK_MODEL_ID=xai.grok-4.3
+                BEDROCK_PROFILE_NAME=grok-4.3
+                BEDROCK_REASONING_EFFORT=none
+                BEDROCK_MAX_CONCURRENCY=32
+                ENVIRONMENT=PROD
+          runcmd:
+            - systemctl disable --now docker.service docker.socket || true
+            - systemctl enable --now snap.amazon-ssm-agent.amazon-ssm-agent.service || true
+            - sh -c 'grep -q "^exposure-executor:" /etc/subuid || echo "exposure-executor:100000:65536" >> /etc/subuid'
+            - sh -c 'grep -q "^exposure-executor:" /etc/subgid || echo "exposure-executor:100000:65536" >> /etc/subgid'
+            - install -d -m 0750 -o root -g exposure-benchmark /var/lib/exposure-benchmark
+            - install -d -m 0700 -o exposure-controller -g exposure-controller /var/lib/exposure-benchmark/controller
+            - install -d -m 0700 -o exposure-executor -g exposure-executor /var/lib/exposure-benchmark/executor
+            - install -d -m 0700 -o exposure-executor -g exposure-executor /var/lib/exposure-benchmark/cache
+            - install -d -m 0700 -o exposure-executor -g exposure-executor /var/lib/exposure-benchmark/runs
+            - install -d -m 0750 -o root -g exposure-benchmark /etc/exposure-benchmark
+            - sh -c 'printf "BENCHMARK_CONTROLLER_UID=%s\n" "$(id -u exposure-controller)" > /etc/exposure-benchmark/executor.env'
+            - chown root:exposure-executor /etc/exposure-benchmark/executor.env
+            - chmod 0640 /etc/exposure-benchmark/executor.env
+            - sysctl -w kernel.unprivileged_userns_clone=1
+      Tags:
+        - {Key: Name, Value: exposure-benchmark-node}
+        - {Key: Service, Value: exposure-benchmark}
+
+Outputs:
+  InstanceId:
+    Value: !Ref Instance
+  SecurityGroupId:
+    Value: !Ref SecurityGroup

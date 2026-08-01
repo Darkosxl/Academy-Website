@@ -1,0 +1,46 @@
+[Unit]
+Description=Exposure benchmark restricted executor
+After=local-fs.target systemd-tmpfiles-setup.service
+Requires=systemd-tmpfiles-setup.service
+
+[Service]
+Type=simple
+User=exposure-executor
+Group=exposure-executor
+SupplementaryGroups=exposure-benchmark
+EnvironmentFile=-/etc/exposure-benchmark/executor.env
+Environment=HOME=/var/lib/exposure-benchmark/executor
+Environment=XDG_RUNTIME_DIR=/run/exposure-benchmark/executor-runtime
+ExecStart=/opt/exposure-benchmark/bin/benchmark-executor
+Restart=always
+RestartSec=2s
+TimeoutStopSec=15s
+KillMode=control-group
+# Rootless Podman manages children only inside this unit's delegated cgroup v2 subtree.
+# Do not add ProtectControlGroups=yes: it remounts the hierarchy read-only in the service.
+Delegate=yes
+UMask=0007
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+IPAddressDeny=169.254.0.0/16
+IPAddressDeny=fe80::/10
+ReadWritePaths=/run/exposure-benchmark/executor /run/exposure-benchmark/executor-runtime /var/lib/exposure-benchmark
+
+[Install]
+WantedBy=multi-user.target

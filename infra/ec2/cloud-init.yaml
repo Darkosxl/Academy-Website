@@ -1,0 +1,51 @@
+#cloud-config
+package_update: true
+package_upgrade: false
+
+groups:
+  - exposure-benchmark
+
+users:
+  - default
+  - name: exposure-controller
+    system: true
+    shell: /usr/sbin/nologin
+    home: /var/lib/exposure-benchmark/controller
+    groups: [exposure-benchmark]
+  - name: exposure-executor
+    system: true
+    shell: /usr/sbin/nologin
+    home: /var/lib/exposure-benchmark/executor
+    groups: [exposure-benchmark]
+
+bootcmd:
+  - sed -i 's|http://|https://|g' /etc/apt/sources.list.d/ubuntu.sources
+
+packages:
+  - bubblewrap
+  - ca-certificates
+  - docker-compose-v2
+  - docker.io
+  - fuse-overlayfs
+  - git
+  - jq
+  - podman
+  - python3.12-venv
+  - slirp4netns
+  - socat
+  - uidmap
+  - unzip
+
+runcmd:
+  - systemctl disable --now docker.service docker.socket || true
+  - systemctl enable --now snap.amazon-ssm-agent.amazon-ssm-agent.service || true
+  - sh -c 'grep -q "^exposure-executor:" /etc/subuid || echo "exposure-executor:100000:65536" >> /etc/subuid'
+  - sh -c 'grep -q "^exposure-executor:" /etc/subgid || echo "exposure-executor:100000:65536" >> /etc/subgid'
+  - install -d -m 0750 -o root -g exposure-benchmark /var/lib/exposure-benchmark
+  - install -d -m 0700 -o exposure-controller -g exposure-controller /var/lib/exposure-benchmark/controller
+  - install -d -m 0700 -o exposure-executor -g exposure-executor /var/lib/exposure-benchmark/executor
+  - install -d -m 0700 -o exposure-executor -g exposure-executor /var/lib/exposure-benchmark/cache
+  - install -d -m 0700 -o exposure-executor -g exposure-executor /var/lib/exposure-benchmark/runs
+  - sysctl -w kernel.unprivileged_userns_clone=1
+
+final_message: "Exposure benchmark host prerequisites are ready; deploy the locked artifact bundle over SSM."
