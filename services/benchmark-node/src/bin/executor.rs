@@ -142,6 +142,7 @@ async fn run_adapter(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
+        .process_group(0)
         .kill_on_drop(true);
     let mut child = child.spawn().context("start Python benchmark adapter")?;
     let mut child_input = child.stdin.take().context("adapter stdin")?;
@@ -161,14 +162,18 @@ async fn run_adapter(
                 match message {
                     Ok(Some(event)) => {
                         let terminal = matches!(event, ExecutorEvent::Result { .. } | ExecutorEvent::KaggleResult { .. });
-                        ndjson::write(&mut output, &event, MAX_NDJSON_BYTES).await?;
+                        if let Err(error) = ndjson::write(&mut output, &event, MAX_NDJSON_BYTES).await {
+                            stop_child(&mut child, run_id, config).await;
+                            return Err(error);
+                        }
                         if terminal {
-                            finish_child(&mut child).await;
+                            finish_child(&mut child, run_id, config).await;
                             return Ok(());
                         }
                     }
                     Ok(None) => {
                         let status = child.wait().await.context("wait for adapter")?;
+                        cleanup_run_containers(run_id, config).await;
                         let tail = error_task.await.unwrap_or_default();
                         let message = format!(
                             "Python benchmark adapter exited with {status}: {}",
@@ -179,7 +184,7 @@ async fn run_adapter(
                         return Ok(());
                     }
                     Err(error) => {
-                        let _ = child.kill().await;
+                        stop_child(&mut child, run_id, config).await;
                         let event = crash_event(&request, &format!("invalid adapter message: {error}"));
                         ndjson::write(&mut output, &event, MAX_NDJSON_BYTES).await?;
                         return Ok(());
@@ -189,19 +194,17 @@ async fn run_adapter(
             control_message = ndjson::read::<ExecutorRequest, _>(&mut control, 1024) => {
                 match control_message {
                     Ok(Some(ExecutorRequest::Cancel)) | Ok(None) => {
-                        let _ = child.kill().await;
-                        let _ = child.wait().await;
+                        stop_child(&mut child, run_id, config).await;
                         return Ok(());
                     }
                     _ => {
-                        let _ = child.kill().await;
+                        stop_child(&mut child, run_id, config).await;
                         bail!("controller sent an invalid in-flight command");
                     }
                 }
             }
             _ = &mut deadline => {
-                let _ = child.kill().await;
-                let _ = child.wait().await;
+                stop_child(&mut child, run_id, config).await;
                 let event = crash_event(&request, "restricted executor deadline expired");
                 ndjson::write(&mut output, &event, MAX_NDJSON_BYTES).await?;
                 return Ok(());
@@ -353,13 +356,67 @@ fn crash_event(request: &ExecutorRequest, message: &str) -> ExecutorEvent {
     }
 }
 
-async fn finish_child(child: &mut Child) {
+async fn finish_child(child: &mut Child, run_id: uuid::Uuid, config: &ExecutorConfig) {
     if tokio::time::timeout(Duration::from_secs(3), child.wait())
         .await
         .is_err()
     {
-        let _ = child.kill().await;
+        stop_child(child, run_id, config).await;
+    } else {
+        cleanup_run_containers(run_id, config).await;
+    }
+}
+
+async fn stop_child(child: &mut Child, run_id: uuid::Uuid, config: &ExecutorConfig) {
+    signal_process_group(child, "-TERM").await;
+    if tokio::time::timeout(Duration::from_secs(3), child.wait())
+        .await
+        .is_err()
+    {
+        signal_process_group(child, "-KILL").await;
         let _ = child.wait().await;
+    }
+    cleanup_run_containers(run_id, config).await;
+}
+
+async fn signal_process_group(child: &Child, signal: &str) {
+    let Some(pid) = child.id() else {
+        return;
+    };
+    let group = format!("-{pid}");
+    let _ = Command::new("kill")
+        .args([signal, "--", &group])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .await;
+}
+
+async fn cleanup_run_containers(run_id: uuid::Uuid, config: &ExecutorConfig) {
+    let label = format!("label=academy.harness.run={run_id}");
+    let home = config.state_directory.join("executor");
+    let Ok(output) = Command::new("podman")
+        .args(["ps", "-aq", "--filter", &label])
+        .env("HOME", &home)
+        .output()
+        .await
+    else {
+        return;
+    };
+    let ids: Vec<&str> = std::str::from_utf8(&output.stdout)
+        .unwrap_or_default()
+        .lines()
+        .filter(|line| !line.is_empty() && line.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        .collect();
+    if !ids.is_empty() {
+        let _ = Command::new("podman")
+            .args(["rm", "-f"])
+            .args(ids)
+            .env("HOME", home)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .await;
     }
 }
 
@@ -384,7 +441,7 @@ async fn verify_host(config: &ExecutorConfig) -> Result<()> {
     if !output.status.success() || String::from_utf8_lossy(&output.stdout).trim() != "true v2" {
         bail!("executor requires rootless Podman with cgroup v2");
     }
-    for command in ["bwrap", "socat", "docker"] {
+    for command in ["bwrap", "socat", "docker", "kill"] {
         let status = Command::new("sh")
             .args(["-c", &format!("command -v {command}")])
             .stdout(Stdio::null())

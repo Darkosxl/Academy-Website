@@ -17,8 +17,8 @@ use benchmark_node::{
 use benchmark_protocol::{
     ArcFramesRequest, BENCHMARK_VERSION, ExecutorEvent, ExecutorRequest, HarnessClaim,
     HarnessLeaseRequest, HarnessProgressRequest, HarnessResultRequest, HarnessStageRequest,
-    KaggleClaim, KaggleResultRequest, bedrock_model_supports_images, is_bedrock_model,
-    is_builtin_harness,
+    KaggleClaim, KaggleResultRequest, RUN_DEADLINE_SECONDS, bedrock_model_supports_images,
+    is_bedrock_model, is_builtin_harness,
 };
 use chrono::Utc;
 use serde_json::json;
@@ -428,7 +428,9 @@ async fn execute_run(
         stale_sender,
         metrics.clone(),
     ));
-    let mut heartbeat = tokio::time::interval(Duration::from_secs(30));
+    // A stopped run loses its lease in Academy. Poll often enough that the Stop button
+    // tears down its executor and sandboxes promptly even before another event arrives.
+    let mut heartbeat = tokio::time::interval(Duration::from_secs(5));
     heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     heartbeat.tick().await;
     let remaining = (claim.deadline_at - Utc::now())
@@ -552,7 +554,10 @@ async fn execute_run(
                 }
             }
             _ = &mut deadline => {
-                break RunEnd::Result(failure_result(claim, "the 600-second benchmark deadline expired"));
+                break RunEnd::Result(failure_result(
+                    claim,
+                    &format!("the {RUN_DEADLINE_SECONDS}-second benchmark deadline expired"),
+                ));
             }
         }
     };
