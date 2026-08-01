@@ -11,6 +11,9 @@ expected_sha=$1
 metadata=/etc/exposure-benchmark/image-build.json
 controller_env=/etc/exposure-benchmark/controller.env
 
+# SSM commands run from a root-only orchestration directory by default.
+cd /
+
 for unit in benchmark-executor.service benchmark-controller.service; do
   systemctl is-enabled --quiet "$unit" || { echo "STOP: $unit is disabled" >&2; exit 1; }
   systemctl is-active --quiet "$unit" || { echo "STOP: $unit is inactive" >&2; exit 1; }
