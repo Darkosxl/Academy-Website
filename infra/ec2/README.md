@@ -1,7 +1,7 @@
 # EC2 benchmark fleet
 
 `stack.yaml` creates a private Auto Scaling group with one worker by default and a hard
-maximum of five. Each worker is a `c8i.8xlarge` (32 vCPU, 64 GiB) with an encrypted
+maximum of five. Each worker is an `r8i.4xlarge` (16 vCPU, 128 GiB) with an encrypted
 200 GB gp3 root volume. There is no public IP, no ingress rule, and IMDSv2 has a hop limit
 of one. Place the group in a private subnet with NAT or the required VPC endpoints;
 operators connect through SSM, never SSH.
@@ -45,6 +45,7 @@ aws cloudformation deploy \
     PrivateSubnetId=subnet-REPLACE \
     BenchmarkSecretArn=arn:aws:secretsmanager:REGION:ACCOUNT:secret:REPLACE \
     AcademyBaseUrl=https://academy.example.com \
+    InstanceType=r8i.4xlarge \
     EnableAutoscaling=false
 ```
 
@@ -84,6 +85,7 @@ aws cloudformation deploy \
     BenchmarkSecretArn=arn:aws:secretsmanager:REGION:ACCOUNT:secret:REPLACE \
     AcademyBaseUrl=https://academy.example.com \
     PreparedWorkerAmi=ami-REPLACE \
+    InstanceType=r8i.4xlarge \
     EnableAutoscaling=true \
     MaxCapacity=2
 ```
@@ -93,10 +95,11 @@ alarms; no application restart or browser configuration change is required.
 
 ## Capacity gates
 
-Five `c8i.8xlarge` workers require 160 On-Demand standard-instance vCPUs and 320 GiB of
-aggregate RAM. Request at least 192 vCPUs of regional quota for headroom. One run can use
-roughly 20 vCPU and 44 GiB across its concurrent ARC and Frontier phases, leaving adequate
-host margin on `c8i.8xlarge`; use `c8i.12xlarge` if load tests show memory or CPU pressure.
+Five `r8i.4xlarge` workers require 80 On-Demand standard-instance vCPUs and 640 GiB of
+aggregate RAM. The current 16-vCPU regional quota permits one worker; request at least 80
+before raising the fleet maximum to five. One run has roughly 20 vCPU of configured ARC and
+Frontier ceilings, so the one-node canary must confirm the 16-vCPU worker meets benchmark
+timeouts. Its 128 GiB leaves ample memory headroom for the configured workload limits.
 
 Five controllers can expose up to 160 simultaneous model calls with the default
 `BEDROCK_MAX_CONCURRENCY=32`. Confirm the provider account's request/token limits before

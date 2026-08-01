@@ -32,8 +32,8 @@ Parameters:
     MaxValue: 5
   InstanceType:
     Type: String
-    Default: c8i.8xlarge
-    AllowedValues: [c8i.8xlarge, c8i.12xlarge]
+    Default: r8i.4xlarge
+    AllowedValues: [r8i.4xlarge, c8i.8xlarge, c8i.12xlarge]
 
 Rules:
   AutoscalingRequiresPreparedImage:
@@ -134,11 +134,13 @@ Resources:
             #cloud-config
             package_update: true
             package_upgrade: false
+            apt:
+              preserve_sources_list: true
             groups: [exposure-benchmark]
             users:
               - default
-              - {name: exposure-controller, system: true, shell: /usr/sbin/nologin, home: /var/lib/exposure-benchmark/controller, groups: [exposure-benchmark]}
-              - {name: exposure-executor, system: true, shell: /usr/sbin/nologin, home: /var/lib/exposure-benchmark/executor, groups: [exposure-benchmark]}
+              - {name: exposure-controller, system: true, shell: /usr/sbin/nologin, homedir: /var/lib/exposure-benchmark/controller, groups: [exposure-benchmark]}
+              - {name: exposure-executor, system: true, shell: /usr/sbin/nologin, homedir: /var/lib/exposure-benchmark/executor, groups: [exposure-benchmark]}
             bootcmd:
               - sed -i 's|http://|https://|g' /etc/apt/sources.list.d/ubuntu.sources
             packages:
@@ -160,6 +162,7 @@ Resources:
               - path: /etc/exposure-benchmark/controller.env
                 owner: root:exposure-controller
                 permissions: '0640'
+                defer: true
                 content: |
                   ACADEMY_BASE_URL=${AcademyBaseUrl}
                   AWS_REGION=${AWS::Region}
@@ -223,7 +226,7 @@ Resources:
         - {Key: Service, Value: exposure-benchmark, PropagateAtLaunch: true}
     UpdatePolicy:
       AutoScalingRollingUpdate:
-        MinInstancesInService: 1
+        MinInstancesInService: 0
         MaxBatchSize: 1
         PauseTime: PT10M
         WaitOnResourceSignals: false
