@@ -83,6 +83,10 @@ async fn main() {
         .execute(&pool)
         .await
         .expect("worker protocol migration failed");
+    sqlx::raw_sql(include_str!("../migrations/005_model_selection.sql"))
+        .execute(&pool)
+        .await
+        .expect("model selection migration failed");
     seed_admin(&pool).await;
     seed_invite_code(&pool).await;
     seed_videos(&pool).await;

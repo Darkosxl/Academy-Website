@@ -260,6 +260,7 @@ pub struct HarnessTeam {
 pub struct HarnessRun {
     pub id: Uuid,
     pub repo_url: String,
+    pub model_id: String,
     pub commit_sha: Option<String>,
     pub stage: String,
     pub benchmark_version: String,

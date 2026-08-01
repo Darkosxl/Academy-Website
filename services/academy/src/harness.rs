@@ -12,11 +12,12 @@ use axum::{
     response::{Html, IntoResponse, Redirect, Response},
 };
 use benchmark_protocol::{
-    ArcFrame as HarnessArcFrame, ArcFramesRequest as HarnessArcFramesReq, HarnessCapacity,
-    HarnessClaim, HarnessLeaseRequest as HarnessLeaseReq,
+    ArcFrame as HarnessArcFrame, ArcFramesRequest as HarnessArcFramesReq, DEFAULT_BEDROCK_MODEL,
+    HarnessCapacity, HarnessClaim, HarnessLeaseRequest as HarnessLeaseReq,
     HarnessProgressRequest as HarnessProgressReq, HarnessResultRequest as HarnessResultReq,
     HarnessStageRequest as HarnessStageReq, KaggleClaim,
-    KaggleResultRequest as HarnessKaggleResultReq,
+    KaggleResultRequest as HarnessKaggleResultReq, bedrock_model_supports_images,
+    builtin_harness_uri, is_bedrock_model, is_builtin_harness,
 };
 use chacha20poly1305::{
     XChaCha20Poly1305, XNonce,
@@ -69,7 +70,7 @@ pub async fn agentic_harness(
         // Team-scoped exactly like harness_arc_live below: a ?run= belonging to another
         // team matches no row, so the page renders empty instead of their boards.
         let run: Option<HarnessRun> = sqlx::query_as(
-            "select r.id, r.repo_url, r.commit_sha, r.stage, r.benchmark_version,
+            "select r.id, r.repo_url, r.model_id, r.commit_sha, r.stage, r.benchmark_version,
                     r.benchmark_state, r.bedrock_profile, r.deadline_at, r.score_arc,
                     r.score_frontier, r.ram_1session_mb, r.ram_10session_mb,
                     r.error_log, r.created_at
@@ -93,7 +94,7 @@ pub async fn agentic_harness(
     if tab == "history" {
         let runs: Vec<HarnessRun> = match &team {
             Some(t) => sqlx::query_as(
-                "select id, repo_url, commit_sha, stage, benchmark_version,
+                "select id, repo_url, model_id, commit_sha, stage, benchmark_version,
                         benchmark_state, bedrock_profile, deadline_at, score_arc,
                         score_frontier, ram_1session_mb, ram_10session_mb,
                         error_log, created_at
@@ -157,7 +158,7 @@ pub async fn agentic_harness(
     .unwrap();
     let active_run: Option<HarnessRun> = match &team {
         Some(t) => sqlx::query_as(
-            "select id, repo_url, commit_sha, stage, benchmark_version,
+            "select id, repo_url, model_id, commit_sha, stage, benchmark_version,
                     benchmark_state, bedrock_profile, deadline_at, score_arc,
                     score_frontier, ram_1session_mb, ram_10session_mb,
                     error_log, created_at
@@ -229,7 +230,12 @@ pub async fn agentic_harness(
 
 #[derive(Deserialize)]
 pub struct HarnessSubmitForm {
+    #[serde(default)]
     repo_url: String,
+    #[serde(default)]
+    model_id: String,
+    #[serde(default)]
+    builtin_harness: String,
 }
 
 fn github_repo_url(raw: &str) -> Option<String> {
@@ -267,6 +273,25 @@ fn github_repo_url(raw: &str) -> Option<String> {
     Some(format!("https://github.com/{}/{repo}", parts[0]))
 }
 
+fn submitted_model_id(raw: &str, requires_images: bool) -> Option<&str> {
+    let model_id = match raw.trim() {
+        "" => Some(DEFAULT_BEDROCK_MODEL),
+        model_id if is_bedrock_model(model_id) => Some(model_id),
+        _ => None,
+    }?;
+    (!requires_images || bedrock_model_supports_images(model_id)).then_some(model_id)
+}
+
+fn submission_source(is_admin: bool, repo_url: &str, builtin_harness: &str) -> Option<String> {
+    let repo_url = repo_url.trim();
+    let builtin_harness = builtin_harness.trim();
+    match (repo_url.is_empty(), builtin_harness.is_empty()) {
+        (false, true) => github_repo_url(repo_url),
+        (true, false) if is_admin => builtin_harness_uri(builtin_harness).map(String::from),
+        _ => None,
+    }
+}
+
 pub async fn harness_submit(
     State(app): State<App>,
     headers: HeaderMap,
@@ -278,8 +303,17 @@ pub async fn harness_submit(
         // the form isn't rendered for team-less students; this catches hand-rolled POSTs
         return Err(bad("Bir takımda değilsin — eğitmenine yaz."));
     };
-    let Some(repo_url) = github_repo_url(&f.repo_url) else {
-        return Err(bad("Repo bağlantısı https://github.com/ ile başlamalı."));
+    let Some(repo_url) = submission_source(user.is_admin, &f.repo_url, &f.builtin_harness) else {
+        return Err(bad(if user.is_admin {
+            "GitHub bağlantısı gir veya bir hazır harness seç."
+        } else {
+            "Repo bağlantısı https://github.com/ ile başlamalı."
+        }));
+    };
+    let Some(model_id) = submitted_model_id(&f.model_id, is_builtin_harness(&repo_url)) else {
+        return Err(bad(
+            "Bu agent için görüntü destekleyen geçerli bir model seç.",
+        ));
     };
     let in_flight = "Takımının devam eden bir çalıştırması var — bitmesini bekleyin.";
     let active: Option<Uuid> = sqlx::query_scalar(
@@ -298,12 +332,13 @@ pub async fn harness_submit(
     // to the same friendly message instead of unwrap-panicking into a 500.
     sqlx::query(
         "insert into harness_runs_exposure_academy
-           (team_id, submitted_by, repo_url, benchmark_version)
-         values ($1,$2,$3,$4)",
+           (team_id, submitted_by, repo_url, model_id, benchmark_version)
+         values ($1,$2,$3,$4,$5)",
     )
     .bind(team.id)
     .bind(user.id)
     .bind(&repo_url)
+    .bind(model_id)
     .bind(HARNESS_VERSION)
     .execute(&app.pool)
     .await
@@ -620,6 +655,7 @@ pub async fn harness_kaggle_submit(
            join harness_kaggle_credentials_exposure_academy c on c.team_id = r.team_id
            where r.id = $1 and r.team_id = $2 and r.commit_sha is not null
              and r.score_arc is not null and r.benchmark_version = $3
+             and r.repo_url like 'https://github.com/%'
          )",
     )
     .bind(f.run_id)
@@ -822,7 +858,7 @@ pub async fn worker_harness_claim(
     .map_err(worker_db_unavailable)?;
 
     let lease = Uuid::new_v4();
-    let row: Option<(Uuid, String, DateTime<Utc>)> = sqlx::query_as(
+    let row: Option<(Uuid, String, DateTime<Utc>, String)> = sqlx::query_as(
         "with candidate as (
            select id from harness_runs_exposure_academy
            where stage = 'queued'
@@ -841,18 +877,21 @@ pub async fn worker_harness_claim(
              deadline_at = coalesce(r.deadline_at, now() + interval '600 seconds'),
              claim_attempts = claim_attempts + 1, updated_at = now()
          from candidate where r.id = candidate.id
-         returning r.id, r.repo_url, r.deadline_at",
+         returning r.id, r.repo_url, r.deadline_at, r.model_id",
     )
     .bind(lease)
     .fetch_optional(&app.pool)
     .await
     .map_err(worker_db_unavailable)?;
-    Ok(Json(row.map(|(id, repo_url, deadline_at)| HarnessClaim {
-        id,
-        repo_url,
-        lease_token: lease,
-        deadline_at,
-        benchmark_version: HARNESS_VERSION.into(),
+    Ok(Json(row.map(|(id, repo_url, deadline_at, model_id)| {
+        HarnessClaim {
+            id,
+            repo_url,
+            model_id,
+            lease_token: lease,
+            deadline_at,
+            benchmark_version: HARNESS_VERSION.into(),
+        }
     })))
 }
 
@@ -1263,4 +1302,42 @@ pub async fn worker_harness_kaggle_result(
         return Err(StatusCode::CONFLICT.into_response());
     }
     Ok(StatusCode::NO_CONTENT)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn submitted_model_is_allowlisted_with_legacy_default() {
+        assert_eq!(submitted_model_id("", false), Some(DEFAULT_BEDROCK_MODEL));
+        assert_eq!(
+            submitted_model_id("  xai.grok-4.3  ", false),
+            Some(DEFAULT_BEDROCK_MODEL)
+        );
+        assert_eq!(submitted_model_id("attacker.model", false), None);
+        assert_eq!(
+            submitted_model_id("google.gemma-4-31b", true),
+            Some("google.gemma-4-31b")
+        );
+        assert_eq!(submitted_model_id("openai.gpt-oss-120b", true), None);
+    }
+
+    #[test]
+    fn builtin_harnesses_are_admin_only_and_require_a_blank_repo() {
+        assert_eq!(
+            submission_source(true, "", "forge").as_deref(),
+            Some("builtin://forge")
+        );
+        assert_eq!(submission_source(false, "", "forge"), None);
+        assert_eq!(
+            submission_source(true, "https://github.com/example/agent", "").as_deref(),
+            Some("https://github.com/example/agent")
+        );
+        assert_eq!(
+            submission_source(true, "https://github.com/example/agent", "forge"),
+            None
+        );
+        assert_eq!(submission_source(true, "", "unknown"), None);
+    }
 }

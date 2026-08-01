@@ -2,6 +2,10 @@
 // ponytail: string templates, no template engine — 8 pages, full control.
 
 use crate::model::*;
+use benchmark_protocol::{
+    BEDROCK_MODEL_IDS, BUILTIN_HARNESSES, DEFAULT_BEDROCK_MODEL, bedrock_model_supports_images,
+    builtin_harness_label,
+};
 use uuid::Uuid;
 
 pub fn esc(s: &str) -> String {
@@ -614,7 +618,7 @@ fn harness_stepper(run: &HarnessRun) -> String {
         .bedrock_profile
         .as_deref()
         .map(esc)
-        .unwrap_or_else(|| "Hazırlanıyor".into());
+        .unwrap_or_else(|| esc(&run.model_id));
     let arc = harness_benchmark_card(
         run,
         "arc",
@@ -644,7 +648,7 @@ fn harness_stepper(run: &HarnessRun) -> String {
   <div class="harness-benchmark-grid">{arc}{frontier}{ram}</div>
 </div>"##,
         deadline = esc(&deadline),
-        repo = esc(&run.repo_url),
+        repo = harness_source_label(&run.repo_url),
         version = esc(&run.benchmark_version)
     )
 }
@@ -652,6 +656,42 @@ fn harness_stepper(run: &HarnessRun) -> String {
 /// Main tab: submit panel on the left, the switchable leaderboards on the right.
 /// `rows` carries ARC/Frontier standings, `ram_rows` the RAM ones — whichever
 /// matches `bench` is populated, the other is empty.
+fn bedrock_model_options() -> String {
+    BEDROCK_MODEL_IDS
+        .iter()
+        .map(|model| {
+            let selected = if *model == DEFAULT_BEDROCK_MODEL {
+                " selected"
+            } else {
+                ""
+            };
+            let image = if bedrock_model_supports_images(model) {
+                r#" data-image="true""#
+            } else {
+                ""
+            };
+            format!(
+                r#"<option value="{model}"{selected}{image}>{model}</option>"#,
+                model = esc(model)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("")
+}
+
+fn builtin_harness_options() -> String {
+    let options = BUILTIN_HARNESSES
+        .iter()
+        .map(|(id, _, label)| format!(r#"<option value="{}">{}</option>"#, esc(id), esc(label)))
+        .collect::<Vec<_>>()
+        .join("");
+    format!(r#"<option value="">GitHub URL</option>{options}"#)
+}
+
+fn harness_source_label(source: &str) -> String {
+    esc(builtin_harness_label(source).unwrap_or(source))
+}
+
 pub fn agentic_harness_main(
     user: &User,
     bench: &str,
@@ -694,12 +734,32 @@ pub fn agentic_harness_main(
             // visible half of the double-submit guard (the DB index is the other)
             let action = match active_run {
                 Some(run) => harness_stepper(run),
-                None => r##"<form method="post" action="/agentic-harness/submit" class="subform">
-    <input name="repo_url" type="url" placeholder="https://github.com/..." required>
+                None => {
+                    let builtin_picker = if user.is_admin {
+                        format!(
+                            r#"<label>agent:
+      <select name="builtin_harness" onchange="const m=this.form.elements.model_id;for(const o of m.options)o.disabled=this.value&amp;&amp;o.dataset.image!=='true';if(m.selectedOptions[0]?.disabled)m.value='xai.grok-4.3'">{}</select>
+    </label>"#,
+                            builtin_harness_options()
+                        )
+                    } else {
+                        String::new()
+                    };
+                    let repo_required = if user.is_admin { "" } else { " required" };
+                    format!(
+                        r##"<form method="post" action="/agentic-harness/submit" class="subform">
+    <input name="repo_url" type="url" placeholder="https://github.com/..."{repo_required}>
+    {builtin_picker}
+    <label>model:
+      <select name="model_id" required>{model_options}</select>
+    </label>
     <button class="btn-dark">Ajanı Gönder →</button>
   </form>
   <p class="fieldnote">Herhangi bir takım üyesi gönderebilir. Aynı anda tek çalıştırma.
-  Kurallar için <a href="/agentic-harness?tab=instructions" lang="en">Instructions</a> sekmesine bak.</p>"##.to_string(),
+  Kurallar için <a href="/agentic-harness?tab=instructions" lang="en">Instructions</a> sekmesine bak.</p>"##,
+                        model_options = bedrock_model_options()
+                    )
+                }
             };
             format!(
                 r##"<section class="panel harness-left">
@@ -840,8 +900,9 @@ pub fn agentic_harness_live(user: &User, run: Option<&HarnessRun>, replay: bool)
             };
             format!(
                 r##"<p class="arc-run"><span class="substatus {class}">{label}</span>
-  <span class="fieldnote">{repo} · <code>{sha}</code> · {date}</span>{back}</p>"##,
-                repo = esc(&r.repo_url),
+  <span class="fieldnote">{repo} · <code>{sha}</code> · {model} · {date}</span>{back}</p>"##,
+                repo = harness_source_label(&r.repo_url),
+                model = esc(&r.model_id),
                 date = r.created_at.format("%d.%m.%Y %H:%M"),
             )
         }
@@ -941,6 +1002,13 @@ pub fn agentic_harness_history(
             let (label, class) = harness_stage_tr(&r.stage);
             // commit_sha is worker-supplied: only plain hex ever reaches an href
             let commit = match r.commit_sha.as_deref() {
+                Some(sha)
+                    if builtin_harness_label(&r.repo_url).is_some()
+                        && sha.len() >= 7
+                        && sha.chars().all(|c| c.is_ascii_hexdigit()) =>
+                {
+                    format!("{} · <code>{}</code>", harness_source_label(&r.repo_url), esc(&sha[..7]))
+                }
                 Some(sha) if sha.len() >= 7 && sha.chars().all(|c| c.is_ascii_hexdigit()) => {
                     let base = r.repo_url.trim_end_matches('/').trim_end_matches(".git");
                     format!(r#"<a href="{base}/commit/{sha}" target="_blank" rel="noopener"><code>{short}</code></a>"#,
@@ -948,6 +1016,7 @@ pub fn agentic_harness_history(
                 }
                 _ => "—".into(),
             };
+            let commit = format!("{commit}<small>{}</small>", esc(&r.model_id));
             let log = r.error_log.as_deref().filter(|l| !l.trim().is_empty())
                 .map(|l| format!(r#"<details class="plan-details"><summary>Günlük</summary><pre class="plan-pre">{}</pre></details>"#, esc(l)))
                 .unwrap_or_else(|| "—".into());
@@ -974,7 +1043,9 @@ pub fn agentic_harness_history(
                     format!(r#"<div class="official-state"><span class="substatus {official_class}">{official_label}</span>{score}{kernel}{message}{reference}<small>{}</small>{retry}</div>"#,
                         submission.updated_at.format("%d.%m.%Y %H:%M"))
                 }
-                None if official_enabled && credential_username.is_some() && r.benchmark_version == HARNESS_VERSION
+                None if official_enabled && credential_username.is_some()
+                    && builtin_harness_label(&r.repo_url).is_none()
+                    && r.benchmark_version == HARNESS_VERSION
                     && r.score_arc.is_some() && r.commit_sha.is_some() => format!(
                     r#"<form method="post" action="/agentic-harness/kaggle/submit" onsubmit="return confirm('Bu commit ARC-AGI-3 public yarışmasına gönderilsin mi?')">
   <input type="hidden" name="run_id" value="{}"><button class="btn-outline">Resmi gönder</button></form>"#, r.id),
@@ -2904,5 +2975,52 @@ mod tests {
             example_embeddable: None,
         };
         assert!(board_sites(&user, &task, &[]).contains("henüz yayınlanmış site yok"));
+    }
+
+    #[test]
+    fn harness_submission_lists_each_bedrock_model() {
+        let user = User {
+            id: Uuid::nil(),
+            display_name: "A".into(),
+            nickname: Some("a".into()),
+            is_admin: false,
+        };
+        let team = HarnessTeam {
+            id: Uuid::nil(),
+            name: "Test".into(),
+        };
+        let html = agentic_harness_main(&user, "arc", Some(&team), &[], None, &[], &[]);
+        assert!(html.contains("<label>model:"));
+        assert!(html.contains(r#"<select name="model_id" required>"#));
+        assert!(html.contains(
+            r#"name="repo_url" type="url" placeholder="https://github.com/..." required"#
+        ));
+        assert!(!html.contains(r#"name="builtin_harness""#));
+        assert_eq!(html.matches("<option ").count(), BEDROCK_MODEL_IDS.len());
+        assert!(html.contains(&format!(
+            r#"<option value="{DEFAULT_BEDROCK_MODEL}" selected data-image="true">"#
+        )));
+    }
+
+    #[test]
+    fn harness_builtin_picker_is_admin_only() {
+        let admin = User {
+            id: Uuid::nil(),
+            display_name: "Admin".into(),
+            nickname: None,
+            is_admin: true,
+        };
+        let team = HarnessTeam {
+            id: Uuid::nil(),
+            name: "Test".into(),
+        };
+        let html = agentic_harness_main(&admin, "arc", Some(&team), &[], None, &[], &[]);
+        assert!(html.contains("<label>agent:"));
+        assert!(html.contains(r#"<select name="builtin_harness""#));
+        assert!(html.contains(r#"<option value="forge">Forge</option>"#));
+        assert!(html.contains(r#"<option value="reki">Reki</option>"#));
+        assert!(html.contains(r#"value="google.gemma-4-31b" data-image="true""#));
+        assert!(!html.contains(r#"value="openai.gpt-oss-120b" data-image="true""#));
+        assert!(!html.contains(r#"placeholder="https://github.com/..." required"#));
     }
 }
