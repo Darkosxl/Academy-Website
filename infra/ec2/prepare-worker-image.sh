@@ -79,9 +79,10 @@ frontier_tasks=(
   exit 1
 }
 
-install -d -m 0750 -o root -g exposure-benchmark /var/lib/exposure-benchmark
+install -d -m 0751 -o root -g exposure-benchmark /var/lib/exposure-benchmark
 install -d -m 0700 -o exposure-executor -g exposure-executor \
-  "$cache" "$executor_home" "$executor_runtime"
+  "$cache" "$executor_runtime"
+install -d -m 0701 -o exposure-executor -g exposure-executor "$executor_home"
 
 run_executor() {
   runuser -u exposure-executor -- env \
@@ -159,10 +160,13 @@ for task in "${frontier_tasks[@]}"; do
   echo "FRONTIER READY: $task"
 done
 
-install -d -m 0700 -o exposure-executor -g exposure-executor \
+# Rootless OCI runtimes enter a subordinate user namespace. Execute-only
+# traversal on storage parents is required; directory contents remain unlistable.
+install -d -m 0701 -o exposure-executor -g exposure-executor \
   "$executor_home/.local" \
   "$executor_home/.local/share" \
-  "$executor_home/.local/share/containers" \
+  "$executor_home/.local/share/containers"
+install -d -m 0700 -o exposure-executor -g exposure-executor \
   "$executor_home/.local/share/uv" \
   "$(dirname "$harbor")"
 run_executor python3.12 -m venv "$harbor"
