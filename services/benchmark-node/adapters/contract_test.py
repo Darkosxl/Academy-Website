@@ -60,6 +60,62 @@ def main() -> None:
     assert runner.frontier_cutoff(500, now=100) == 500
 
     with tempfile.TemporaryDirectory() as raw:
+        stub = Path(raw) / "stub.conf"
+        upstream = Path(raw) / "upstream.conf"
+        stub.write_text("nameserver 127.0.0.53\n")
+        upstream.write_text("nameserver 192.0.2.53\nnameserver 2001:db8::53\n")
+        assert runner.buildkit_nameservers((stub, upstream)) == [
+            "192.0.2.53", "2001:db8::53",
+        ]
+
+    with tempfile.TemporaryDirectory(dir="/tmp") as raw:
+        work = Path(raw) / "work"
+        repo = work / "repo"
+        dataset = work / "frontier-sprint"
+        jobs = work / "frontier-jobs"
+        gateway = work / "frontier-gateway"
+        socket_dir = Path(raw) / "socket"
+        docker_config = socket_dir / "docker"
+        for path in (repo, dataset, jobs, gateway, docker_config):
+            path.mkdir(parents=True, exist_ok=True)
+        socket_path = socket_dir / "podman.sock"
+        command = runner.bubblewrap_harbor(
+            repo, dataset, jobs, SimpleNamespace(directory=gateway, token="test-token"),
+            socket_path, docker_config, "test-builder",
+        )
+
+        def has_sequence(sequence):
+            return any(
+                command[index:index + len(sequence)] == sequence
+                for index in range(len(command) - len(sequence) + 1)
+            )
+
+        assert has_sequence(["--ro-bind", str(repo), str(repo)])
+        assert has_sequence(["--ro-bind", str(dataset), str(dataset)])
+        assert has_sequence(["--bind", str(jobs), str(jobs)])
+        assert not has_sequence(["--bind", str(work), str(work)])
+        assert has_sequence(["--setenv", "DOCKER_CONFIG", str(docker_config)])
+        assert "--unshare-net" in command
+
+    cleanup_calls = []
+    original_subprocess_run = runner.subprocess.run
+
+    def failed_cleanup(command, **_kwargs):
+        cleanup_calls.append(command)
+        return SimpleNamespace(returncode=1)
+
+    try:
+        runner.subprocess.run = failed_cleanup
+        runner.cleanup_buildx_builder("test-builder", {"DOCKER_HOST": "test"})
+    finally:
+        runner.subprocess.run = original_subprocess_run
+    assert cleanup_calls == [
+        ["docker", "buildx", "rm", "--force", "test-builder"],
+        ["podman", "rm", "-f", "buildx_buildkit_test-builder0"],
+        ["podman", "volume", "rm", "-f", "buildx_buildkit_test-builder0_state"],
+    ]
+
+    with tempfile.TemporaryDirectory() as raw:
         jobs = Path(raw) / "jobs"
         (jobs / "job" / "Task.Name__ABC1234").mkdir(parents=True)
         projects, verifier_prefixes = runner.harbor_compose_scopes(jobs)
