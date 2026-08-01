@@ -1,0 +1,220 @@
+use anyhow::{Context, Result, bail};
+use aws_config::BehaviorVersion;
+use aws_sdk_secretsmanager::Client as SecretsClient;
+use serde::Deserialize;
+use std::{env, net::SocketAddr, path::PathBuf};
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Environment {
+    Dev,
+    Prod,
+}
+
+#[derive(Deserialize)]
+struct SecretDocument {
+    #[serde(alias = "WORKER_TOKEN")]
+    worker_token: String,
+    #[serde(alias = "BEDROCK_API_KEY")]
+    bedrock_api_key: String,
+}
+
+pub struct ControllerConfig {
+    pub academy_base_url: String,
+    pub worker_token: String,
+    pub bedrock_api_key: String,
+    pub aws_region: String,
+    pub model_id: String,
+    pub profile_name: String,
+    pub reasoning_effort: String,
+    pub maximum_model_concurrency: usize,
+    pub executor_socket: PathBuf,
+    pub gateway_directory: PathBuf,
+    pub metrics_bind: SocketAddr,
+}
+
+impl ControllerConfig {
+    pub async fn load() -> Result<Self> {
+        // Local binaries run from the repository root. Production systemd units use an
+        // explicit EnvironmentFile, so this is a no-op there.
+        dotenvy::dotenv().ok();
+        let environment = deployment_environment(
+            env::var("ENVIRONMENT").ok().as_deref(),
+            env::var("HARNESS_ENV").ok().as_deref(),
+        )?;
+        let aws_region = value("AWS_REGION", "us-east-1");
+        let secret_id = env::var("BENCHMARK_SECRET_ID").unwrap_or_default();
+        let secrets = if secret_id.trim().is_empty() {
+            SecretDocument {
+                worker_token: env::var("WORKER_TOKEN").unwrap_or_default(),
+                bedrock_api_key: env::var("BEDROCK_API_KEY").unwrap_or_default(),
+            }
+        } else {
+            load_secret(secret_id.trim(), &aws_region).await?
+        };
+        if secrets.worker_token.len() < 32 || secrets.bedrock_api_key.len() < 20 {
+            bail!("worker and model credentials are missing or too short");
+        }
+        let academy_base_url = required("ACADEMY_BASE_URL")?
+            .trim_end_matches('/')
+            .to_owned();
+        let parsed = reqwest::Url::parse(&academy_base_url).context("ACADEMY_BASE_URL")?;
+        if parsed.scheme() != "https" && environment != Environment::Dev {
+            bail!("ACADEMY_BASE_URL must use HTTPS when ENVIRONMENT=PROD");
+        }
+        let reasoning_effort = value("BEDROCK_REASONING_EFFORT", "none");
+        if !matches!(
+            reasoning_effort.as_str(),
+            "none" | "low" | "medium" | "high"
+        ) {
+            bail!("BEDROCK_REASONING_EFFORT must be none, low, medium, or high");
+        }
+        let maximum_model_concurrency = value("BEDROCK_MAX_CONCURRENCY", "32")
+            .parse::<usize>()
+            .context("BEDROCK_MAX_CONCURRENCY")?;
+        if !(1..=128).contains(&maximum_model_concurrency) {
+            bail!("BEDROCK_MAX_CONCURRENCY must be between 1 and 128");
+        }
+        let metrics_bind: SocketAddr = value("BENCHMARK_METRICS_BIND", "127.0.0.1:9108")
+            .parse()
+            .context("BENCHMARK_METRICS_BIND")?;
+        if !metrics_bind.ip().is_loopback() {
+            bail!("BENCHMARK_METRICS_BIND must be loopback-only");
+        }
+        Ok(Self {
+            academy_base_url,
+            worker_token: secrets.worker_token,
+            bedrock_api_key: secrets.bedrock_api_key,
+            aws_region,
+            model_id: value("BEDROCK_MODEL_ID", "xai.grok-4.3"),
+            profile_name: value("BEDROCK_PROFILE_NAME", "grok-4.3"),
+            reasoning_effort,
+            maximum_model_concurrency,
+            executor_socket: value(
+                "BENCHMARK_EXECUTOR_SOCKET",
+                "/run/exposure-benchmark/executor/executor.sock",
+            )
+            .into(),
+            gateway_directory: value(
+                "BENCHMARK_GATEWAY_DIRECTORY",
+                "/run/exposure-benchmark/gateways",
+            )
+            .into(),
+            metrics_bind,
+        })
+    }
+}
+
+pub struct ExecutorConfig {
+    pub socket: PathBuf,
+    pub state_directory: PathBuf,
+    pub adapter: PathBuf,
+    pub python: PathBuf,
+    pub sandbox_image: String,
+    pub controller_uid: Option<u32>,
+}
+
+impl ExecutorConfig {
+    pub fn load() -> Result<Self> {
+        let controller_uid = env::var("BENCHMARK_CONTROLLER_UID")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .map(|value| value.parse::<u32>().context("BENCHMARK_CONTROLLER_UID"))
+            .transpose()?;
+        Ok(Self {
+            socket: value(
+                "BENCHMARK_EXECUTOR_SOCKET",
+                "/run/exposure-benchmark/executor/executor.sock",
+            )
+            .into(),
+            state_directory: value("BENCHMARK_STATE_DIRECTORY", "/var/lib/exposure-benchmark")
+                .into(),
+            adapter: value(
+                "BENCHMARK_ADAPTER",
+                "/opt/exposure-benchmark/adapters/runner.py",
+            )
+            .into(),
+            python: value(
+                "BENCHMARK_PYTHON",
+                "/var/lib/exposure-benchmark/venv/bin/python",
+            )
+            .into(),
+            sandbox_image: value(
+                "BENCHMARK_SANDBOX_IMAGE",
+                "localhost/exposure-harness-arc:0.9.9",
+            ),
+            controller_uid,
+        })
+    }
+}
+
+async fn load_secret(secret_id: &str, region: &str) -> Result<SecretDocument> {
+    let config = aws_config::defaults(BehaviorVersion::latest())
+        .region(aws_config::Region::new(region.to_owned()))
+        .load()
+        .await;
+    let response = SecretsClient::new(&config)
+        .get_secret_value()
+        .secret_id(secret_id)
+        .send()
+        .await
+        .context("read BENCHMARK_SECRET_ID from AWS Secrets Manager")?;
+    let value = response
+        .secret_string()
+        .context("benchmark secret must be a JSON SecretString")?;
+    serde_json::from_str(value).context("decode benchmark secret JSON")
+}
+
+fn value(name: &str, default: &str) -> String {
+    env::var(name)
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| default.to_owned())
+}
+
+fn required(name: &str) -> Result<String> {
+    env::var(name)
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .with_context(|| format!("{name} is required"))
+}
+
+fn deployment_environment(current: Option<&str>, legacy: Option<&str>) -> Result<Environment> {
+    let raw = current.or(legacy).unwrap_or("PROD").trim();
+    if raw.eq_ignore_ascii_case("DEV") || raw.eq_ignore_ascii_case("local") {
+        Ok(Environment::Dev)
+    } else if raw.eq_ignore_ascii_case("PROD") || raw.eq_ignore_ascii_case("production") {
+        Ok(Environment::Prod)
+    } else {
+        bail!("ENVIRONMENT must be DEV or PROD")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn environment_defaults_to_production_and_keeps_legacy_names_compatible() {
+        assert_eq!(
+            deployment_environment(None, None).unwrap(),
+            Environment::Prod
+        );
+        assert_eq!(
+            deployment_environment(Some("DEV"), None).unwrap(),
+            Environment::Dev
+        );
+        assert_eq!(
+            deployment_environment(Some("prod"), None).unwrap(),
+            Environment::Prod
+        );
+        assert_eq!(
+            deployment_environment(None, Some("local")).unwrap(),
+            Environment::Dev
+        );
+        assert_eq!(
+            deployment_environment(None, Some("production")).unwrap(),
+            Environment::Prod
+        );
+        assert!(deployment_environment(Some("staging"), None).is_err());
+    }
+}
