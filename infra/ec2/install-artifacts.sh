@@ -29,12 +29,14 @@ done
 install -d -m 0755 -o root -g root \
   /opt/exposure-benchmark/bin \
   /opt/exposure-benchmark/adapters \
+  /opt/exposure-benchmark/infra \
   /opt/exposure-benchmark/sandbox
 install -m 0755 -o root -g root \
   "$bundle/bin/benchmark-controller" /opt/exposure-benchmark/bin/benchmark-controller
 install -m 0755 -o root -g root \
   "$bundle/bin/benchmark-executor" /opt/exposure-benchmark/bin/benchmark-executor
 cp -a "$bundle/adapters/." /opt/exposure-benchmark/adapters/
+cp -a "$bundle/infra/." /opt/exposure-benchmark/infra/
 cp -a "$bundle/sandbox/." /opt/exposure-benchmark/sandbox/
 chown -R root:root /opt/exposure-benchmark
 
@@ -64,14 +66,31 @@ fi
 
 systemd-tmpfiles --create /usr/lib/tmpfiles.d/exposure-benchmark.conf
 systemctl daemon-reload
-systemctl enable benchmark-executor.service benchmark-controller.service
+
+# A builder must never begin polling Academy after a reboot. Prepared-image launches
+# explicitly enable both units from cloud-init after recreating controller.env.
+systemctl disable --now benchmark-executor.service benchmark-controller.service
+
+executor_home=/var/lib/exposure-benchmark/executor
+executor_runtime=/run/exposure-benchmark/executor-runtime
+containers_config=$executor_home/.config/containers/containers.conf
+install -d -m 0700 -o exposure-executor -g exposure-executor "$(dirname "$containers_config")"
+cat >"$containers_config" <<'EOF'
+[engine]
+cgroup_manager="cgroupfs"
+EOF
+chown exposure-executor:exposure-executor "$containers_config"
+chmod 0600 "$containers_config"
 
 arc_cache=/var/lib/exposure-benchmark/cache/arc-starter
 if [[ -d $arc_cache/vendor/ARC-AGI-3-Agents ]]; then
   runuser -u exposure-executor -- env \
-    HOME=/var/lib/exposure-benchmark/executor \
-    XDG_RUNTIME_DIR=/run/exposure-benchmark/executor-runtime \
-    podman build --pull=never \
+    HOME="$executor_home" XDG_RUNTIME_DIR="$executor_runtime" \
+    podman --cgroup-manager=cgroupfs pull \
+      docker.io/library/python:3.12.11-slim-bookworm
+  runuser -u exposure-executor -- env \
+    HOME="$executor_home" XDG_RUNTIME_DIR="$executor_runtime" \
+    podman --cgroup-manager=cgroupfs build --pull=never \
       --label academy.harness.version=harness-2026-sprint-v2 \
       -t localhost/exposure-harness-arc:0.9.9 \
       -f /opt/exposure-benchmark/sandbox/Containerfile "$arc_cache"
@@ -84,7 +103,7 @@ if [[ $start == --start ]]; then
     echo "refusing to start without /etc/exposure-benchmark/controller.env" >&2
     exit 1
   }
-  systemctl restart benchmark-executor.service benchmark-controller.service
+  systemctl enable --now benchmark-executor.service benchmark-controller.service
 fi
 
 echo "benchmark artifacts installed and verified"

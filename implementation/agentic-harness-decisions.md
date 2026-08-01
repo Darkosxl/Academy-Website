@@ -66,7 +66,8 @@ implementing any deviation.
 ## Benchmark definitions
 
 - ARC uses `arc-agi` 0.9.9, starter commit
-  `eeb1535404f321d280a8f9194bbc1d7aca5f05fc`, and these thirteen pinned public
+  `eeb1535404f321d280a8f9194bbc1d7aca5f05fc`, ARC Agents commit
+  `10213de83f01df0ef4f0149ee9f8408dcc3772fb`, and these thirteen pinned public
   games in parallel: `ls20`, `vc33`, `ar25`, `cn04`, `s5i5`, `sp80`, `bp35`,
   `ft09`, `m0r0`, `re86`, `cd82`, `sb26`, `r11l`. The original ten keep their
   order and `cd82`, `sb26`, and `r11l` are appended, so a game's position is
@@ -75,7 +76,7 @@ implementing any deviation.
   `WIN` or `GAME_OVER`; it does not reset after death. A game still active at
   the global deadline scores zero.
 - Frontier uses Harbor 0.20.0 and dataset commit
-  `3d3a3b63152c76eaf4ade56cea9ffac1a1bcafe3`. Frontier Sprint v1 runs
+  `3d694e919871dbf21ea5ff618782c99a3cb3663f`. Frontier Sprint v1 runs
   `html-js-filter`, `vllm-deepseek-streaming`, `session-window-debug`,
   `mvcc-lsm-compaction`, and `embedding-drift-monitor` concurrently.
 - Frontier has no turn cap. Each task gets 120 seconds of agent time and a

@@ -82,9 +82,10 @@ secret described in `infra/ec2/README.md`.
 Recreate these pinned caches on EC2 instead of copying local virtual environments:
 
 - `/var/lib/exposure-benchmark/cache/arc-starter` at ARC starter commit
-  `eeb1535404f321d280a8f9194bbc1d7aca5f05fc` with `arc-agi==0.9.9`.
+  `eeb1535404f321d280a8f9194bbc1d7aca5f05fc`, ARC Agents commit
+  `10213de83f01df0ef4f0149ee9f8408dcc3772fb`, and `arc-agi==0.9.9`.
 - `/var/lib/exposure-benchmark/cache/frontier-bench/frontier-bench` at dataset commit
-  `3d3a3b63152c76eaf4ade56cea9ffac1a1bcafe3` with Harbor `0.20.0` installed for the
+  `3d694e919871dbf21ea5ff618782c99a3cb3663f` with Harbor `0.20.0` installed for the
   executor user.
 
 The installer verifies `SHA256SUMS`, recreates the adapter venv from the hash-locked local

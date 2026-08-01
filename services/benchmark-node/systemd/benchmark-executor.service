@@ -11,6 +11,7 @@ SupplementaryGroups=exposure-benchmark
 EnvironmentFile=-/etc/exposure-benchmark/executor.env
 Environment=HOME=/var/lib/exposure-benchmark/executor
 Environment=XDG_RUNTIME_DIR=/run/exposure-benchmark/executor-runtime
+Environment=MPLCONFIGDIR=/tmp/matplotlib
 ExecStart=/opt/exposure-benchmark/bin/benchmark-executor
 Restart=always
 RestartSec=2s

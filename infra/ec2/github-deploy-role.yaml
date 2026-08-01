@@ -1,0 +1,175 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: GitHub OIDC and CloudFormation roles for immutable benchmark worker deployment
+
+Parameters:
+  GitHubOidcProviderArn:
+    Type: String
+    AllowedPattern: '^arn:(aws|aws-us-gov|aws-cn):iam::[0-9]{12}:oidc-provider/token\.actions\.githubusercontent\.com$'
+  GitHubRepository:
+    Type: String
+    Default: Darkosxl/Academy-Website
+    AllowedPattern: '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
+  DeploymentBranch:
+    Type: String
+    Default: arc-live-viewer
+    AllowedPattern: '^[A-Za-z0-9_./-]+$'
+  BenchmarkStackName:
+    Type: String
+    Default: exposure-benchmark
+    AllowedPattern: '^[A-Za-z][-A-Za-z0-9]*$'
+
+Resources:
+  BenchmarkCloudFormationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${BenchmarkStackName}-cloudformation-deploy
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: cloudformation.amazonaws.com}
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: UpdateBenchmarkWorkerImage
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: ReadEc2State
+                Effect: Allow
+                Action:
+                  - ec2:Describe*
+                Resource: '*'
+              - Sid: ManageWorkerLaunchTemplate
+                Effect: Allow
+                Action:
+                  - ec2:CreateLaunchTemplateVersion
+                  - ec2:DeleteLaunchTemplateVersions
+                  - ec2:ModifyLaunchTemplate
+                  - ec2:CreateTags
+                Resource: !Sub arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:launch-template/*
+              - Sid: ReadAutoScalingState
+                Effect: Allow
+                Action:
+                  - autoscaling:Describe*
+                Resource: '*'
+              - Sid: UpdateWorkerGroup
+                Effect: Allow
+                Action:
+                  - autoscaling:CreateOrUpdateTags
+                  - autoscaling:SetDesiredCapacity
+                  - autoscaling:TerminateInstanceInAutoScalingGroup
+                  - autoscaling:UpdateAutoScalingGroup
+                Resource: !Sub arn:${AWS::Partition}:autoscaling:${AWS::Region}:${AWS::AccountId}:autoScalingGroup:*:autoScalingGroupName/${BenchmarkStackName}-workers
+              - Sid: PassWorkerRole
+                Effect: Allow
+                Action: iam:PassRole
+                Resource: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${BenchmarkStackName}-InstanceRole-*
+                Condition:
+                  StringEquals:
+                    iam:PassedToService: ec2.amazonaws.com
+              - Sid: ReadWorkerProfile
+                Effect: Allow
+                Action:
+                  - iam:GetInstanceProfile
+                  - iam:GetRole
+                Resource:
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:instance-profile/${BenchmarkStackName}-InstanceProfile-*
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${BenchmarkStackName}-InstanceRole-*
+
+  GitHubDeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${BenchmarkStackName}-github-deploy
+      MaxSessionDuration: 21600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Ref GitHubOidcProviderArn
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                token.actions.githubusercontent.com:sub: !Sub repo:${GitHubRepository}:ref:refs/heads/${DeploymentBranch}
+      Policies:
+        - PolicyName: DeployBenchmarkWorker
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: UpdateOnlyBenchmarkStack
+                Effect: Allow
+                Action:
+                  - cloudformation:DescribeStackEvents
+                  - cloudformation:DescribeStacks
+                  - cloudformation:UpdateStack
+                Resource: !Sub arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${BenchmarkStackName}/*
+              - Sid: PassCloudFormationRole
+                Effect: Allow
+                Action: iam:PassRole
+                Resource: !GetAtt BenchmarkCloudFormationRole.Arn
+                Condition:
+                  StringEquals:
+                    iam:PassedToService: cloudformation.amazonaws.com
+              - Sid: ReadFleetState
+                Effect: Allow
+                Action:
+                  - autoscaling:DescribeAutoScalingGroups
+                  - ec2:DescribeImages
+                  - ec2:DescribeInstances
+                  - ec2:DescribeInstanceStatus
+                  - ec2:DescribeRegions
+                  - ec2:DescribeSecurityGroups
+                  - ec2:DescribeSubnets
+                  - ec2:DescribeTags
+                  - ec2:DescribeVolumes
+                  - iam:GetInstanceProfile
+                Resource: '*'
+              - Sid: BuildAmi
+                Effect: Allow
+                Action:
+                  - ec2:AttachVolume
+                  - ec2:CopyImage
+                  - ec2:CreateImage
+                  - ec2:CreateKeyPair
+                  - ec2:CreateSnapshot
+                  - ec2:CreateTags
+                  - ec2:CreateVolume
+                  - ec2:DeleteKeyPair
+                  - ec2:DeleteSnapshot
+                  - ec2:DeleteVolume
+                  - ec2:DeregisterImage
+                  - ec2:DetachVolume
+                  - ec2:GetPasswordData
+                  - ec2:ModifyImageAttribute
+                  - ec2:ModifyInstanceAttribute
+                  - ec2:ModifySnapshotAttribute
+                  - ec2:RegisterImage
+                  - ec2:RunInstances
+                  - ec2:StopInstances
+                  - ec2:TerminateInstances
+                Resource: '*'
+              - Sid: PassWorkerRoleToBuilder
+                Effect: Allow
+                Action: iam:PassRole
+                Resource: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${BenchmarkStackName}-InstanceRole-*
+                Condition:
+                  StringEquals:
+                    iam:PassedToService: ec2.amazonaws.com
+              - Sid: UseSessionManager
+                Effect: Allow
+                Action:
+                  - ssm:DescribeInstanceInformation
+                  - ssm:GetCommandInvocation
+                  - ssm:ListCommandInvocations
+                  - ssm:ResumeSession
+                  - ssm:SendCommand
+                  - ssm:StartSession
+                  - ssm:TerminateSession
+                Resource: '*'
+
+Outputs:
+  GitHubDeployRoleArn:
+    Value: !GetAtt GitHubDeployRole.Arn
+  CloudFormationDeployRoleArn:
+    Value: !GetAtt BenchmarkCloudFormationRole.Arn

@@ -27,6 +27,7 @@ packages:
   - bubblewrap
   - ca-certificates
   - docker-compose-v2
+  - docker-buildx
   - docker.io
   - fuse-overlayfs
   - git
