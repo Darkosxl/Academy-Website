@@ -159,7 +159,12 @@ for task in "${frontier_tasks[@]}"; do
   echo "FRONTIER READY: $task"
 done
 
-install -d -m 0700 -o exposure-executor -g exposure-executor "$(dirname "$harbor")"
+install -d -m 0700 -o exposure-executor -g exposure-executor \
+  "$executor_home/.local" \
+  "$executor_home/.local/share" \
+  "$executor_home/.local/share/containers" \
+  "$executor_home/.local/share/uv" \
+  "$(dirname "$harbor")"
 run_executor python3.12 -m venv "$harbor"
 run_executor "$harbor/bin/python" -m pip install \
   --disable-pip-version-check "harbor==0.20.0"
