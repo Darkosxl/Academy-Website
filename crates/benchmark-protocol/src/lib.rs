@@ -3,7 +3,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
-pub const BENCHMARK_VERSION: &str = "harness-2026-sprint-v2";
+pub const BENCHMARK_VERSION: &str = "harness-2026-sprint-v3";
+pub const ARC_CONCURRENCY: usize = 5;
+pub const RUN_DEADLINE_SECONDS: i64 = 9 * 60 * 60;
 pub const DEFAULT_BEDROCK_MODEL: &str = "xai.grok-4.3";
 pub const BEDROCK_MODEL_IDS: &[&str] = &[
     "deepseek.v3.1",
@@ -97,9 +99,10 @@ fn default_bedrock_model() -> String {
     DEFAULT_BEDROCK_MODEL.into()
 }
 
-pub const ARC_GAMES: [&str; 13] = [
-    "ls20", "vc33", "ar25", "cn04", "s5i5", "sp80", "bp35", "ft09", "m0r0", "re86", "cd82", "sb26",
-    "r11l",
+pub const ARC_GAMES: [&str; 25] = [
+    "bp35", "m0r0", "ft09", "ar25", "s5i5", "sp80", "g50t", "lp85", "r11l", "sc25", "tn36", "sk48",
+    "re86", "wa30", "cn04", "tu93", "tr87", "sb26", "su15", "ls20", "ka59", "cd82", "dc22", "vc33",
+    "lf52",
 ];
 pub const FRONTIER_TASKS: [&str; 5] = [
     "html-js-filter",
@@ -340,7 +343,7 @@ mod tests {
                 "model_id": "xai.grok-4.3",
                 "lease_token": lease_token,
                 "deadline_at": "2026-08-01T12:00:00Z",
-                "benchmark_version": "harness-2026-sprint-v2"
+                "benchmark_version": "harness-2026-sprint-v3"
             })
         );
     }
@@ -376,6 +379,18 @@ mod tests {
         assert_eq!(builtin_harness_uri("unknown"), None);
         assert!(is_builtin_harness("builtin://forge"));
         assert!(!is_builtin_harness("builtin://unknown"));
+    }
+
+    #[test]
+    fn arc_v3_runs_every_public_game_five_at_a_time() {
+        assert_eq!(ARC_GAMES.len(), 25);
+        assert_eq!(ARC_CONCURRENCY, 5);
+        assert!(
+            ARC_GAMES
+                .iter()
+                .enumerate()
+                .all(|(index, game)| { !ARC_GAMES[..index].contains(game) })
+        );
     }
 
     #[test]
@@ -456,7 +471,7 @@ mod tests {
     fn ndjson_messages_are_tagged_and_round_trip() {
         let event = ExecutorEvent::Progress {
             benchmark: "arc".into(),
-            state: serde_json::json!({"status":"running","done":3,"total":13}),
+            state: serde_json::json!({"status":"running","done":3,"total":25}),
         };
         let line = serde_json::to_string(&event).unwrap();
         assert!(line.starts_with("{\"type\":\"progress\""));

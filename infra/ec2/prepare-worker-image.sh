@@ -64,7 +64,10 @@ harbor=$executor_home/.local/share/uv/tools/harbor
 arc_sha=eeb1535404f321d280a8f9194bbc1d7aca5f05fc
 agents_sha=10213de83f01df0ef4f0149ee9f8408dcc3772fb
 frontier_sha=3d694e919871dbf21ea5ff618782c99a3cb3663f
-games=(ls20 vc33 ar25 cn04 s5i5 sp80 bp35 ft09 m0r0 re86 cd82 sb26 r11l)
+games=(
+  bp35 m0r0 ft09 ar25 s5i5 sp80 g50t lp85 r11l sc25 tn36 sk48 re86
+  wa30 cn04 tu93 tr87 sb26 su15 ls20 ka59 cd82 dc22 vc33 lf52
+)
 frontier_tasks=(
   html-js-filter
   vllm-deepseek-streaming

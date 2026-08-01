@@ -710,7 +710,7 @@ def run(socket_path: Path) -> None:
     if server.latency not in ("standard", "optimized"):
         raise SystemExit("BEDROCK_LATENCY must be standard or optimized")
     server.profile_name = os.environ.get("BEDROCK_PROFILE_NAME", "bedrock-harness")[:120]
-    server.benchmark_version = os.environ.get("HARNESS_BENCHMARK_VERSION", "harness-2026-sprint-v2")
+    server.benchmark_version = os.environ.get("HARNESS_BENCHMARK_VERSION", "harness-2026-sprint-v3")
     server.gateway_token = token
     server.slots = threading.BoundedSemaphore(max_concurrency)
     server.stats = Stats()

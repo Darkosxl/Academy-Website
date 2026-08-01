@@ -22,8 +22,9 @@ from dataclasses import dataclass
 from typing import Any
 
 GAMES = (
-    "ls20", "vc33", "ar25", "cn04", "s5i5", "sp80", "bp35",
-    "ft09", "m0r0", "re86", "cd82", "sb26", "r11l",
+    "bp35", "m0r0", "ft09", "ar25", "s5i5", "sp80", "g50t", "lp85", "r11l", "sc25",
+    "tn36", "sk48", "re86", "wa30", "cn04", "tu93", "tr87", "sb26", "su15", "ls20",
+    "ka59", "cd82", "dc22", "vc33", "lf52",
 )
 GRID = "0" * 4096
 
@@ -243,7 +244,7 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.self_test:
-        assert len(GAMES) == 13
+        assert len(GAMES) == 25
         assert len(frame("ls20", 1)["grids"]) == 4096
         assert percentile_95(list(range(1, 101))) == 95
         print("frame load-test contract ok")

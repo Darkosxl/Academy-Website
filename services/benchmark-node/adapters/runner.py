@@ -36,12 +36,15 @@ REPOSITORY_ROOT = ROOT.parents[2]
 ENV_FILE = Path(os.environ.get("HARNESS_ENV_FILE", REPOSITORY_ROOT / ".env"))
 HARBOR_ROOT = Path.home() / ".local" / "share" / "uv" / "tools" / "harbor"
 HARBOR_CLI = HARBOR_ROOT / "bin" / "harbor"
-HARNESS_VERSION = "harness-2026-sprint-v2"
+HARNESS_VERSION = "harness-2026-sprint-v3"
 POLL_SECONDS = 2
+ARC_CONCURRENCY = 5
+RUN_DEADLINE_SECONDS = 9 * 60 * 60
 
 ARC_GAMES = (
-    "ls20", "vc33", "ar25", "cn04", "s5i5", "sp80", "bp35", "ft09", "m0r0", "re86",
-    "cd82", "sb26", "r11l",
+    "bp35", "m0r0", "ft09", "ar25", "s5i5", "sp80", "g50t", "lp85", "r11l", "sc25",
+    "tn36", "sk48", "re86", "wa30", "cn04", "tu93", "tr87", "sb26", "su15", "ls20",
+    "ka59", "cd82", "dc22", "vc33", "lf52",
 )
 FRONTIER_TASKS = (
     "html-js-filter",
@@ -175,14 +178,14 @@ def api(path: str, body: Any | None = None) -> Any:
 def bounded_timeout(deadline: float, cap: float) -> float:
     remaining = deadline - time.monotonic()
     if remaining <= 0:
-        raise InfrastructureFailed("the 600-second run deadline expired")
+        raise InfrastructureFailed("the benchmark deadline expired")
     return max(0.1, min(cap, remaining))
 
 
 def parse_deadline(value: str) -> float:
     parsed = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
     seconds = (parsed - dt.datetime.now(dt.timezone.utc)).total_seconds()
-    if not 0 < seconds <= 610:
+    if not 0 < seconds <= RUN_DEADLINE_SECONDS + 10:
         raise InfrastructureFailed("claim returned an invalid deadline")
     return time.monotonic() + seconds
 
@@ -206,7 +209,7 @@ class Lease:
 
     def _run(self) -> None:
         failures = 0
-        while not self.stop_event.wait(30):
+        while not self.stop_event.wait(5):
             if time.monotonic() >= self.deadline:
                 return
             try:
@@ -223,7 +226,7 @@ class Lease:
         if self.lost.is_set():
             raise LeaseLost("worker lost its run lease")
         if time.monotonic() >= self.deadline:
-            raise InfrastructureFailed("the 600-second run deadline expired")
+            raise InfrastructureFailed("the benchmark deadline expired")
 
 
 class Reporter:
@@ -748,7 +751,10 @@ def cleanup_run_containers(run_id: str) -> None:
 
 
 def run_arc(run_id: str, repo: Path, venv: Path, gateway: Gateway, reporter: Reporter, deadline: float) -> float:
-    reporter.update("arc", status="running", done=0, total=len(ARC_GAMES), games={}, rate=0)
+    reporter.update(
+        "arc", status="running", done=0, total=len(ARC_GAMES), games={},
+        active=0, queued=len(ARC_GAMES), rate=0,
+    )
     env = os.environ.copy()
     env.update({
         "HARNESS_ARC_STARTER": str(ARC_STARTER),
@@ -766,28 +772,39 @@ def run_arc(run_id: str, repo: Path, venv: Path, gateway: Gateway, reporter: Rep
         env["HARNESS_LEASE_TOKEN"] = reporter.lease.token
     processes: dict[str, subprocess.Popen] = {}
     stderr_drains: dict[str, ArcStderrDrain] = {}
-    for game in ARC_GAMES:
-        process = subprocess.Popen([
-            str(ARC_PYTHON), str(ROOT / "arc_game.py"), "--game", game,
-            "--deadline-monotonic", str(deadline), "--repo", str(repo), "--venv", str(venv),
-            "--gateway-dir", str(gateway.directory), "--image", HARNESS_IMAGE,
-            "--worker-dir", str(ROOT), "--run-id", run_id,
-        ], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        processes[game] = process
-        stderr_drains[game] = ArcStderrDrain(process.stderr, reporter)
+    pending = iter(ARC_GAMES)
+
+    def fill_slots() -> None:
+        while len(processes) < ARC_CONCURRENCY:
+            game = next(pending, None)
+            if game is None:
+                return
+            process = subprocess.Popen([
+                str(ARC_PYTHON), str(ROOT / "arc_game.py"), "--game", game,
+                "--deadline-monotonic", str(deadline), "--repo", str(repo), "--venv", str(venv),
+                "--gateway-dir", str(gateway.directory), "--image", HARNESS_IMAGE,
+                "--worker-dir", str(ROOT), "--run-id", run_id,
+            ], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            processes[game] = process
+            stderr_drains[game] = ArcStderrDrain(process.stderr, reporter)
+
     results: dict[str, dict[str, Any]] = {}
     started = time.monotonic()
     next_rate_check = started + 30
-    misses = 0
     try:
+        fill_slots()
+        reporter.update(
+            "arc", status="running", done=0, total=len(ARC_GAMES), games={},
+            active=len(processes), queued=len(ARC_GAMES) - len(processes), rate=0,
+        )
         while processes:
             if time.monotonic() >= deadline:
-                for process in processes.values():
-                    process.terminate()
-                for game in list(processes):
+                for game in ARC_GAMES:
+                    if game in results:
+                        continue
                     results[game] = {"game": game, "status": "timeout", "score": 0.0}
-                processes.clear()
                 break
+            completed = False
             for game, process in list(processes.items()):
                 if process.poll() is None:
                     continue
@@ -803,21 +820,21 @@ def run_arc(run_id: str, repo: Path, venv: Path, gateway: Gateway, reporter: Rep
                     result = {"game": game, "status": "failed", "score": 0.0, "error": "invalid score"}
                 results[game] = result
                 del processes[game]
-                reporter.update("arc", status="running", done=len(results), total=len(ARC_GAMES),
-                                games=results, active=len(processes))
+                completed = True
+            if completed:
+                fill_slots()
+                reporter.update(
+                    "arc", status="running", done=len(results), total=len(ARC_GAMES),
+                    games=results, active=len(processes),
+                    queued=len(ARC_GAMES) - len(results) - len(processes),
+                )
             now = time.monotonic()
             if processes and now >= next_rate_check:
                 metrics = gateway.metrics()
-                completed = int(metrics["completed_last_30s"])
-                target = 100 * len(processes) / len(ARC_GAMES)
-                misses = misses + 1 if completed < target else 0
+                request_rate = int(metrics["completed_last_30s"])
                 reporter.update("arc", status="running", done=len(results), total=len(ARC_GAMES),
-                                games=results, active=len(processes), rate=completed,
-                                rate_target=round(target, 1), rate_misses=misses)
-                if misses >= 2:
-                    raise InfrastructureFailed(
-                        f"ARC Bedrock throughput stayed below target: {completed}/{target:.0f} turns per 30s"
-                    )
+                                games=results, active=len(processes), rate=request_rate,
+                                queued=len(ARC_GAMES) - len(results) - len(processes))
                 next_rate_check = now + 5
             time.sleep(0.2)
     finally:

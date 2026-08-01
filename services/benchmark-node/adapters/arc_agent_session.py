@@ -45,7 +45,10 @@ def main() -> None:
                 tags=["academy", "public-sprint"],
             )
             agent.timer = time.time()
-        emit({"ready": True})
+            max_actions = int(getattr(agent, "MAX_ACTIONS", 80))
+            if not 1 <= max_actions <= 10_000:
+                raise ValueError("MyAgent.MAX_ACTIONS must be between 1 and 10000")
+        emit({"ready": True, "max_actions": max_actions})
     except Exception:
         emit({"error": "agent import failed", "detail": traceback.format_exc()[-4000:]})
         return
@@ -56,6 +59,9 @@ def main() -> None:
             latest = FrameData.model_validate(request["frame"])
             if request.get("append"):
                 agent.append_frame(latest)
+            if agent.action_counter > max_actions or agent.is_done(agent.frames, latest):
+                emit({"done": True})
+                return
             with contextlib.redirect_stdout(sys.stderr):
                 action = agent.choose_action(agent.frames, latest)
             if not isinstance(action, GameAction):

@@ -21,18 +21,23 @@ done
 HARNESS_ENV=executor "$adapter_python" "$adapters/contract_test.py"
 "$adapter_python" "$adapters/arc_game.py" --self-check
 
-runuser -u exposure-executor -- env ARC_CACHE="$arc_cache" \
+runuser -u exposure-executor -- env HARNESS_ENV=executor ARC_CACHE="$arc_cache" ADAPTERS="$adapters" \
   "$arc_python" - <<'PY'
 import os
+import sys
 import arc_agi
 from arc_agi import OperationMode
+
+sys.path.insert(0, os.environ["ADAPTERS"])
+from runner import ARC_GAMES
 
 arcade = arc_agi.Arcade(
     operation_mode=OperationMode.OFFLINE,
     environments_dir=os.path.join(os.environ["ARC_CACHE"], "environment_files"),
 )
-assert arcade.make("ls20") is not None
-print("cached ARC engine ok")
+for game in ARC_GAMES:
+    assert arcade.make(game) is not None
+print(f"cached ARC engine ok: {len(ARC_GAMES)} games")
 PY
 
 runuser -u exposure-executor -- env \

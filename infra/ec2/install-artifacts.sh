@@ -91,7 +91,7 @@ if [[ -d $arc_cache/vendor/ARC-AGI-3-Agents ]]; then
   runuser -u exposure-executor -- env \
     HOME="$executor_home" XDG_RUNTIME_DIR="$executor_runtime" \
     podman --cgroup-manager=cgroupfs build --pull=never \
-      --label academy.harness.version=harness-2026-sprint-v2 \
+      --label academy.harness.version=harness-2026-sprint-v3 \
       -t localhost/exposure-harness-arc:0.9.9 \
       -f /opt/exposure-benchmark/sandbox/Containerfile "$arc_cache"
 else

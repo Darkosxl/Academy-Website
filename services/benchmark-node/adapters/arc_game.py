@@ -265,6 +265,8 @@ def main() -> None:
             response = read_json(proc, min(args.deadline_monotonic, time.monotonic() + 20))
             if response.get("error"):
                 raise RuntimeError(response.get("detail") or response["error"])
+            if response.get("done") is True:
+                break
             try:
                 action = GameAction[response["action"]]
             except (KeyError, TypeError) as exc:
