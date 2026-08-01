@@ -59,7 +59,7 @@ def main() -> None:
             latest = FrameData.model_validate(request["frame"])
             if request.get("append"):
                 agent.append_frame(latest)
-            if agent.action_counter > max_actions or agent.is_done(agent.frames, latest):
+            if agent.action_counter >= max_actions or agent.is_done(agent.frames, latest):
                 emit({"done": True})
                 return
             with contextlib.redirect_stdout(sys.stderr):
