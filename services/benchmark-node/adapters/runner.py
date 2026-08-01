@@ -40,6 +40,7 @@ HARNESS_VERSION = "harness-2026-sprint-v3"
 POLL_SECONDS = 2
 ARC_CONCURRENCY = 5
 RUN_DEADLINE_SECONDS = 9 * 60 * 60
+FRONTIER_DEADLINE_SECONDS = 15 * 60
 
 ARC_GAMES = (
     "bp35", "m0r0", "ft09", "ar25", "s5i5", "sp80", "g50t", "lp85", "r11l", "sc25",
@@ -741,13 +742,66 @@ class ArcStderrDrain:
 
 
 def cleanup_run_containers(run_id: str) -> None:
-    result = subprocess.run(
-        ["podman", "ps", "-aq", "--filter", f"label=academy.harness.run={run_id}"],
-        capture_output=True, text=True,
-    )
+    try:
+        result = subprocess.run(
+            ["podman", "ps", "-aq", "--filter", f"label=academy.harness.run={run_id}"],
+            capture_output=True, text=True, timeout=5,
+        )
+    except subprocess.TimeoutExpired:
+        return
     ids = [line for line in result.stdout.splitlines() if re.fullmatch(r"[0-9a-f]+", line)]
     if ids:
-        subprocess.run(["podman", "rm", "-f", *ids], capture_output=True)
+        with contextlib.suppress(subprocess.TimeoutExpired):
+            subprocess.run(["podman", "rm", "-f", *ids], capture_output=True, timeout=15)
+
+
+def harbor_compose_scopes(jobs: Path) -> tuple[set[str], set[str]]:
+    projects: set[str] = set()
+    verifier_prefixes: set[str] = set()
+    if not jobs.exists():
+        return projects, verifier_prefixes
+    for job in jobs.iterdir():
+        if not job.is_dir():
+            continue
+        for trial in job.iterdir():
+            if not trial.is_dir():
+                continue
+            name = trial.name.lower()
+            if not re.match(r"^[a-z0-9]", name):
+                name = "0" + name
+            name = re.sub(r"[^a-z0-9_-]", "-", name)
+            projects.add(f"{name}__env")
+            verifier_prefixes.add(f"{name}__verifier__")
+    return projects, verifier_prefixes
+
+
+def cleanup_harbor_containers(jobs: Path) -> None:
+    projects, verifier_prefixes = harbor_compose_scopes(jobs)
+    if not projects:
+        return
+    try:
+        result = subprocess.run(
+            [
+                "podman", "ps", "-a", "--filter", "label=com.docker.compose.project",
+                "--format", '{{.ID}}\t{{.Label "com.docker.compose.project"}}',
+            ],
+            capture_output=True, text=True, timeout=5,
+        )
+    except subprocess.TimeoutExpired:
+        return
+    ids: set[str] = set()
+    if result.returncode == 0:
+        for line in result.stdout.splitlines():
+            container_id, separator, project = line.partition("\t")
+            if (separator and re.fullmatch(r"[0-9a-f]+", container_id)
+                    and (project in projects
+                         or any(project.startswith(prefix) for prefix in verifier_prefixes))):
+                ids.add(container_id)
+    if ids:
+        with contextlib.suppress(subprocess.TimeoutExpired):
+            subprocess.run(
+                ["podman", "rm", "-f", *sorted(ids)], capture_output=True, timeout=15,
+            )
 
 
 def run_arc(run_id: str, repo: Path, venv: Path, gateway: Gateway, reporter: Reporter, deadline: float) -> float:
@@ -974,42 +1028,64 @@ def bubblewrap_harbor(repo: Path, dataset: Path, jobs: Path, gateway: Gateway, p
     return command
 
 
+def frontier_cutoff(global_deadline: float, now: float | None = None) -> float:
+    started = time.monotonic() if now is None else now
+    return min(global_deadline, started + FRONTIER_DEADLINE_SECONDS)
+
+
 def run_frontier(run_id: str, repo: Path, work: Path, gateway: Gateway, reporter: Reporter, deadline: float) -> float:
     dataset = sprint_dataset(work)
     jobs = work / "frontier-jobs"
     jobs.mkdir()
-    socket_path = work / "podman-api.sock"
-    service = subprocess.Popen(
-        ["podman", "system", "service", "--time=0", f"unix://{socket_path}"],
-        stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
-    )
-    service_deadline = time.monotonic() + 5
-    while not socket_path.exists() and service.poll() is None and time.monotonic() < service_deadline:
-        time.sleep(0.05)
-    if not socket_path.exists():
-        if service.poll() is None:
-            service.terminate()
-            with contextlib.suppress(subprocess.TimeoutExpired):
-                service.wait(timeout=2)
-        if service.poll() is None:
-            service.kill()
-            service.wait()
-        detail = service.stderr.read()[-1000:] if service.stderr else ""
-        raise InfrastructureFailed(f"rootless Podman API did not start: {detail}")
-    reporter.update("frontier", status="running", done=0, total=len(FRONTIER_TASKS), tasks={}, rate=0)
+    # AF_UNIX paths are limited to 107 bytes on Linux. Run work directories include a
+    # UUID and can exceed that locally, so keep the private Podman API socket short.
+    socket_directory = Path(tempfile.mkdtemp(prefix=f"exposure-hb-{run_id[:8]}-", dir="/tmp"))
+    socket_path = socket_directory / "podman.sock"
+    service: subprocess.Popen | None = None
+    process: subprocess.Popen | None = None
+    stage_timed_out = False
     log_file = work / "frontier.log"
-    with log_file.open("w") as output:
-        process = subprocess.Popen(
-            bubblewrap_harbor(repo, dataset, jobs, gateway, socket_path),
-            stdout=output, stderr=subprocess.STDOUT, text=True, start_new_session=True,
-        )
-    started = time.monotonic()
-    next_rate_check = started + 30
-    misses = 0
     try:
+        service = subprocess.Popen(
+            ["podman", "system", "service", "--time=0", f"unix://{socket_path}"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
+        )
+        service_ready_deadline = min(deadline, time.monotonic() + 5)
+        while (not socket_path.exists() and service.poll() is None
+               and time.monotonic() < service_ready_deadline):
+            time.sleep(0.05)
+        if not socket_path.exists():
+            if service.poll() is None:
+                service.terminate()
+                with contextlib.suppress(subprocess.TimeoutExpired):
+                    service.wait(timeout=2)
+            if service.poll() is None:
+                service.kill()
+                with contextlib.suppress(subprocess.TimeoutExpired):
+                    service.wait(timeout=2)
+            detail = ""
+            if service.stderr:
+                with contextlib.suppress(OSError):
+                    os.set_blocking(service.stderr.fileno(), False)
+                with contextlib.suppress(OSError, BlockingIOError):
+                    detail = (service.stderr.read() or "")[-1000:]
+            raise InfrastructureFailed(f"rootless Podman API did not start: {detail}")
+        reporter.update(
+            "frontier", status="running", done=0, total=len(FRONTIER_TASKS),
+            tasks={}, rate=0, max_seconds=FRONTIER_DEADLINE_SECONDS,
+        )
+        with log_file.open("w") as output:
+            frontier_deadline = frontier_cutoff(deadline)
+            process = subprocess.Popen(
+                bubblewrap_harbor(repo, dataset, jobs, gateway, socket_path),
+                stdout=output, stderr=subprocess.STDOUT, text=True, start_new_session=True,
+            )
+        next_rate_check = time.monotonic() + 30
         while process.poll() is None:
-            if time.monotonic() >= deadline:
-                os.killpg(process.pid, signal.SIGTERM)
+            if time.monotonic() >= frontier_deadline:
+                stage_timed_out = True
+                with contextlib.suppress(ProcessLookupError):
+                    os.killpg(process.pid, signal.SIGTERM)
                 break
             results, active = scan_frontier(jobs)
             reporter.update("frontier", status="running", done=len(results), total=len(FRONTIER_TASKS),
@@ -1018,32 +1094,36 @@ def run_frontier(run_id: str, repo: Path, work: Path, gateway: Gateway, reporter
             if active and now >= next_rate_check:
                 metrics = gateway.metrics()
                 completed = int(metrics["completed_last_30s"])
-                target = 100 * active / len(FRONTIER_TASKS)
-                misses = misses + 1 if completed < target else 0
                 reporter.update("frontier", status="running", done=len(results), total=len(FRONTIER_TASKS),
-                                tasks=results, active=active, rate=completed,
-                                rate_target=round(target, 1), rate_misses=misses)
-                if misses >= 2:
-                    raise InfrastructureFailed(
-                        f"Frontier Bedrock throughput stayed below target: {completed}/{target:.0f} turns per 30s"
-                    )
+                                tasks=results, active=active, rate=completed)
                 next_rate_check = now + 5
             time.sleep(2)
         with contextlib.suppress(subprocess.TimeoutExpired):
             process.wait(timeout=5)
     finally:
-        if process.poll() is None:
+        if process is not None and process.poll() is None:
             with contextlib.suppress(ProcessLookupError):
                 os.killpg(process.pid, signal.SIGTERM)
             with contextlib.suppress(subprocess.TimeoutExpired):
                 process.wait(timeout=3)
-        service.terminate()
-        with contextlib.suppress(subprocess.TimeoutExpired):
-            service.wait(timeout=3)
-        if service.poll() is None:
-            service.kill()
+            if process.poll() is None:
+                with contextlib.suppress(ProcessLookupError):
+                    os.killpg(process.pid, signal.SIGKILL)
+                with contextlib.suppress(subprocess.TimeoutExpired):
+                    process.wait(timeout=2)
+        if service is not None and service.poll() is None:
+            service.terminate()
+            with contextlib.suppress(subprocess.TimeoutExpired):
+                service.wait(timeout=3)
+            if service.poll() is None:
+                service.kill()
+                with contextlib.suppress(subprocess.TimeoutExpired):
+                    service.wait(timeout=2)
+        cleanup_harbor_containers(jobs)
+        shutil.rmtree(socket_directory, ignore_errors=True)
     results, _ = scan_frontier(jobs)
-    if process.returncode not in (0, -signal.SIGTERM) and not results:
+    assert process is not None
+    if not stage_timed_out and process.returncode not in (0, -signal.SIGTERM) and not results:
         raise RunFailed("Frontier Sprint could not start:\n" + log_file.read_text(errors="replace")[-3000:])
     for task in FRONTIER_TASKS:
         results.setdefault(task, {"status": "timeout", "reward": 0.0})

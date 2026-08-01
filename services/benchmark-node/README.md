@@ -109,6 +109,10 @@ Frames use a four-batch non-blocking queue. A full queue, Academy error, or stal
 drops visualization frames and increments `exposure_benchmark_frames_dropped_total`; it
 never blocks the scoring event loop.
 
+Frontier runs its five selected tasks concurrently. Agent and verifier phases are capped at
+120 and 60 seconds respectively. Harbor execution, including cold environment builds, gets a
+15-minute total budget; bounded process and container cleanup follows that cutoff.
+
 Run `/opt`-independent `artifacts/infra/verify-isolation.sh` during a canary while student
 containers are active.
 Run `scripts/frame_load_test.py` against a dedicated test run to verify all 25 boards,

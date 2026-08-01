@@ -55,6 +55,28 @@ def main() -> None:
     assert len(runner.ARC_GAMES) == 25
     assert len(set(runner.ARC_GAMES)) == 25
     assert runner.ARC_CONCURRENCY == 5
+    assert runner.FRONTIER_DEADLINE_SECONDS == 15 * 60
+    assert runner.frontier_cutoff(2000, now=100) == 1000
+    assert runner.frontier_cutoff(500, now=100) == 500
+
+    with tempfile.TemporaryDirectory() as raw:
+        jobs = Path(raw) / "jobs"
+        (jobs / "job" / "Task.Name__ABC1234").mkdir(parents=True)
+        projects, verifier_prefixes = runner.harbor_compose_scopes(jobs)
+        assert projects == {"task-name__abc1234__env"}
+        assert verifier_prefixes == {"task-name__abc1234__verifier__"}
+        task = Path(raw) / "task.toml"
+        task.write_text(
+            "[agent]\ntimeout_sec = 7200\nnetwork_mode = \"host\"\nallowed_hosts = [\"example.com\"]\n"
+            "[verifier]\ntimeout_sec = 300\n"
+            "[environment]\nbuild_timeout_sec = 600\n"
+        )
+        runner.rewrite_timeouts(task)
+        rewritten = task.read_text()
+        assert "timeout_sec = 120.0" in rewritten
+        assert "timeout_sec = 60.0" in rewritten
+        assert rewritten.count('network_mode = "no-network"') == 3
+        assert "allowed_hosts = []" in rewritten
 
     class FakeProcess:
         live = 0
