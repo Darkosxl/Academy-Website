@@ -19,8 +19,10 @@ from runner import (
     Gateway,
     HARNESS_IMAGE,
     ROOT,
+    SITE,
+    WORKER_TOKEN,
     cleanup_run_containers,
-    ensure_host,
+    ensure_arc_host,
     ensure_image,
     parse_last_json,
     podman_base,
@@ -32,14 +34,32 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--game", choices=ARC_GAMES, default="ls20")
     parser.add_argument("--seconds", type=int, default=45)
+    parser.add_argument(
+        "--repo",
+        type=Path,
+        default=ROOT / "live_submission",
+        help="local submission directory (default: adapters/live_submission)",
+    )
+    # The frame feed keys on a real harness_runs row, so the default local id deliberately
+    # is not a uuid and the feed stays off. Pass a queued run's uuid to watch this game
+    # land in the viewer — the only way to exercise frame capture without a full cohort.
+    parser.add_argument("--run-id", dest="run_id", default=None,
+                        help="uuid of an existing non-terminal harness run; enables frame posting")
     args = parser.parse_args()
     if not 10 <= args.seconds <= 180:
         parser.error("--seconds must be between 10 and 180")
+    if args.run_id:
+        try:
+            uuid.UUID(args.run_id)
+        except ValueError:
+            parser.error("--run-id must be a uuid naming an existing harness run")
 
-    ensure_host()
+    ensure_arc_host(require_worker_token=bool(args.run_id))
     ensure_image()
-    run_id = f"live-{uuid.uuid4().hex[:12]}"
-    submission = ROOT / "live_submission"
+    run_id = args.run_id or f"live-{uuid.uuid4().hex[:12]}"
+    submission = args.repo.resolve()
+    if not (submission / "agent" / "my_agent.py").is_file():
+        parser.error(f"{submission} must contain agent/my_agent.py")
 
     with tempfile.TemporaryDirectory(prefix="harness-live-arc-") as raw_work:
         work = Path(raw_work)
@@ -57,6 +77,11 @@ def main() -> None:
                     "HARNESS_ARC_STARTER": str(ARC_STARTER),
                     "BEDROCK_GATEWAY_TOKEN": gateway.token,
                     "BEDROCK_PROFILE_NAME": BEDROCK_PROFILE_NAME,
+                    # Both live in .env, not the shell, so arc_game.py cannot read them
+                    # itself. Without these the frame feed silently disables — which is
+                    # correct for a standalone smoke test, but defeats --run-id.
+                    "HARNESS_SITE": SITE,
+                    "WORKER_TOKEN": WORKER_TOKEN,
                 }
             )
             result = subprocess.run(

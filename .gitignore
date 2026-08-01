@@ -7,8 +7,13 @@ video_links.md
 # applicant exports — PII (names, emails, phones, essays), never commit
 academy-applicants-*.csv
 
-# harness runner benchmark caches — set up per-host, see worker/runner.py header
-worker/cache/
+# harness runner benchmark caches — recreated on the EC2 host, never copied from a venv
+services/benchmark-node/adapters/cache/
+# Pre-monorepo local cache. Keep it out of Git; EC2 recreates pinned caches from scratch.
+/worker/cache/
+
+# benchmark-node runtime state belongs under /var/lib in production
+services/benchmark-node/state/
 
 # python bytecode from the harness runner
 __pycache__/

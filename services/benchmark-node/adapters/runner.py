@@ -32,19 +32,17 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parent
-PROJECT = ROOT.parent
-ENV_FILE = PROJECT / ".env"
-ARC_STARTER = ROOT / "cache" / "arc-starter"
-FRONTIER_SOURCE = ROOT / "cache" / "frontier-bench" / "frontier-bench"
-ARC_PYTHON = ARC_STARTER / ".venv" / "bin" / "python"
-KAGGLE_CLI = ARC_STARTER / ".venv" / "bin" / "kaggle"
+REPOSITORY_ROOT = ROOT.parents[2]
+ENV_FILE = Path(os.environ.get("HARNESS_ENV_FILE", REPOSITORY_ROOT / ".env"))
 HARBOR_ROOT = Path.home() / ".local" / "share" / "uv" / "tools" / "harbor"
 HARBOR_CLI = HARBOR_ROOT / "bin" / "harbor"
-HARNESS_IMAGE = os.environ.get("HARNESS_IMAGE", "localhost/exposure-harness-arc:0.9.9")
-HARNESS_VERSION = "harness-2026-sprint-v1"
+HARNESS_VERSION = "harness-2026-sprint-v2"
 POLL_SECONDS = 2
 
-ARC_GAMES = ("ls20", "vc33", "ar25", "cn04", "s5i5", "sp80", "bp35", "ft09", "m0r0", "re86")
+ARC_GAMES = (
+    "ls20", "vc33", "ar25", "cn04", "s5i5", "sp80", "bp35", "ft09", "m0r0", "re86",
+    "cd82", "sb26", "r11l",
+)
 FRONTIER_TASKS = (
     "html-js-filter",
     "vllm-deepseek-streaming",
@@ -60,6 +58,10 @@ MAX_REQUIREMENTS_BYTES = 32 * 1024
 
 
 def env_file() -> dict[str, str]:
+    # The restricted executor deliberately clears its environment. Do not undo that
+    # isolation by discovering a developer's repository .env from the adapter path.
+    if os.environ.get("HARNESS_ENV") == "executor":
+        return {}
     values: dict[str, str] = {}
     if not ENV_FILE.exists():
         return values
@@ -72,6 +74,35 @@ def env_file() -> dict[str, str]:
 
 
 CONFIG = {**env_file(), **os.environ}
+
+
+def deployment_environment(config: dict[str, str]) -> str:
+    """Normalize the public DEV/PROD setting and the old local/production spelling."""
+    raw = config.get("ENVIRONMENT") or config.get("HARNESS_ENV") or "PROD"
+    return {
+        "DEV": "DEV",
+        "LOCAL": "DEV",
+        "PROD": "PROD",
+        "PRODUCTION": "PROD",
+        "EXECUTOR": "EXECUTOR",
+    }.get(raw.strip().upper(), raw.strip().upper())
+
+
+ENVIRONMENT = deployment_environment(CONFIG)
+DEFAULT_CACHE = (
+    REPOSITORY_ROOT / "worker" / "cache"
+    if ENVIRONMENT == "DEV"
+    else Path("/var/lib/exposure-benchmark/cache")
+)
+CACHE = Path(CONFIG.get("HARNESS_CACHE_DIRECTORY", DEFAULT_CACHE))
+ARC_STARTER = CACHE / "arc-starter"
+FRONTIER_SOURCE = CACHE / "frontier-bench" / "frontier-bench"
+ARC_PYTHON = ARC_STARTER / ".venv" / "bin" / "python"
+KAGGLE_CLI = ARC_STARTER / ".venv" / "bin" / "kaggle"
+HARNESS_IMAGE = CONFIG.get("HARNESS_IMAGE", "localhost/exposure-harness-arc:0.9.9")
+SANDBOX_CONTAINERFILE = Path(CONFIG.get(
+    "HARNESS_SANDBOX_CONTAINERFILE", ROOT.parent / "sandbox" / "Containerfile"
+))
 SITE = CONFIG.get("HARNESS_SITE", "http://127.0.0.1:3000").rstrip("/")
 WORKER_TOKEN = CONFIG.get("WORKER_TOKEN", "")
 BEDROCK_API_KEY = CONFIG.get("BEDROCK_API_KEY", "")
@@ -84,6 +115,10 @@ BEDROCK_MODEL_ID = (
 BEDROCK_PROFILE_NAME = CONFIG.get("BEDROCK_PROFILE_NAME", "") or BEDROCK_MODEL_ID or "bedrock-harness"
 BEDROCK_LATENCY = CONFIG.get("BEDROCK_LATENCY", "standard").strip().lower()
 BEDROCK_REASONING_EFFORT = CONFIG.get("BEDROCK_REASONING_EFFORT", "none").strip().lower()
+FRAME_PREFIX = "@@EXPOSURE_ARC_FRAMES@@"
+EMIT_LOCK = threading.Lock()
+KAGGLE_NDJSON = False
+NDJSON_MODE = False
 
 
 class RunFailed(Exception):
@@ -99,7 +134,19 @@ class LeaseLost(InfrastructureFailed):
 
 
 def log(message: str) -> None:
-    print(f"[{time.strftime('%H:%M:%S')}] {message}", flush=True)
+    if NDJSON_MODE:
+        emit({"type": "log", "level": "info", "message": message})
+    else:
+        print(f"[{time.strftime('%H:%M:%S')}] {message}", flush=True)
+
+
+def emit(payload: dict[str, Any]) -> None:
+    """One bounded protocol line for the Rust executor; never include provider secrets."""
+    encoded = json.dumps(payload, separators=(",", ":"))
+    if len(encoded.encode()) > 8 * 1024 * 1024:
+        raise InfrastructureFailed("adapter NDJSON message exceeded 8 MiB")
+    with EMIT_LOCK:
+        print(encoded, flush=True)
 
 
 def api(path: str, body: Any | None = None) -> Any:
@@ -207,6 +254,35 @@ class Reporter:
             return json.loads(json.dumps(self.state))
 
 
+class NdjsonReporter:
+    """Benchmark SDK progress only; Rust owns Academy state and lease decisions."""
+
+    def __init__(self, run_id: str, deadline: float):
+        self.run_id = run_id
+        self.deadline = deadline
+        self.lock = threading.Lock()
+        self.state: dict[str, dict[str, Any]] = {
+            "arc": {"status": "pending"},
+            "frontier": {"status": "pending"},
+            "ram": {"status": "pending"},
+        }
+
+    def update(self, benchmark: str, **values: Any) -> None:
+        with self.lock:
+            self.state[benchmark] = {**self.state[benchmark], **values}
+            snapshot = dict(self.state[benchmark])
+        if time.monotonic() < self.deadline:
+            emit({"type": "progress", "benchmark": benchmark, "state": snapshot})
+
+    def frames(self, rows: list[dict[str, Any]]) -> None:
+        if rows:
+            emit({"type": "frames", "frames": rows})
+
+    def snapshot(self) -> dict[str, dict[str, Any]]:
+        with self.lock:
+            return json.loads(json.dumps(self.state))
+
+
 class UnixHTTPConnection(http.client.HTTPConnection):
     def __init__(self, socket_path: Path):
         super().__init__("localhost", timeout=5)
@@ -276,6 +352,28 @@ class Gateway:
                 self.process.wait()
 
 
+class ExternalGateway:
+    """Run-scoped Rust gateway capability. No AWS or provider credential is present here."""
+
+    def __init__(self, socket_path: Path, token: str):
+        self.socket_path = socket_path
+        self.directory = socket_path.parent
+        self.token = token
+
+    def metrics(self) -> dict[str, Any]:
+        connection = UnixHTTPConnection(self.socket_path)
+        connection.request("GET", "/metrics", headers={"Authorization": f"Bearer {self.token}"})
+        response = connection.getresponse()
+        raw = response.read()
+        connection.close()
+        if response.status != 200:
+            raise InfrastructureFailed(f"Rust model gateway metrics returned HTTP {response.status}")
+        return json.loads(raw)
+
+    def stop(self) -> None:
+        return
+
+
 def run_checked(command: list[str], *, timeout: float, cwd: Path | None = None, env: dict[str, str] | None = None) -> subprocess.CompletedProcess:
     try:
         result = subprocess.run(command, cwd=cwd, env=env, capture_output=True, text=True, timeout=timeout)
@@ -287,8 +385,9 @@ def run_checked(command: list[str], *, timeout: float, cwd: Path | None = None, 
     return result
 
 
-def ensure_host() -> None:
-    if not WORKER_TOKEN:
+def ensure_arc_host(*, require_worker_token: bool = False) -> None:
+    """Preflight only what the one-game development loop actually uses."""
+    if require_worker_token and not WORKER_TOKEN:
         raise SystemExit("WORKER_TOKEN is required")
     if not AWS_REGION or not BEDROCK_MODEL_ID:
         raise SystemExit("AWS_REGION and BEDROCK_MODEL_ID are required")
@@ -298,10 +397,22 @@ def ensure_host() -> None:
         raise SystemExit("BEDROCK_LATENCY must be standard or optimized")
     if BEDROCK_REASONING_EFFORT not in ("none", "low", "medium", "high"):
         raise SystemExit("BEDROCK_REASONING_EFFORT must be none, low, medium, or high")
-    mode = CONFIG.get("HARNESS_ENV", "production")
-    if mode not in ("local", "production"):
-        raise SystemExit("HARNESS_ENV must be local or production")
-    if mode == "production":
+    if ENVIRONMENT not in ("DEV", "PROD"):
+        raise SystemExit("ENVIRONMENT must be DEV or PROD")
+    for path in (ARC_PYTHON, ARC_STARTER / "environment_files"):
+        if not path.exists():
+            raise SystemExit(f"required ARC cache is missing: {path}")
+    info = run_checked(
+        ["podman", "info", "--format", "{{.Host.Security.Rootless}} {{.Host.CgroupsVersion}}"],
+        timeout=15,
+    )
+    if info.stdout.strip() != "true v2":
+        raise SystemExit("the harness requires rootless Podman with cgroup v2")
+
+
+def ensure_host() -> None:
+    ensure_arc_host(require_worker_token=True)
+    if ENVIRONMENT == "PROD":
         expected_user = CONFIG.get("HARNESS_HARBOR_USER", "")
         current_user = pwd.getpwuid(os.getuid()).pw_name
         if not expected_user or current_user != expected_user:
@@ -309,14 +420,11 @@ def ensure_host() -> None:
                 "production worker must run as the dedicated HARNESS_HARBOR_USER account"
             )
     for path in (
-        ARC_PYTHON, KAGGLE_CLI, ARC_STARTER / "environment_files",
-        ARC_STARTER / "scripts" / "build_notebook.py", FRONTIER_SOURCE, HARBOR_CLI,
+        KAGGLE_CLI, ARC_STARTER / "scripts" / "build_notebook.py", FRONTIER_SOURCE,
+        HARBOR_CLI,
     ):
         if not path.exists():
             raise SystemExit(f"required benchmark cache is missing: {path}")
-    info = run_checked(["podman", "info", "--format", "{{.Host.Security.Rootless}} {{.Host.CgroupsVersion}}"], timeout=15)
-    if info.stdout.strip() != "true v2":
-        raise SystemExit("the harness requires rootless Podman with cgroup v2")
     if shutil.which("bwrap") is None or shutil.which("socat") is None or shutil.which("docker") is None:
         raise SystemExit("bwrap, socat, and the Docker CLI with Compose are required")
     run_checked(["docker", "compose", "version"], timeout=10)
@@ -329,7 +437,7 @@ def ensure_image() -> None:
     log(f"building sandbox image {HARNESS_IMAGE}")
     run_checked([
         "podman", "build", "--label", f"academy.harness.version={HARNESS_VERSION}",
-        "-t", HARNESS_IMAGE, "-f", str(ROOT / "Containerfile.arc"), str(ARC_STARTER),
+        "-t", HARNESS_IMAGE, "-f", str(SANDBOX_CONTAINERFILE), str(ARC_STARTER),
     ], timeout=900)
 
 
@@ -565,6 +673,34 @@ def parse_last_json(text: str) -> dict[str, Any]:
     raise RunFailed("benchmark process did not emit a JSON result")
 
 
+class ArcStderrDrain:
+    """Keeps ARC stderr flowing and peels trusted frame batches off for Rust."""
+
+    def __init__(self, stream, reporter: Reporter | NdjsonReporter):
+        self.stream = stream
+        self.reporter = reporter
+        self.tail = ""
+        self.thread = threading.Thread(target=self._run, name="arc-stderr", daemon=True)
+        self.thread.start()
+
+    def _run(self) -> None:
+        for line in self.stream:
+            if line.startswith(FRAME_PREFIX) and isinstance(self.reporter, NdjsonReporter):
+                try:
+                    payload = json.loads(line.removeprefix(FRAME_PREFIX))
+                    rows = payload.get("frames")
+                    if isinstance(rows, list):
+                        self.reporter.frames(rows)
+                        continue
+                except Exception:
+                    pass
+            self.tail = (self.tail + line)[-4000:]
+
+    def finish(self) -> str:
+        self.thread.join(timeout=2)
+        return self.tail
+
+
 def cleanup_run_containers(run_id: str) -> None:
     result = subprocess.run(
         ["podman", "ps", "-aq", "--filter", f"label=academy.harness.run={run_id}"],
@@ -582,15 +718,27 @@ def run_arc(run_id: str, repo: Path, venv: Path, gateway: Gateway, reporter: Rep
         "HARNESS_ARC_STARTER": str(ARC_STARTER),
         "BEDROCK_GATEWAY_TOKEN": gateway.token,
         "BEDROCK_PROFILE_NAME": BEDROCK_PROFILE_NAME,
+        # The live board feed needs these; CONFIG merges .env, so os.environ may not carry them.
+        "HARNESS_SITE": SITE,
+        "WORKER_TOKEN": WORKER_TOKEN,
     })
+    if isinstance(reporter, NdjsonReporter):
+        env["HARNESS_FRAME_SINK"] = "ndjson"
+        env.pop("HARNESS_SITE", None)
+        env.pop("WORKER_TOKEN", None)
+    else:
+        env["HARNESS_LEASE_TOKEN"] = reporter.lease.token
     processes: dict[str, subprocess.Popen] = {}
+    stderr_drains: dict[str, ArcStderrDrain] = {}
     for game in ARC_GAMES:
-        processes[game] = subprocess.Popen([
+        process = subprocess.Popen([
             str(ARC_PYTHON), str(ROOT / "arc_game.py"), "--game", game,
             "--deadline-monotonic", str(deadline), "--repo", str(repo), "--venv", str(venv),
             "--gateway-dir", str(gateway.directory), "--image", HARNESS_IMAGE,
             "--worker-dir", str(ROOT), "--run-id", run_id,
         ], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        processes[game] = process
+        stderr_drains[game] = ArcStderrDrain(process.stderr, reporter)
     results: dict[str, dict[str, Any]] = {}
     started = time.monotonic()
     next_rate_check = started + 30
@@ -607,7 +755,8 @@ def run_arc(run_id: str, repo: Path, venv: Path, gateway: Gateway, reporter: Rep
             for game, process in list(processes.items()):
                 if process.poll() is None:
                     continue
-                stdout, stderr = process.communicate()
+                stdout = process.stdout.read() if process.stdout else ""
+                stderr = stderr_drains.pop(game).finish()
                 try:
                     result = parse_last_json(stdout)
                 except RunFailed:
@@ -644,6 +793,8 @@ def run_arc(run_id: str, repo: Path, venv: Path, gateway: Gateway, reporter: Rep
                 process.wait(timeout=2)
             if process.poll() is None:
                 process.kill()
+        for drain in stderr_drains.values():
+            drain.finish()
         cleanup_run_containers(run_id)
     score = round(sum(float(results.get(game, {}).get("score", 0.0)) for game in ARC_GAMES) / len(ARC_GAMES), 1)
     reporter.update("arc", status="done", done=len(ARC_GAMES), total=len(ARC_GAMES), games=results,
@@ -783,6 +934,13 @@ def run_frontier(run_id: str, repo: Path, work: Path, gateway: Gateway, reporter
     while not socket_path.exists() and service.poll() is None and time.monotonic() < service_deadline:
         time.sleep(0.05)
     if not socket_path.exists():
+        if service.poll() is None:
+            service.terminate()
+            with contextlib.suppress(subprocess.TimeoutExpired):
+                service.wait(timeout=2)
+        if service.poll() is None:
+            service.kill()
+            service.wait()
         detail = service.stderr.read()[-1000:] if service.stderr else ""
         raise InfrastructureFailed(f"rootless Podman API did not start: {detail}")
     reporter.update("frontier", status="running", done=0, total=len(FRONTIER_TASKS), tasks={}, rate=0)
@@ -972,6 +1130,122 @@ def process_claim(claim: dict[str, Any]) -> None:
             shutil.rmtree(work, ignore_errors=True)
 
 
+def process_executor_run(request: dict[str, Any]) -> None:
+    """Run benchmark SDK adapters under Rust ownership; emit only bounded NDJSON."""
+    global BEDROCK_PROFILE_NAME
+
+    run_id = str(request.get("run_id") or "")
+    try:
+        uuid.UUID(run_id)
+    except ValueError as exc:
+        raise InfrastructureFailed("executor request contained an invalid run id") from exc
+    deadline = parse_deadline(str(request.get("deadline_at") or ""))
+    token = str(request.get("gateway_token") or "")
+    socket_path = Path(str(request.get("gateway_socket") or ""))
+    profile = str(request.get("model_profile") or "")
+    if len(token) != 64 or not socket_path.is_socket() \
+            or not re.fullmatch(r"[A-Za-z0-9._-]{1,120}", profile):
+        raise InfrastructureFailed("executor request contained an invalid model capability")
+    BEDROCK_PROFILE_NAME = profile
+    for path in (
+        ARC_PYTHON, ARC_STARTER / "environment_files", FRONTIER_SOURCE, HARBOR_CLI,
+    ):
+        if not path.exists():
+            raise InfrastructureFailed(f"required benchmark cache is missing: {path}")
+    ensure_image()
+
+    work = Path.cwd()
+    reporter = NdjsonReporter(run_id, deadline)
+    gateway = ExternalGateway(socket_path, token)
+    scores: dict[str, float | None] = {"arc": None, "frontier": None, "ram1": None, "ram10": None}
+    error_log: str | None = None
+    try:
+        repo, sha, venv = clone_submission(str(request.get("repo_url") or ""), work, deadline)
+        emit({"type": "ready", "commit_sha": sha})
+
+        try:
+            scores["ram1"], scores["ram10"] = run_ram(
+                run_id, repo, venv, gateway, reporter, deadline
+            )
+        except InfrastructureFailed as exc:
+            reporter.update("ram", status="infra_failed", error=str(exc)[:2000])
+        except Exception as exc:
+            reporter.update("ram", status="failed", error=str(exc)[:2000])
+
+        outcomes: dict[str, tuple[str, Any]] = {}
+        lock = threading.Lock()
+
+        def benchmark(name: str, fn: Any) -> None:
+            try:
+                value = fn()
+                with lock:
+                    outcomes[name] = ("done", value)
+            except InfrastructureFailed as exc:
+                with contextlib.suppress(Exception):
+                    reporter.update(name, status="infra_failed", error=str(exc)[:2000])
+                with lock:
+                    outcomes[name] = ("infra_failed", exc)
+            except Exception as exc:
+                with contextlib.suppress(Exception):
+                    reporter.update(name, status="failed", error=str(exc)[:2000])
+                with lock:
+                    outcomes[name] = ("failed", exc)
+
+        arc_thread = threading.Thread(
+            target=benchmark,
+            args=("arc", lambda: run_arc(run_id, repo, venv, gateway, reporter, deadline)),
+            name=f"arc-{run_id[:8]}",
+        )
+        frontier_thread = threading.Thread(
+            target=benchmark,
+            args=("frontier", lambda: run_frontier(
+                run_id, repo, work, gateway, reporter, deadline
+            )),
+            name=f"frontier-{run_id[:8]}",
+        )
+        arc_thread.start()
+        frontier_thread.start()
+        while arc_thread.is_alive() or frontier_thread.is_alive():
+            if time.monotonic() >= deadline:
+                break
+            time.sleep(0.5)
+        arc_thread.join(timeout=10)
+        frontier_thread.join(timeout=10)
+        if arc_thread.is_alive() or frontier_thread.is_alive():
+            raise InfrastructureFailed("benchmark adapters did not stop at the global deadline")
+        if outcomes.get("arc", (None,))[0] == "done":
+            scores["arc"] = float(outcomes["arc"][1])
+        if outcomes.get("frontier", (None,))[0] == "done":
+            scores["frontier"] = float(outcomes["frontier"][1])
+    except RunFailed as exc:
+        error_log = str(exc)
+        for name in ("arc", "frontier", "ram"):
+            if reporter.state[name]["status"] == "pending":
+                reporter.state[name] = {"status": "failed", "error": error_log[:2000]}
+    except Exception as exc:
+        error_log = str(exc)
+        for name in ("arc", "frontier", "ram"):
+            if reporter.state[name]["status"] == "pending":
+                reporter.state[name] = {"status": "infra_failed", "error": error_log[:2000]}
+    finally:
+        cleanup_run_containers(run_id)
+        state = reporter.snapshot()
+        status = terminal_status(state)
+        if error_log is None and status != "done":
+            errors = [str(value.get("error")) for value in state.values() if value.get("error")]
+            error_log = "\n".join(errors)[:8000] or None
+        emit({
+            "type": "result",
+            "status": status,
+            "benchmark_state": state,
+            "score_arc": scores["arc"],
+            "score_frontier": scores["frontier"],
+            "ram_1session_mb": scores["ram1"],
+            "ram_10session_mb": scores["ram10"],
+            "error_log": error_log,
+        })
+
+
 def kaggle_environment(token: str, home: Path) -> dict[str, str]:
     allowed = (
         "PATH", "LANG", "LC_ALL", "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE",
@@ -983,7 +1257,7 @@ def kaggle_environment(token: str, home: Path) -> dict[str, str]:
 
 
 def kaggle_result(claim: dict[str, Any], status: str, **values: Any) -> None:
-    api("/api/worker/harness/kaggle/result", {
+    payload = {
         "id": str(claim["id"]),
         "lease_token": str(claim["lease_token"]),
         "status": status,
@@ -993,7 +1267,11 @@ def kaggle_result(claim: dict[str, Any], status: str, **values: Any) -> None:
         "public_score": values.get("public_score"),
         "private_score": values.get("private_score"),
         "status_message": str(values.get("status_message") or "")[:2000] or None,
-    })
+    }
+    if KAGGLE_NDJSON:
+        emit({"type": "kaggle_result", "result": payload})
+    else:
+        api("/api/worker/harness/kaggle/result", payload)
 
 
 def optional_score(value: Any) -> float | None:
@@ -1076,7 +1354,10 @@ def process_kaggle_claim(claim: dict[str, Any]) -> None:
         raise InfrastructureFailed("official submission claim contained invalid credentials")
     kernel_slug = str(claim.get("kernel_slug") or f"exposure-{run_id.replace('-', '')[:20]}")
     description = f"Exposure Academy {run_id} {commit_sha[:12]}"
-    work = Path(tempfile.mkdtemp(prefix=f"kaggle-{job_id[:8]}-"))
+    work = Path(tempfile.mkdtemp(
+        prefix=f"kaggle-{job_id[:8]}-",
+        dir=Path.cwd() if KAGGLE_NDJSON else None,
+    ))
     home = work / "home"
     home.mkdir(mode=0o700)
     env = kaggle_environment(token, home)
@@ -1141,6 +1422,28 @@ def selfcheck() -> None:
     }, indent=2))
 
 
+def executor_main(kaggle: bool) -> None:
+    global NDJSON_MODE, KAGGLE_NDJSON
+
+    NDJSON_MODE = True
+    KAGGLE_NDJSON = kaggle
+    line = sys.stdin.readline()
+    request = json.loads(line)
+    expected = "kaggle" if kaggle else "run"
+    if not isinstance(request, dict) or request.get("type") != expected:
+        raise InfrastructureFailed(f"expected an executor {expected} request")
+    if kaggle:
+        claim = request.get("claim")
+        if not isinstance(claim, dict):
+            raise InfrastructureFailed("executor Kaggle request is missing its claim")
+        try:
+            process_kaggle_claim(claim)
+        except Exception as exc:
+            kaggle_result(claim, "failed", status_message=str(exc)[:2000])
+    else:
+        process_executor_run(request)
+
+
 def main() -> None:
     ensure_host()
     ensure_image()
@@ -1175,7 +1478,11 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    if "--selfcheck" in sys.argv:
+    if "--executor-ndjson" in sys.argv:
+        executor_main(False)
+    elif "--executor-kaggle-ndjson" in sys.argv:
+        executor_main(True)
+    elif "--selfcheck" in sys.argv:
         selfcheck()
     else:
         main()

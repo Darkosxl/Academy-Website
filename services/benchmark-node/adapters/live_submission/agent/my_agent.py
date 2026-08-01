@@ -101,15 +101,19 @@ class MyAgent(Agent):
         )
         calls = response.choices[0].message.tool_calls or []
         if not calls:
-            usage = response.usage
-            raise RuntimeError(
-                "model returned no action tool call "
-                f"(finish={response.choices[0].finish_reason}, "
-                f"output_tokens={usage.completion_tokens if usage else 'unknown'})"
-            )
+            # Even with tool_choice forced, a 128-token budget occasionally returns prose or
+            # nothing. Skipping the move keeps the game alive; killing it scores a zero for
+            # what is really one dropped completion.
+            self.actions.append(legal[0].name)
+            return legal[0]
         call = calls[0]
         data = json.loads(call.function.arguments or "{}")
-        action = GameAction.from_name(data.pop("action"))
+        # A forced tool call still comes back truncated or off-enum sometimes at
+        # max_tokens=128. One bad completion should cost one move, not the whole game.
+        name = data.pop("action", None)
+        if name not in {a.name for a in legal}:
+            name = legal[0].name
+        action = GameAction.from_name(name)
         if action.is_complex():
             action.set_data(data)
         self.actions.append(action.name)
