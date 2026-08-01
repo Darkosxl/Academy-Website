@@ -1,454 +1,1181 @@
 #!/usr/bin/env python3
-"""Agentic Harness runner — the real thing.
+"""Versioned, Bedrock-backed Agentic Harness worker.
 
-Polls the site for queued runs and scores each one on actual ARC-AGI-3 (local
-game engine via the Kaggle starter), actual Frontier-bench (Harbor + Docker),
-and real PSS RAM measurement. Posts stage transitions, live progress, and
-honest final scores. Stdlib only; the benchmarks bring their own venvs.
-
-One-time host setup (already done on this box):
-  - worker/cache/arc-starter/   : ARC-AGI-3-Kaggle-Starter checkout + `make setup`
-  - worker/cache/frontier-bench/: `harbor datasets download frontier-bench/frontier-bench`
-  - `uv tool install harbor`, Docker daemon running
-  - .env with WORKER_TOKEN + CEREBRAS_API_KEY
-
-Run:  python3 worker/runner.py            (production: full non-GPU set)
-      SMOKE_MODE=1 python3 worker/runner.py   (2 frontier tasks, 2 short ARC games)
+The website owns queue state and leases. This process owns trusted scoring,
+short-lived Bedrock gateways, and rootless execution boundaries. It never imports
+student modules in the worker interpreter.
 """
 from __future__ import annotations
 
 import contextlib
+import datetime as dt
+import hashlib
+import http.client
 import json
+import math
 import os
+import pwd
 import re
+import secrets
 import shutil
+import signal
+import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
+import urllib.error
 import urllib.request
+import uuid
 from pathlib import Path
+from typing import Any
 
-# ── config ──────────────────────────────────────────────────────────────────
 ROOT = Path(__file__).resolve().parent
-SITE = os.environ.get("HARNESS_SITE", "http://127.0.0.1:3000")
-ENV_FILE = ROOT.parent / ".env"
-POLL_SECONDS = 60
-
+PROJECT = ROOT.parent
+ENV_FILE = PROJECT / ".env"
 ARC_STARTER = ROOT / "cache" / "arc-starter"
-FRONTIER_DATASET = ROOT / "cache" / "frontier-bench" / "frontier-bench"
-GPU_TASKS = ["fp8-rmsnorm-gemm", "exam-pdf-eval", "math-eval-grader", "jax-speedrun-gpu"]
+FRONTIER_SOURCE = ROOT / "cache" / "frontier-bench" / "frontier-bench"
+ARC_PYTHON = ARC_STARTER / ".venv" / "bin" / "python"
+KAGGLE_CLI = ARC_STARTER / ".venv" / "bin" / "kaggle"
+HARBOR_ROOT = Path.home() / ".local" / "share" / "uv" / "tools" / "harbor"
+HARBOR_CLI = HARBOR_ROOT / "bin" / "harbor"
+HARNESS_IMAGE = os.environ.get("HARNESS_IMAGE", "localhost/exposure-harness-arc:0.9.9")
+HARNESS_VERSION = "harness-2026-sprint-v1"
+POLL_SECONDS = 2
 
-SMOKE = os.environ.get("SMOKE_MODE") == "1"
-ARC_GAMES = "ls20,vc33" if SMOKE else None      # None = all games (competition rerun)
-ARC_MAX_STEPS = 30 if SMOKE else 200
-ARC_TIMEOUT = 900 if SMOKE else 3 * 3600
-FRONTIER_N_TASKS = 2 if SMOKE else None         # None = full non-GPU set (70)
-FRONTIER_CONCURRENCY = 4
-FRONTIER_TIMEOUT = 2400 if SMOKE else 12 * 3600
-SMOKE_TIMEOUT_BUILD = 60
-# RAM-bench is its own benchmark: the student's own main.py session, nothing to do
-# with the ARC engine or Harbor. Sessions get a fixed window so a long-running agent
-# and a quick one are compared over the same interval.
-RAM_SESSION_SECONDS = 30
-RAM_SAMPLE_SECONDS = 0.05
-RAM_CONCURRENT = 10
-
-
-def env_from_file() -> dict:
-    vals = {}
-    with open(ENV_FILE) as f:
-        for line in f:
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                k, v = line.split("=", 1)
-                vals[k] = v.strip().strip('"')
-    return vals
+ARC_GAMES = ("ls20", "vc33", "ar25", "cn04", "s5i5", "sp80", "bp35", "ft09", "m0r0", "re86")
+FRONTIER_TASKS = (
+    "html-js-filter",
+    "vllm-deepseek-streaming",
+    "session-window-debug",
+    "mvcc-lsm-compaction",
+    "embedding-drift-monitor",
+)
+REQUIRED_FILES = ("agent/my_agent.py", "agent/harbor_agent.py", "main.py", "requirements.txt")
+TERMINAL = {"done", "partial", "failed", "infra_failed"}
+MAX_REPO_BYTES = 100 * 1024 * 1024
+MAX_FILE_BYTES = 10 * 1024 * 1024
+MAX_REQUIREMENTS_BYTES = 32 * 1024
 
 
-ENV = env_from_file()
-WORKER_TOKEN = ENV["WORKER_TOKEN"]
-LLM_ENV = {
-    "HARNESS_LLM_BASE": ENV.get("HARNESS_LLM_BASE", "https://api.cerebras.ai/v1"),
-    "HARNESS_LLM_KEY": ENV.get("HARNESS_LLM_KEY") or ENV["CEREBRAS_API_KEY"],
-    "HARNESS_LLM_MODEL": ENV.get("HARNESS_LLM_MODEL", "gemma-4-31b"),
-}
-# Both reference harnesses reach the provider through their own conventions rather
-# than our HARNESS_* names: the ARC framework builds an OpenAI SDK client (which
-# reads OPENAI_BASE_URL / OPENAI_API_KEY from the environment), and Terminus 2
-# calls LiteLLM, which wants a "<provider>/<model>" string plus that provider's
-# own key variable. Same endpoint and key, three spellings.
-OPENAI_ENV = {
-    "OPENAI_BASE_URL": LLM_ENV["HARNESS_LLM_BASE"],
-    "OPENAI_API_KEY": LLM_ENV["HARNESS_LLM_KEY"],
-}
-LITELLM_PROVIDER = ENV.get("HARNESS_LLM_PROVIDER", "cerebras")
-FRONTIER_MODEL = f"{LITELLM_PROVIDER}/{LLM_ENV['HARNESS_LLM_MODEL']}"
-LITELLM_ENV = {f"{LITELLM_PROVIDER.upper()}_API_KEY": LLM_ENV["HARNESS_LLM_KEY"]}
+def env_file() -> dict[str, str]:
+    values: dict[str, str] = {}
+    if not ENV_FILE.exists():
+        return values
+    for raw in ENV_FILE.read_text().splitlines():
+        line = raw.strip()
+        if line and not line.startswith("#") and "=" in line:
+            key, value = line.split("=", 1)
+            values[key] = value.strip().strip('"').strip("'")
+    return values
 
 
-# ── site API ────────────────────────────────────────────────────────────────
-def api(path: str, body=None):
-    req = urllib.request.Request(
-        SITE + path,
-        data=json.dumps(body).encode() if body is not None else None,
-        headers={"X-Worker-Token": WORKER_TOKEN, "Content-Type": "application/json"},
-        method="POST" if body is not None else "GET",
-    )
-    with urllib.request.urlopen(req) as r:
-        raw = r.read()
-        return r.status, json.loads(raw) if raw else None
-
-
-def stage(run_id, name, sha=None):
-    body = {"id": run_id, "stage": name}
-    if sha:
-        body["commit_sha"] = sha
-    status, _ = api("/api/worker/harness/stage", body)
-    log(f"stage -> {name}: HTTP {status}")
-
-
-def progress(run_id, done=None, total=None, score=None, detail=None):
-    p = {k: v for k, v in
-         (("done", done), ("total", total), ("score", score), ("detail", detail))
-         if v is not None}
-    try:
-        api("/api/worker/harness/progress", {"id": run_id, "progress": json.dumps(p)})
-    except Exception as e:  # progress is cosmetic — never let it kill a run
-        log(f"progress post failed: {e}")
+CONFIG = {**env_file(), **os.environ}
+SITE = CONFIG.get("HARNESS_SITE", "http://127.0.0.1:3000").rstrip("/")
+WORKER_TOKEN = CONFIG.get("WORKER_TOKEN", "")
+BEDROCK_API_KEY = CONFIG.get("BEDROCK_API_KEY", "")
+AWS_REGION = CONFIG.get("AWS_REGION", "") or ("us-east-1" if BEDROCK_API_KEY else "")
+BEDROCK_MODEL_ID = (
+    CONFIG.get("BEDROCK_MODEL_ID", "")
+    or CONFIG.get("BEDROCK_INFERENCE_PROFILE_ARN", "")
+    or ("xai.grok-4.3" if BEDROCK_API_KEY else "")
+)
+BEDROCK_PROFILE_NAME = CONFIG.get("BEDROCK_PROFILE_NAME", "") or BEDROCK_MODEL_ID or "bedrock-harness"
+BEDROCK_LATENCY = CONFIG.get("BEDROCK_LATENCY", "standard").strip().lower()
+BEDROCK_REASONING_EFFORT = CONFIG.get("BEDROCK_REASONING_EFFORT", "none").strip().lower()
 
 
 class RunFailed(Exception):
+    """The submission failed its contract or agent execution."""
+
+
+class InfrastructureFailed(Exception):
+    """The harness, Bedrock, or host failed; do not penalize the submission."""
+
+
+class LeaseLost(InfrastructureFailed):
     pass
 
 
-def log(msg):
-    print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
+def log(message: str) -> None:
+    print(f"[{time.strftime('%H:%M:%S')}] {message}", flush=True)
 
 
-# ── PSS RAM probe ───────────────────────────────────────────────────────────
-def pss_kb(pid: int) -> int:
+def api(path: str, body: Any | None = None) -> Any:
+    data = json.dumps(body).encode() if body is not None else None
+    request = urllib.request.Request(
+        SITE + path,
+        data=data,
+        headers={"X-Worker-Token": WORKER_TOKEN, "Content-Type": "application/json"},
+        method="POST" if body is not None else "GET",
+    )
     try:
-        with open(f"/proc/{pid}/smaps_rollup") as f:
-            for line in f:
-                if line.startswith("Pss:"):
-                    return int(line.split()[1])
-    except OSError:
-        pass
-    return 0
+        with urllib.request.urlopen(request, timeout=15) as response:
+            raw = response.read()
+            return json.loads(raw) if raw else None
+    except urllib.error.HTTPError as exc:
+        if exc.code == 409:
+            raise LeaseLost("worker lease was rejected") from exc
+        detail = exc.read().decode(errors="replace")[-1000:]
+        raise InfrastructureFailed(f"site API {path} returned HTTP {exc.code}: {detail}") from exc
 
 
-def arc_cmd(games, max_steps):
-    cmd = [str(ARC_STARTER / ".venv" / "bin" / "python"), "scripts/play_local.py",
-           "--max-steps", str(max_steps)]
-    if games:
-        cmd += ["--game", games]
-    return cmd
+def bounded_timeout(deadline: float, cap: float) -> float:
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise InfrastructureFailed("the 600-second run deadline expired")
+    return max(0.1, min(cap, remaining))
 
 
-def ram_sessions(repo: Path, venv_py: Path, procs: int) -> float:
-    """RAM-bench, standalone: `procs` concurrent `main.py` sessions of the student's
-    own agent — no game engine, no Harbor. Samples summed PSS over a fixed window and
-    returns the peak in MB. Sessions still running at the end of the window are killed;
-    ones that exit early keep the peak they reached.
-    """
-    env = {**os.environ, **LLM_ENV, "HARNESS_RAM_PROBE": "1"}
-    ps = [subprocess.Popen([str(venv_py), "main.py"], cwd=repo, env=env,
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-          for _ in range(procs)]
-    peak = 0
-    deadline = time.time() + RAM_SESSION_SECONDS
-    try:
-        while time.time() < deadline:
-            live = [p for p in ps if p.poll() is None]
-            if not live:
-                break
-            peak = max(peak, sum(pss_kb(p.pid) for p in live))
-            time.sleep(RAM_SAMPLE_SECONDS)
-    finally:
-        for p in ps:
-            if p.poll() is None:
-                p.kill()
-            p.wait()
-    if peak == 0:
-        raise RunFailed("RAM ölçülemedi: main.py ölçüm penceresinde hiç çalışmadı.")
-    return round(peak / 1024, 1)
+def parse_deadline(value: str) -> float:
+    parsed = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    seconds = (parsed - dt.datetime.now(dt.timezone.utc)).total_seconds()
+    if not 0 < seconds <= 610:
+        raise InfrastructureFailed("claim returned an invalid deadline")
+    return time.monotonic() + seconds
 
 
-# ── stages ──────────────────────────────────────────────────────────────────
-def clone(repo_url: str, work: Path) -> tuple[Path, str]:
-    repo = work / "repo"
-    r = subprocess.run(["git", "clone", "--depth", "1", repo_url, str(repo)],
-                       capture_output=True, text=True, timeout=300)
-    if r.returncode != 0:
-        raise RunFailed(f"git clone başarısız:\n{r.stderr[-2000:]}")
-    sha = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"],
-                         capture_output=True, text=True).stdout.strip()
-    return repo, sha
+class Lease:
+    def __init__(self, run_id: str, token: str, deadline: float):
+        self.run_id = run_id
+        self.token = token
+        self.deadline = deadline
+        self.stop_event = threading.Event()
+        self.lost = threading.Event()
+        self.thread = threading.Thread(target=self._run, name=f"lease-{run_id[:8]}", daemon=True)
 
+    def __enter__(self) -> "Lease":
+        self.thread.start()
+        return self
 
-def build(repo: Path, work: Path) -> Path:
-    """Contract v2 validation + deps + smoke test. Returns the repo's own venv python.
+    def __exit__(self, *_args: Any) -> None:
+        self.stop_event.set()
+        self.thread.join(timeout=2)
 
-    Two installs on purpose: the repo gets a clean venv of its own (used by the smoke
-    test and RAM-bench, so student pins can't collide with arc-agi's), and the ARC
-    starter venv gets the same deps because play_local.py imports the student's agent
-    in-process.
-    """
-    missing = [p for p in ("agent/my_agent.py", "agent/harbor_agent.py",
-                           "main.py", "requirements.txt")
-               if not (repo / p).exists()]
-    if missing:
-        raise RunFailed("Depo yapısı kurallara uymuyor, eksik: " + ", ".join(missing))
-
-    reqs = str(repo / "requirements.txt")
-    venv = work / "venv"
-    subprocess.run([sys.executable, "-m", "venv", str(venv)], check=True, timeout=180)
-    venv_py = venv / "bin" / "python"
-    for py in (venv_py, ARC_STARTER / ".venv" / "bin" / "python"):
-        r = subprocess.run([str(py), "-m", "pip", "install", "-q", "-r", reqs],
-                           capture_output=True, text=True, timeout=600)
-        if r.returncode != 0:
-            raise RunFailed(f"pip install başarısız:\n{r.stderr[-2000:]}")
-
-    r = subprocess.run([str(venv_py), "main.py"], cwd=repo,
-                       capture_output=True, text=True, timeout=SMOKE_TIMEOUT_BUILD)
-    if r.returncode != 0:
-        raise RunFailed(f"main.py duman testi başarısız:\n{(r.stderr or r.stdout)[-2000:]}")
-    return venv_py
-
-
-@contextlib.contextmanager
-def overlaid_agent(repo: Path):
-    """Swap the student's my_agent.py into the cached starter for the ARC stage only.
-
-    play_local.py loads the agent from a fixed path in the starter tree, so the
-    student's file has to sit there while the games run; the starter's own file is put
-    back afterwards.
-    """
-    target = ARC_STARTER / "agent" / "my_agent.py"
-    backup = target.read_bytes()
-    shutil.copyfile(repo / "agent" / "my_agent.py", target)
-    try:
-        yield
-    finally:
-        target.write_bytes(backup)
-
-
-def run_arc(run_id) -> float:
-    """Play the real local game engine with the student's agent already overlaid."""
-    # The framework's LLM agents build an OpenAI client with no explicit base_url,
-    # so the SDK's own OPENAI_* env vars are what point them at our provider.
-    env = {**os.environ, **LLM_ENV, **OPENAI_ENV}
-    p = subprocess.Popen(arc_cmd(ARC_GAMES, ARC_MAX_STEPS), cwd=ARC_STARTER, env=env,
-                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    score = None
-    done = total = 0
-    levels = 0
-    tail = []
-    deadline = time.time() + ARC_TIMEOUT
-    for line in p.stdout:
-        tail = (tail + [line])[-80:]
-        if time.time() > deadline:
-            p.kill()
-            raise RunFailed("ARC-AGI-3 zaman aşımına uğradı.")
-        m = re.match(r"=== \[(\d+)/(\d+)\] (\S+) ===", line)
-        if m:
-            done, total = int(m.group(1)) - 1, int(m.group(2))
-            progress(run_id, done, total, levels, m.group(3))
-            log(f"ARC game {m.group(1)}/{total}: {m.group(3)}")
-        m = re.search(r"levels_completed=(\d+), actions=", line)
-        if m:
-            levels += int(m.group(1))
-            done += 1
-            progress(run_id, done, total, levels)
-        m = re.search(r"Aggregate scorecard score: ([\d.]+)", line)
-        if m:
-            score = float(m.group(1))
-    p.wait()
-    if score is None:
-        raise RunFailed("ARC-AGI-3 skoru üretilemedi:\n" + "".join(tail)[-2000:])
-    log(f"score_arc = {score}")
-    return score
-
-
-def trial_verdict(res: dict) -> tuple[str, str | None]:
-    """Classify one Harbor trial result.json: resolved / unresolved / crashed.
-
-    A crash means the trial raised (agent bug, LLM unreachable) and scored nothing —
-    distinct from an honest 0 reward, which means the agent ran and failed the task.
-    """
-    ei = res.get("exception_info")
-    if ei:
-        return "crashed", f"{ei.get('exception_type')}: {ei.get('exception_message')}"
-    rewards = (res.get("verifier_result") or {}).get("rewards") or {}
-    val = rewards.get("reward")
-    if val is None and rewards:
-        val = next(iter(rewards.values()))
-    try:
-        return ("resolved" if val is not None and float(val) >= 1 else "unresolved"), None
-    except (ValueError, TypeError):
-        return "unresolved", None
-
-
-def _selftest():
-    assert trial_verdict({"verifier_result": {"rewards": {"reward": 1.0}}}) == ("resolved", None)
-    assert trial_verdict({"verifier_result": {"rewards": {"reward": 0.0}}})[0] == "unresolved"
-    assert trial_verdict({"verifier_result": {"rewards": {}}})[0] == "unresolved"
-    assert trial_verdict({})[0] == "unresolved"
-    v, msg = trial_verdict({"exception_info": {"exception_type": "HTTPError",
-                                              "exception_message": "403"}})
-    assert v == "crashed" and "403" in msg
-    # a partial-credit board would score 0.5 as unresolved — pass/fail is the rule
-    assert trial_verdict({"verifier_result": {"rewards": {"reward": 0.5}}})[0] == "unresolved"
-    print("selftest ok")
-
-
-def run_frontier(run_id, repo: Path, work: Path) -> float:
-    jobs_dir = work / "jobs"
-    cmd = ["harbor", "run", "-p", str(FRONTIER_DATASET),
-           "-a", "agent.harbor_agent:HarborAgent", "-m", FRONTIER_MODEL,
-           "-n", str(FRONTIER_CONCURRENCY), "-o", str(jobs_dir)]
-    for t in GPU_TASKS:
-        cmd += ["-x", t]
-    if FRONTIER_N_TASKS:
-        cmd += ["-l", str(FRONTIER_N_TASKS)]
-    for k, v in LLM_ENV.items():
-        cmd += ["--ae", f"{k}={v}"]
-
-    total = FRONTIER_N_TASKS or (len([d for d in FRONTIER_DATASET.iterdir() if d.is_dir()])
-                                 - len(GPU_TASKS))
-    env = {**os.environ, **LLM_ENV, **LITELLM_ENV, "PYTHONPATH": str(repo)}
-    logf = open(work / "harbor.log", "w")
-    p = subprocess.Popen(cmd, cwd=repo, env=env, stdout=logf, stderr=subprocess.STDOUT)
-
-    def scan():
-        """(finished trials, resolved count, still-running task name, crash message)
-
-        A trial that raised (agent bug, LLM unreachable) records exception_info and
-        scores nothing. If *every* trial crashes the agent is broken, not bad — the
-        run fails with that message instead of posting a meaningless 0%.
-        """
-        job = next((d for d in jobs_dir.iterdir() if d.is_dir()), None) \
-            if jobs_dir.exists() else None
-        if not job:
-            return 0, 0, None, None
-        finished = resolved = crashed = 0
-        running = crash = None
-        for trial in job.iterdir():
-            if not trial.is_dir():
-                continue
-            rj = trial / "result.json"
-            if not rj.exists():
-                running = trial.name.split("__")[0]
-                continue
-            finished += 1
+    def _run(self) -> None:
+        failures = 0
+        while not self.stop_event.wait(30):
+            if time.monotonic() >= self.deadline:
+                return
             try:
-                res = json.loads(rj.read_text())
-            except json.JSONDecodeError:
-                continue
-            verdict, msg = trial_verdict(res)
-            if verdict == "crashed":
-                crashed += 1
-                crash = msg
-            elif verdict == "resolved":
-                resolved += 1
-        return finished, resolved, running, (crash if crashed == finished else None)
+                api("/api/worker/harness/heartbeat", {"id": self.run_id, "lease_token": self.token})
+                failures = 0
+            except Exception as exc:
+                failures += 1
+                log(f"heartbeat failed ({failures}/3): {exc}")
+                if isinstance(exc, LeaseLost) or failures >= 3:
+                    self.lost.set()
+                    return
 
-    deadline = time.time() + FRONTIER_TIMEOUT
-    while p.poll() is None:
-        if time.time() > deadline:
-            p.kill()
-            raise RunFailed("Frontier-bench zaman aşımına uğradı.")
-        finished, resolved, running, _ = scan()
-        pct = round(100.0 * resolved / total, 1)
-        progress(run_id, finished, total, pct, running)
-        time.sleep(10)
-    logf.close()
+    def check(self) -> None:
+        if self.lost.is_set():
+            raise LeaseLost("worker lost its run lease")
+        if time.monotonic() >= self.deadline:
+            raise InfrastructureFailed("the 600-second run deadline expired")
 
-    finished, resolved, _, crash = scan()
-    if finished == 0:
-        tail = (work / "harbor.log").read_text()[-2000:]
-        raise RunFailed(f"Frontier-bench hiçbir görevi çalıştıramadı:\n{tail}")
-    if crash:
+
+class Reporter:
+    def __init__(self, lease: Lease):
+        self.lease = lease
+        self.lock = threading.Lock()
+        self.state: dict[str, dict[str, Any]] = {
+            "arc": {"status": "pending"},
+            "frontier": {"status": "pending"},
+            "ram": {"status": "pending"},
+        }
+
+    def update(self, benchmark: str, **values: Any) -> None:
+        if self.lease.lost.is_set():
+            raise LeaseLost("worker lost its run lease")
+        with self.lock:
+            self.state[benchmark] = {**self.state[benchmark], **values}
+            snapshot = dict(self.state[benchmark])
+        # The terminal result endpoint deliberately accepts this lease after the
+        # hard deadline. Keep the final local snapshot, but do not send stale progress.
+        if time.monotonic() >= self.lease.deadline:
+            return
+        api("/api/worker/harness/progress", {
+            "id": self.lease.run_id,
+            "lease_token": self.lease.token,
+            "benchmark": benchmark,
+            "state": snapshot,
+        })
+
+    def snapshot(self) -> dict[str, dict[str, Any]]:
+        with self.lock:
+            return json.loads(json.dumps(self.state))
+
+
+class UnixHTTPConnection(http.client.HTTPConnection):
+    def __init__(self, socket_path: Path):
+        super().__init__("localhost", timeout=5)
+        self.socket_path = socket_path
+
+    def connect(self) -> None:
+        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.sock.settimeout(self.timeout)
+        self.sock.connect(str(self.socket_path))
+
+
+class Gateway:
+    def __init__(self, name: str, parent: Path):
+        self.name = name
+        self.directory = parent / f"gateway-{name}"
+        self.directory.mkdir(mode=0o755)
+        self.socket_path = self.directory / "bedrock.sock"
+        self.token = secrets.token_hex(32)
+        env = os.environ.copy()
+        for key, value in CONFIG.items():
+            if key.startswith("AWS_"):
+                env[key] = value
+        if BEDROCK_API_KEY:
+            # AWS SDKs recognize this official bearer-token variable.
+            env["AWS_BEARER_TOKEN_BEDROCK"] = BEDROCK_API_KEY
+        env.update({
+            "AWS_REGION": AWS_REGION,
+            "BEDROCK_MODEL_ID": BEDROCK_MODEL_ID,
+            "BEDROCK_PROFILE_NAME": BEDROCK_PROFILE_NAME,
+            "BEDROCK_LATENCY": BEDROCK_LATENCY,
+            "BEDROCK_REASONING_EFFORT": BEDROCK_REASONING_EFFORT,
+            "BEDROCK_GATEWAY_TOKEN": self.token,
+            "BEDROCK_MAX_CONCURRENCY": CONFIG.get("BEDROCK_MAX_CONCURRENCY", "32"),
+            "HARNESS_BENCHMARK_VERSION": HARNESS_VERSION,
+        })
+        self.process = subprocess.Popen(
+            [sys.executable, str(ROOT / "bedrock_gateway.py"), "--socket", str(self.socket_path)],
+            env=env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        deadline = time.monotonic() + 10
+        while not self.socket_path.exists() and self.process.poll() is None and time.monotonic() < deadline:
+            time.sleep(0.05)
+        if not self.socket_path.exists():
+            detail = self.process.stderr.read()[-2000:] if self.process.stderr else ""
+            raise InfrastructureFailed(f"Bedrock gateway {name} did not start: {detail}")
+
+    def metrics(self) -> dict[str, Any]:
+        connection = UnixHTTPConnection(self.socket_path)
+        connection.request("GET", "/metrics", headers={"Authorization": f"Bearer {self.token}"})
+        response = connection.getresponse()
+        raw = response.read()
+        connection.close()
+        if response.status != 200:
+            raise InfrastructureFailed(f"Bedrock gateway metrics returned HTTP {response.status}")
+        return json.loads(raw)
+
+    def stop(self) -> None:
+        if self.process.poll() is None:
+            self.process.terminate()
+            try:
+                self.process.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+                self.process.wait()
+
+
+def run_checked(command: list[str], *, timeout: float, cwd: Path | None = None, env: dict[str, str] | None = None) -> subprocess.CompletedProcess:
+    try:
+        result = subprocess.run(command, cwd=cwd, env=env, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        raise RunFailed(f"command exceeded {timeout:.0f}s: {command[0]}") from exc
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout)[-3000:]
+        raise RunFailed(f"{command[0]} failed with exit code {result.returncode}:\n{detail}")
+    return result
+
+
+def ensure_host() -> None:
+    if not WORKER_TOKEN:
+        raise SystemExit("WORKER_TOKEN is required")
+    if not AWS_REGION or not BEDROCK_MODEL_ID:
+        raise SystemExit("AWS_REGION and BEDROCK_MODEL_ID are required")
+    if not re.fullmatch(r"[A-Za-z0-9._-]{1,64}", BEDROCK_PROFILE_NAME):
+        raise SystemExit("BEDROCK_PROFILE_NAME must contain only letters, digits, dot, underscore, or dash")
+    if BEDROCK_LATENCY not in ("standard", "optimized"):
+        raise SystemExit("BEDROCK_LATENCY must be standard or optimized")
+    if BEDROCK_REASONING_EFFORT not in ("none", "low", "medium", "high"):
+        raise SystemExit("BEDROCK_REASONING_EFFORT must be none, low, medium, or high")
+    mode = CONFIG.get("HARNESS_ENV", "production")
+    if mode not in ("local", "production"):
+        raise SystemExit("HARNESS_ENV must be local or production")
+    if mode == "production":
+        expected_user = CONFIG.get("HARNESS_HARBOR_USER", "")
+        current_user = pwd.getpwuid(os.getuid()).pw_name
+        if not expected_user or current_user != expected_user:
+            raise SystemExit(
+                "production worker must run as the dedicated HARNESS_HARBOR_USER account"
+            )
+    for path in (
+        ARC_PYTHON, KAGGLE_CLI, ARC_STARTER / "environment_files",
+        ARC_STARTER / "scripts" / "build_notebook.py", FRONTIER_SOURCE, HARBOR_CLI,
+    ):
+        if not path.exists():
+            raise SystemExit(f"required benchmark cache is missing: {path}")
+    info = run_checked(["podman", "info", "--format", "{{.Host.Security.Rootless}} {{.Host.CgroupsVersion}}"], timeout=15)
+    if info.stdout.strip() != "true v2":
+        raise SystemExit("the harness requires rootless Podman with cgroup v2")
+    if shutil.which("bwrap") is None or shutil.which("socat") is None or shutil.which("docker") is None:
+        raise SystemExit("bwrap, socat, and the Docker CLI with Compose are required")
+    run_checked(["docker", "compose", "version"], timeout=10)
+
+
+def ensure_image() -> None:
+    exists = subprocess.run(["podman", "image", "exists", HARNESS_IMAGE], capture_output=True).returncode == 0
+    if exists:
+        return
+    log(f"building sandbox image {HARNESS_IMAGE}")
+    run_checked([
+        "podman", "build", "--label", f"academy.harness.version={HARNESS_VERSION}",
+        "-t", HARNESS_IMAGE, "-f", str(ROOT / "Containerfile.arc"), str(ARC_STARTER),
+    ], timeout=900)
+
+
+def podman_base(work: Path, *, network: str, memory: str = "2g", cpus: str = "2") -> list[str]:
+    return [
+        "podman", "run", "--rm", f"--network={network}", "--cap-drop=all",
+        "--security-opt=no-new-privileges", "--pids-limit=256", f"--memory={memory}",
+        f"--cpus={cpus}", "--mount", f"type=bind,src={work},dst=/work",
+        HARNESS_IMAGE,
+    ]
+
+
+def valid_repo_url(repo_url: str) -> bool:
+    if not re.fullmatch(r"https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+", repo_url):
+        return False
+    owner, repo = repo_url.removeprefix("https://github.com/").split("/", 1)
+    return owner not in (".", "..") and repo not in (".", "..")
+
+
+def clone_submission(repo_url: str, work: Path, deadline: float) -> tuple[Path, str, Path]:
+    if not valid_repo_url(repo_url):
+        raise RunFailed("claim contained an invalid GitHub repository URL")
+    command = podman_base(work, network="slirp4netns") + [
+        "git", "-c", "protocol.file.allow=never", "clone", "--depth=1", "--filter=blob:none",
+        "--no-tags", repo_url, "/work/repo",
+    ]
+    run_checked(command, timeout=bounded_timeout(deadline, 30))
+    repo = work / "repo"
+    result = run_checked(["git", "-c", f"safe.directory={repo}", "-C", str(repo), "rev-parse", "HEAD"], timeout=5)
+    sha = result.stdout.strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{40}", sha):
+        raise RunFailed("git did not resolve a valid commit SHA")
+    validate_submission(repo)
+    venv = work / "venv"
+    build = podman_base(work, network="slirp4netns", memory="4g", cpus="2") + [
+        "sh", "-lc",
+        "python -m venv --system-site-packages /work/venv && "
+        "/work/venv/bin/python -m pip install --disable-pip-version-check --no-input "
+        "-r /work/repo/requirements.txt && "
+        "/work/venv/bin/python -c \"from pathlib import Path; "
+        "[compile(Path(p).read_bytes(),p,'exec') for p in "
+        "('/work/repo/main.py','/work/repo/agent/my_agent.py','/work/repo/agent/harbor_agent.py')]\"",
+    ]
+    run_checked(build, timeout=bounded_timeout(deadline, 90))
+    return repo, sha, venv
+
+
+def clone_exact_submission(repo_url: str, commit_sha: str, work: Path) -> Path:
+    """Fetch only the commit already scored locally; never resubmit a moving HEAD."""
+    if not valid_repo_url(repo_url) or not re.fullmatch(r"[0-9a-f]{40}", commit_sha):
+        raise RunFailed("official submission claim contained an invalid repository or commit")
+    base = podman_base(work, network="slirp4netns")
+    run_checked(base + ["git", "init", "/work/repo"], timeout=10)
+    run_checked(base + ["git", "-C", "/work/repo", "remote", "add", "origin", repo_url], timeout=5)
+    run_checked(base + [
+        "git", "-c", "protocol.file.allow=never", "-C", "/work/repo", "fetch",
+        "--depth=1", "--no-tags", "origin", commit_sha,
+    ], timeout=45)
+    run_checked(base + ["git", "-C", "/work/repo", "checkout", "--detach", "FETCH_HEAD"], timeout=10)
+    repo = work / "repo"
+    resolved = run_checked([
+        "git", "-c", f"safe.directory={repo}", "-C", str(repo), "rev-parse", "HEAD",
+    ], timeout=5).stdout.strip().lower()
+    if resolved != commit_sha:
+        raise RunFailed("official submission checkout did not match the scored commit")
+    validate_submission(repo)
+    return repo
+
+
+def validate_submission(repo: Path) -> None:
+    if (repo / ".gitmodules").exists():
+        raise RunFailed("git submodules are not allowed")
+    total = 0
+    for root, directories, files in os.walk(repo, followlinks=False):
+        if Path(root) == repo and ".git" in directories:
+            directories.remove(".git")
+        for name in [*directories, *files]:
+            path = Path(root) / name
+            if path.is_symlink():
+                raise RunFailed(f"symlinks are not allowed: {path.relative_to(repo)}")
+        for name in files:
+            path = Path(root) / name
+            size = path.stat().st_size
+            if size > MAX_FILE_BYTES:
+                raise RunFailed(f"file exceeds 10 MiB: {path.relative_to(repo)}")
+            total += size
+            if total > MAX_REPO_BYTES:
+                raise RunFailed("repository exceeds 100 MiB")
+    missing = [name for name in REQUIRED_FILES if not (repo / name).is_file()]
+    if missing:
+        raise RunFailed("missing required files: " + ", ".join(missing))
+    requirements = repo / "requirements.txt"
+    if requirements.stat().st_size > MAX_REQUIREMENTS_BYTES:
+        raise RunFailed("requirements.txt exceeds 32 KiB")
+    for number, raw in enumerate(requirements.read_text(errors="strict").splitlines(), 1):
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        lowered = line.lower()
+        if line.startswith("-") or " @ " in line or "://" in line or "git+" in lowered \
+                or lowered.startswith(("file:", ".", "/")) or "\\" in line:
+            raise RunFailed(f"requirements.txt line {number} uses a forbidden direct source or option")
+
+
+def gateway_env(gateway: Gateway) -> dict[str, str]:
+    return {
+        "OPENAI_BASE_URL": "http://127.0.0.1:8000/v1",
+        "OPENAI_API_BASE": "http://127.0.0.1:8000/v1",
+        "OPENAI_API_KEY": gateway.token,
+        "HARNESS_LLM_BASE": "http://127.0.0.1:8000/v1",
+        "HARNESS_LLM_KEY": gateway.token,
+        "HARNESS_LLM_MODEL": BEDROCK_PROFILE_NAME,
+    }
+
+
+def cgroup_path(pid: int) -> Path:
+    for line in Path(f"/proc/{pid}/cgroup").read_text().splitlines():
+        parts = line.split(":", 2)
+        if len(parts) == 3 and parts[0] == "0":
+            return Path("/sys/fs/cgroup") / parts[2].lstrip("/")
+    raise InfrastructureFailed("could not resolve the container cgroup")
+
+
+def pss_kb(cgroup: Path) -> int:
+    try:
+        pids = cgroup.joinpath("cgroup.procs").read_text().split()
+    except OSError:
+        return 0
+    total = 0
+    for pid in pids:
+        try:
+            for line in Path(f"/proc/{pid}/smaps_rollup").read_text().splitlines():
+                if line.startswith("Pss:"):
+                    total += int(line.split()[1])
+                    break
+        except (OSError, ValueError):
+            continue
+    return total
+
+
+def run_ram_scenario(run_id: str, sessions: int, repo: Path, venv: Path, gateway: Gateway, deadline: float) -> tuple[float, float]:
+    before = gateway.metrics()
+    name = f"academy-ram-{run_id[:8]}-{sessions}-{uuid.uuid4().hex[:6]}"
+    memory = "2g" if sessions == 1 else "8g"
+    cpus = "1" if sessions == 1 else "10"
+    command = [
+        "podman", "run", "-d", "--name", name, "--network=none", "--cap-drop=all",
+        "--security-opt=no-new-privileges", "--pids-limit", "128" if sessions == 1 else "512",
+        "--memory", memory, "--cpus", cpus, "--read-only",
+        "--tmpfs", "/tmp:rw,noexec,nosuid,size=256m",
+        "--label", f"academy.harness.run={run_id}", "--label", "academy.harness.benchmark=ram",
+        "--mount", f"type=bind,src={repo},dst=/submission,ro=true",
+        "--mount", f"type=bind,src={venv},dst=/venv,ro=true",
+        "--mount", f"type=bind,src={gateway.directory},dst=/run/harness,ro=true",
+        "--mount", f"type=bind,src={ROOT},dst=/opt/harness,ro=true",
+        "-e", "HOME=/tmp/home",
+    ]
+    for key, value in gateway_env(gateway).items():
+        command += ["-e", f"{key}={value}"]
+    command += [
+        HARNESS_IMAGE, "sh", "-lc",
+        "mkdir -p /tmp/home && "
+        "socat TCP-LISTEN:8000,bind=127.0.0.1,reuseaddr,fork UNIX-CONNECT:/run/harness/bedrock.sock & "
+        f"exec /venv/bin/python /opt/harness/ram_session.py --sessions {sessions}",
+    ]
+    run_checked(command, timeout=bounded_timeout(deadline, 5))
+    peak = 0
+    memory_peak = 0
+    try:
+        pid = 0
+        start_deadline = time.monotonic() + 2
+        while pid <= 0 and time.monotonic() < start_deadline:
+            inspected = run_checked(["podman", "inspect", "--format", "{{.State.Pid}}", name], timeout=2)
+            pid = int(inspected.stdout.strip())
+            if pid <= 0:
+                time.sleep(0.02)
+        if pid <= 0:
+            raise InfrastructureFailed("RAM container did not start")
+        group = cgroup_path(pid)
+        scenario_deadline = min(deadline, time.monotonic() + 10.5)
+        def alive() -> bool:
+            try:
+                return Path(f"/proc/{pid}/stat").read_text().split()[2] != "Z"
+            except (OSError, IndexError):
+                return False
+        while alive() and time.monotonic() < scenario_deadline:
+            peak = max(peak, pss_kb(group))
+            time.sleep(0.02)
+        if alive():
+            raise RunFailed(f"RAM {sessions}-session scenario exceeded ten seconds")
+        with contextlib.suppress(OSError, ValueError):
+            memory_peak = int(group.joinpath("memory.peak").read_text())
+        status = run_checked(["podman", "wait", name], timeout=2).stdout.strip()
+        logs = run_checked(["podman", "logs", name], timeout=2).stdout
+        if status != "0":
+            raise RunFailed(f"RAM {sessions}-session contract failed:\n{logs[-2000:]}")
+        payload = json.loads(logs.strip().splitlines()[-1])
+        if not payload.get("ok"):
+            raise RunFailed(f"RAM {sessions}-session contract failed")
+    finally:
+        subprocess.run(["podman", "rm", "-f", name], capture_output=True)
+    after = gateway.metrics()
+    request_delta = after["requests"] - before["requests"]
+    error_delta = after["errors"] - before["errors"]
+    if request_delta != sessions or error_delta != 0:
         raise RunFailed(
-            "Frontier-bench görevlerinin tamamı ajan hatasıyla sonlandı — "
-            f"agent/harbor_agent.py çalışmıyor:\n{crash[:1500]}")
-    score = round(100.0 * resolved / total, 1)
-    log(f"score_frontier = {score} ({resolved}/{total} resolved, {finished} finished)")
+            f"RAM {sessions}-session scenario must make exactly one successful Bedrock request per session "
+            f"(saw {request_delta} requests, {error_delta} errors)"
+        )
+    if peak <= 0:
+        raise InfrastructureFailed("RAM PSS sampling produced no measurement")
+    return round(peak / 1024, 1), round(memory_peak / 1024 / 1024, 1)
+
+
+def run_ram(run_id: str, repo: Path, venv: Path, gateway: Gateway, reporter: Reporter, deadline: float) -> tuple[float, float]:
+    reporter.update("ram", status="running", scenario="one_session", done=0, total=2)
+    one, one_cgroup = run_ram_scenario(run_id, 1, repo, venv, gateway, deadline)
+    reporter.update("ram", status="running", scenario="ten_sessions", done=1, total=2,
+                    one_session_mb=one, one_session_cgroup_peak_mb=one_cgroup)
+    ten, ten_cgroup = run_ram_scenario(run_id, 10, repo, venv, gateway, deadline)
+    reporter.update("ram", status="done", done=2, total=2, one_session_mb=one,
+                    ten_session_mb=ten, one_session_cgroup_peak_mb=one_cgroup,
+                    ten_session_cgroup_peak_mb=ten_cgroup)
+    return one, ten
+
+
+def parse_last_json(text: str) -> dict[str, Any]:
+    for line in reversed(text.splitlines()):
+        with contextlib.suppress(json.JSONDecodeError):
+            value = json.loads(line)
+            if isinstance(value, dict):
+                return value
+    raise RunFailed("benchmark process did not emit a JSON result")
+
+
+def cleanup_run_containers(run_id: str) -> None:
+    result = subprocess.run(
+        ["podman", "ps", "-aq", "--filter", f"label=academy.harness.run={run_id}"],
+        capture_output=True, text=True,
+    )
+    ids = [line for line in result.stdout.splitlines() if re.fullmatch(r"[0-9a-f]+", line)]
+    if ids:
+        subprocess.run(["podman", "rm", "-f", *ids], capture_output=True)
+
+
+def run_arc(run_id: str, repo: Path, venv: Path, gateway: Gateway, reporter: Reporter, deadline: float) -> float:
+    reporter.update("arc", status="running", done=0, total=len(ARC_GAMES), games={}, rate=0)
+    env = os.environ.copy()
+    env.update({
+        "HARNESS_ARC_STARTER": str(ARC_STARTER),
+        "BEDROCK_GATEWAY_TOKEN": gateway.token,
+        "BEDROCK_PROFILE_NAME": BEDROCK_PROFILE_NAME,
+    })
+    processes: dict[str, subprocess.Popen] = {}
+    for game in ARC_GAMES:
+        processes[game] = subprocess.Popen([
+            str(ARC_PYTHON), str(ROOT / "arc_game.py"), "--game", game,
+            "--deadline-monotonic", str(deadline), "--repo", str(repo), "--venv", str(venv),
+            "--gateway-dir", str(gateway.directory), "--image", HARNESS_IMAGE,
+            "--worker-dir", str(ROOT), "--run-id", run_id,
+        ], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    results: dict[str, dict[str, Any]] = {}
+    started = time.monotonic()
+    next_rate_check = started + 30
+    misses = 0
+    try:
+        while processes:
+            if time.monotonic() >= deadline:
+                for process in processes.values():
+                    process.terminate()
+                for game in list(processes):
+                    results[game] = {"game": game, "status": "timeout", "score": 0.0}
+                processes.clear()
+                break
+            for game, process in list(processes.items()):
+                if process.poll() is None:
+                    continue
+                stdout, stderr = process.communicate()
+                try:
+                    result = parse_last_json(stdout)
+                except RunFailed:
+                    result = {"game": game, "status": "failed", "score": 0.0,
+                              "error": (stderr or stdout)[-1000:]}
+                score = result.get("score")
+                if not isinstance(score, (int, float)) or not math.isfinite(score) or not 0 <= score <= 100:
+                    result = {"game": game, "status": "failed", "score": 0.0, "error": "invalid score"}
+                results[game] = result
+                del processes[game]
+                reporter.update("arc", status="running", done=len(results), total=len(ARC_GAMES),
+                                games=results, active=len(processes))
+            now = time.monotonic()
+            if processes and now >= next_rate_check:
+                metrics = gateway.metrics()
+                completed = int(metrics["completed_last_30s"])
+                target = 100 * len(processes) / len(ARC_GAMES)
+                misses = misses + 1 if completed < target else 0
+                reporter.update("arc", status="running", done=len(results), total=len(ARC_GAMES),
+                                games=results, active=len(processes), rate=completed,
+                                rate_target=round(target, 1), rate_misses=misses)
+                if misses >= 2:
+                    raise InfrastructureFailed(
+                        f"ARC Bedrock throughput stayed below target: {completed}/{target:.0f} turns per 30s"
+                    )
+                next_rate_check = now + 5
+            time.sleep(0.2)
+    finally:
+        for process in processes.values():
+            if process.poll() is None:
+                process.terminate()
+        for process in processes.values():
+            with contextlib.suppress(subprocess.TimeoutExpired):
+                process.wait(timeout=2)
+            if process.poll() is None:
+                process.kill()
+        cleanup_run_containers(run_id)
+    score = round(sum(float(results.get(game, {}).get("score", 0.0)) for game in ARC_GAMES) / len(ARC_GAMES), 1)
+    reporter.update("arc", status="done", done=len(ARC_GAMES), total=len(ARC_GAMES), games=results,
+                    score=score, gateway=gateway.metrics())
     return score
 
 
-def run_ram(run_id, repo: Path, venv_py: Path) -> tuple[float, float]:
-    progress(run_id, 0, 2, None, "1 oturum")
-    ram1 = ram_sessions(repo, venv_py, 1)
-    log(f"ram 1 session peak = {ram1} MB")
-    progress(run_id, 1, 2, ram1, f"{RAM_CONCURRENT} oturum")
-    ram10 = ram_sessions(repo, venv_py, RAM_CONCURRENT)
-    log(f"ram {RAM_CONCURRENT} sessions peak = {ram10} MB")
-    return ram1, ram10
+def rewrite_timeouts(path: Path) -> None:
+    section = ""
+    output: list[str] = []
+    protected_sections = {"agent", "verifier", "environment"}
+    found_sections: set[str] = set()
+    network_written = False
+
+    def finish_section() -> None:
+        nonlocal network_written
+        if section in protected_sections and not network_written:
+            output.append('network_mode = "no-network"')
+
+    for line in path.read_text().splitlines():
+        match = re.fullmatch(r"\[([^]]+)]", line.strip())
+        if match:
+            finish_section()
+            section = match.group(1)
+            network_written = False
+            if section in protected_sections:
+                found_sections.add(section)
+        if line.strip().startswith("timeout_sec") and section == "agent":
+            line = "timeout_sec = 120.0"
+        elif line.strip().startswith("timeout_sec") and section == "verifier":
+            line = "timeout_sec = 60.0"
+        elif line.strip().startswith("network_mode") and section in protected_sections:
+            line = 'network_mode = "no-network"'
+            network_written = True
+        elif line.strip().startswith("allowed_hosts") and section in protected_sections:
+            line = "allowed_hosts = []"
+        output.append(line)
+    finish_section()
+    if found_sections != protected_sections:
+        missing = ", ".join(sorted(protected_sections - found_sections))
+        raise InfrastructureFailed(f"Frontier task is missing required TOML sections: {missing}")
+    path.write_text("\n".join(output) + "\n")
 
 
-# ── main loop ───────────────────────────────────────────────────────────────
-def process(run_id: str, repo_url: str):
-    work = Path(tempfile.mkdtemp(prefix="harness-run-"))
+def sprint_dataset(work: Path) -> Path:
+    target = work / "frontier-sprint"
+    target.mkdir()
+    for task in FRONTIER_TASKS:
+        source = FRONTIER_SOURCE / task
+        destination = target / task
+        # Work directories may live on a different filesystem from the pinned cache.
+        shutil.copytree(source, destination, copy_function=shutil.copy2, symlinks=True)
+        task_config = destination / "task.toml"
+        rewrite_timeouts(task_config)
+        shutil.rmtree(destination / "solution", ignore_errors=True)
+    return target
+
+
+def scan_frontier(jobs: Path) -> tuple[dict[str, dict[str, Any]], int]:
+    results: dict[str, dict[str, Any]] = {}
+    active = 0
+    if not jobs.exists():
+        return results, len(FRONTIER_TASKS)
+    job = next((path for path in jobs.iterdir() if path.is_dir()), None)
+    if job is None:
+        return results, len(FRONTIER_TASKS)
+    for trial in job.iterdir():
+        if not trial.is_dir():
+            continue
+        task = trial.name.split("__", 1)[0]
+        result_file = trial / "result.json"
+        if not result_file.exists():
+            active += 1
+            continue
+        try:
+            value = json.loads(result_file.read_text())
+        except (OSError, json.JSONDecodeError):
+            active += 1
+            continue
+        rewards = ((value.get("verifier_result") or {}).get("rewards") or {})
+        reward = rewards.get("reward")
+        if reward is None and rewards:
+            reward = next(iter(rewards.values()))
+        try:
+            reward = float(reward or 0.0)
+        except (TypeError, ValueError):
+            reward = 0.0
+        reward = reward if math.isfinite(reward) and 0 <= reward <= 1 else 0.0
+        exception = value.get("exception_info") or {}
+        results[task] = {
+            "status": "failed" if exception else "done",
+            "reward": reward,
+            "error": str(exception.get("exception_message") or "")[:1000] or None,
+        }
+    active += max(0, len(FRONTIER_TASKS) - len(results) - active)
+    return results, active
+
+
+def bubblewrap_harbor(repo: Path, dataset: Path, jobs: Path, gateway: Gateway, podman_socket: Path) -> list[str]:
+    home = Path.home()
+    uid = os.getuid()
+    command = [
+        "bwrap", "--die-with-parent", "--new-session", "--unshare-pid", "--unshare-uts",
+        "--unshare-ipc", "--unshare-net", "--ro-bind", "/", "/", "--tmpfs", "/home",
+        "--dir", str(home), "--dir", str(home / ".local"), "--dir", str(home / ".local/share"),
+        "--dir", str(home / ".local/share/uv"), "--dir", str(home / ".local/share/uv/tools"),
+        "--ro-bind", str(HARBOR_ROOT), str(HARBOR_ROOT), "--tmpfs", f"/run/user/{uid}",
+        "--bind", str(podman_socket), "/run/podman.sock",
+        "--ro-bind", str(repo), "/submission", "--ro-bind", str(dataset), "/dataset",
+        "--bind", str(jobs), "/jobs", "--ro-bind", str(gateway.directory), "/run/harness",
+        "--tmpfs", "/tmp", "--proc", "/proc", "--dev", "/dev",
+        "--setenv", "HOME", "/tmp/home", "--setenv", "DOCKER_HOST", "unix:///run/podman.sock",
+        "--setenv", "PYTHONPATH", "/submission", "--setenv", "OPENAI_API_KEY", gateway.token,
+        "--setenv", "OPENAI_API_BASE", "http://127.0.0.1:8000/v1",
+        "--setenv", "OPENAI_BASE_URL", "http://127.0.0.1:8000/v1",
+        "--chdir", "/submission", "sh", "-lc",
+        "mkdir -p /tmp/home && "
+        "socat TCP-LISTEN:8000,bind=127.0.0.1,reuseaddr,fork UNIX-CONNECT:/run/harness/bedrock.sock & "
+        f"exec {HARBOR_CLI} run -p /dataset -a agent.harbor_agent:HarborAgent "
+        f"-m openai/{BEDROCK_PROFILE_NAME} -n 5 -o /jobs -y --no-force-build "
+        "--ak enable_summarize=false --ak proactive_summarization_threshold=0 "
+        "--ak max_turns=1000000 --ak temperature=0 --ak api_base=http://127.0.0.1:8000/v1",
+    ]
+    return command
+
+
+def run_frontier(run_id: str, repo: Path, work: Path, gateway: Gateway, reporter: Reporter, deadline: float) -> float:
+    dataset = sprint_dataset(work)
+    jobs = work / "frontier-jobs"
+    jobs.mkdir()
+    socket_path = work / "podman-api.sock"
+    service = subprocess.Popen(
+        ["podman", "system", "service", "--time=0", f"unix://{socket_path}"],
+        stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
+    )
+    service_deadline = time.monotonic() + 5
+    while not socket_path.exists() and service.poll() is None and time.monotonic() < service_deadline:
+        time.sleep(0.05)
+    if not socket_path.exists():
+        detail = service.stderr.read()[-1000:] if service.stderr else ""
+        raise InfrastructureFailed(f"rootless Podman API did not start: {detail}")
+    reporter.update("frontier", status="running", done=0, total=len(FRONTIER_TASKS), tasks={}, rate=0)
+    log_file = work / "frontier.log"
+    with log_file.open("w") as output:
+        process = subprocess.Popen(
+            bubblewrap_harbor(repo, dataset, jobs, gateway, socket_path),
+            stdout=output, stderr=subprocess.STDOUT, text=True, start_new_session=True,
+        )
+    started = time.monotonic()
+    next_rate_check = started + 30
+    misses = 0
     try:
-        repo, sha = clone(repo_url, work)
-        stage(run_id, "building", sha)
-        venv_py = build(repo, work)
+        while process.poll() is None:
+            if time.monotonic() >= deadline:
+                os.killpg(process.pid, signal.SIGTERM)
+                break
+            results, active = scan_frontier(jobs)
+            reporter.update("frontier", status="running", done=len(results), total=len(FRONTIER_TASKS),
+                            tasks=results, active=active)
+            now = time.monotonic()
+            if active and now >= next_rate_check:
+                metrics = gateway.metrics()
+                completed = int(metrics["completed_last_30s"])
+                target = 100 * active / len(FRONTIER_TASKS)
+                misses = misses + 1 if completed < target else 0
+                reporter.update("frontier", status="running", done=len(results), total=len(FRONTIER_TASKS),
+                                tasks=results, active=active, rate=completed,
+                                rate_target=round(target, 1), rate_misses=misses)
+                if misses >= 2:
+                    raise InfrastructureFailed(
+                        f"Frontier Bedrock throughput stayed below target: {completed}/{target:.0f} turns per 30s"
+                    )
+                next_rate_check = now + 5
+            time.sleep(2)
+        with contextlib.suppress(subprocess.TimeoutExpired):
+            process.wait(timeout=5)
+    finally:
+        if process.poll() is None:
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(process.pid, signal.SIGTERM)
+            with contextlib.suppress(subprocess.TimeoutExpired):
+                process.wait(timeout=3)
+        service.terminate()
+        with contextlib.suppress(subprocess.TimeoutExpired):
+            service.wait(timeout=3)
+        if service.poll() is None:
+            service.kill()
+    results, _ = scan_frontier(jobs)
+    if process.returncode not in (0, -signal.SIGTERM) and not results:
+        raise RunFailed("Frontier Sprint could not start:\n" + log_file.read_text(errors="replace")[-3000:])
+    for task in FRONTIER_TASKS:
+        results.setdefault(task, {"status": "timeout", "reward": 0.0})
+    score = round(100 * sum(float(results[task]["reward"]) for task in FRONTIER_TASKS) / len(FRONTIER_TASKS), 1)
+    reporter.update("frontier", status="done", done=len(FRONTIER_TASKS), total=len(FRONTIER_TASKS),
+                    tasks=results, score=score, gateway=gateway.metrics())
+    return score
 
-        stage(run_id, "arc_agi_3")
-        with overlaid_agent(repo):
-            score_arc = run_arc(run_id)
 
-        stage(run_id, "frontier_bench")
-        score_frontier = run_frontier(run_id, repo, work)
+def terminal_status(state: dict[str, dict[str, Any]]) -> str:
+    statuses = [item.get("status") for item in state.values()]
+    if all(status == "done" for status in statuses):
+        return "done"
+    if any(status == "done" for status in statuses):
+        return "partial"
+    if any(status == "infra_failed" for status in statuses):
+        return "infra_failed"
+    return "failed"
 
-        stage(run_id, "ram_bench")
-        ram1, ram10 = run_ram(run_id, repo, venv_py)
 
-        status, _ = api("/api/worker/harness/result", {
-            "id": run_id, "status": "done",
-            "score_arc": score_arc, "score_frontier": score_frontier,
-            "ram_1session_mb": ram1, "ram_10session_mb": ram10,
-        })
-        log(f"result -> done: HTTP {status}")
-    except RunFailed as e:
-        api("/api/worker/harness/result",
-            {"id": run_id, "status": "failed", "error_log": str(e)})
-        log(f"run failed: {e}")
-    except Exception as e:
-        api("/api/worker/harness/result",
-            {"id": run_id, "status": "failed", "error_log": f"worker hatası: {e}"})
-        log(f"worker error: {e}")
+def process_claim(claim: dict[str, Any]) -> None:
+    run_id = str(claim["id"])
+    lease_token = str(claim["lease_token"])
+    deadline = parse_deadline(str(claim["deadline_at"]))
+    work = Path(tempfile.mkdtemp(prefix=f"harness-{run_id[:8]}-"))
+    gateways: list[Gateway] = []
+    scores: dict[str, float | None] = {"arc": None, "frontier": None, "ram1": None, "ram10": None}
+    error_log: str | None = None
+    with Lease(run_id, lease_token, deadline) as lease:
+        reporter = Reporter(lease)
+        try:
+            repo, sha, venv = clone_submission(str(claim["repo_url"]), work, deadline)
+            profile_fingerprint = hashlib.sha256(BEDROCK_MODEL_ID.encode()).hexdigest()
+            api("/api/worker/harness/stage", {
+                "id": run_id,
+                "lease_token": lease_token,
+                "status": "running",
+                "commit_sha": sha,
+                "bedrock_profile": BEDROCK_PROFILE_NAME,
+                "bedrock_profile_fingerprint": profile_fingerprint,
+            })
+            ram_gateway = Gateway("ram", work)
+            gateways.append(ram_gateway)
+            arc_gateway = Gateway("arc", work)
+            gateways.append(arc_gateway)
+            frontier_gateway = Gateway("frontier", work)
+            gateways.append(frontier_gateway)
+
+            try:
+                scores["ram1"], scores["ram10"] = run_ram(
+                    run_id, repo, venv, ram_gateway, reporter, deadline
+                )
+            except InfrastructureFailed as exc:
+                reporter.update("ram", status="infra_failed", error=str(exc))
+            except Exception as exc:
+                reporter.update("ram", status="failed", error=str(exc)[:2000])
+
+            outcomes: dict[str, tuple[str, Any]] = {}
+            lock = threading.Lock()
+
+            def benchmark(name: str, fn: Any) -> None:
+                try:
+                    value = fn()
+                    with lock:
+                        outcomes[name] = ("done", value)
+                except InfrastructureFailed as exc:
+                    with contextlib.suppress(Exception):
+                        reporter.update(name, status="infra_failed", error=str(exc))
+                    with lock:
+                        outcomes[name] = ("infra_failed", exc)
+                except Exception as exc:
+                    with contextlib.suppress(Exception):
+                        reporter.update(name, status="failed", error=str(exc)[:2000])
+                    with lock:
+                        outcomes[name] = ("failed", exc)
+
+            arc_thread = threading.Thread(
+                target=benchmark,
+                args=("arc", lambda: run_arc(run_id, repo, venv, arc_gateway, reporter, deadline)),
+                name=f"arc-{run_id[:8]}",
+            )
+            frontier_thread = threading.Thread(
+                target=benchmark,
+                args=("frontier", lambda: run_frontier(run_id, repo, work, frontier_gateway, reporter, deadline)),
+                name=f"frontier-{run_id[:8]}",
+            )
+            arc_thread.start()
+            frontier_thread.start()
+            while arc_thread.is_alive() or frontier_thread.is_alive():
+                if lease.lost.is_set():
+                    raise LeaseLost("worker lost its run lease")
+                if time.monotonic() >= deadline:
+                    break
+                time.sleep(0.5)
+            arc_thread.join(timeout=10)
+            frontier_thread.join(timeout=10)
+            if arc_thread.is_alive() or frontier_thread.is_alive():
+                raise InfrastructureFailed("benchmark threads did not stop at the global deadline")
+            if outcomes.get("arc", (None,))[0] == "done":
+                scores["arc"] = float(outcomes["arc"][1])
+            if outcomes.get("frontier", (None,))[0] == "done":
+                scores["frontier"] = float(outcomes["frontier"][1])
+        except RunFailed as exc:
+            error_log = str(exc)
+            for name in ("arc", "frontier", "ram"):
+                if reporter.state[name]["status"] == "pending":
+                    reporter.state[name] = {"status": "failed", "error": error_log[:2000]}
+        except Exception as exc:
+            error_log = str(exc)
+            for name in ("arc", "frontier", "ram"):
+                if reporter.state[name]["status"] == "pending":
+                    reporter.state[name] = {"status": "infra_failed", "error": error_log[:2000]}
+        finally:
+            cleanup_run_containers(run_id)
+            for gateway in gateways:
+                gateway.stop()
+            state = reporter.snapshot()
+            status = terminal_status(state)
+            if error_log is None and status != "done":
+                errors = [str(value.get("error")) for value in state.values() if value.get("error")]
+                error_log = "\n".join(errors)[:8000] or None
+            try:
+                api("/api/worker/harness/result", {
+                    "id": run_id,
+                    "lease_token": lease_token,
+                    "status": status,
+                    "benchmark_state": state,
+                    "score_arc": scores["arc"],
+                    "score_frontier": scores["frontier"],
+                    "ram_1session_mb": scores["ram1"],
+                    "ram_10session_mb": scores["ram10"],
+                    "error_log": error_log,
+                })
+                log(f"run {run_id} -> {status}")
+            except LeaseLost:
+                log(f"dropping stale result for {run_id}")
+            shutil.rmtree(work, ignore_errors=True)
+
+
+def kaggle_environment(token: str, home: Path) -> dict[str, str]:
+    allowed = (
+        "PATH", "LANG", "LC_ALL", "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE",
+        "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY",
+    )
+    env = {name: os.environ[name] for name in allowed if name in os.environ}
+    env.update({"HOME": str(home), "KAGGLE_API_TOKEN": token})
+    return env
+
+
+def kaggle_result(claim: dict[str, Any], status: str, **values: Any) -> None:
+    api("/api/worker/harness/kaggle/result", {
+        "id": str(claim["id"]),
+        "lease_token": str(claim["lease_token"]),
+        "status": status,
+        "kernel_slug": values.get("kernel_slug"),
+        "kernel_version": values.get("kernel_version"),
+        "submission_ref": values.get("submission_ref"),
+        "public_score": values.get("public_score"),
+        "private_score": values.get("private_score"),
+        "status_message": str(values.get("status_message") or "")[:2000] or None,
+    })
+
+
+def optional_score(value: Any) -> float | None:
+    if value in (None, "", "null", "None"):
+        return None
+    try:
+        score = float(value)
+    except (TypeError, ValueError):
+        return None
+    return score if math.isfinite(score) and 0 <= score <= 100 else None
+
+
+def kaggle_submission_row(
+    competition: str, description: str, env: dict[str, str], timeout: float,
+) -> dict[str, Any] | None:
+    result = run_checked([
+        str(KAGGLE_CLI), "competitions", "submissions", competition,
+        "--format", "json", "--quiet",
+    ], timeout=timeout, env=env)
+    try:
+        rows = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise RunFailed("Kaggle returned invalid submission-list JSON") from exc
+    if not isinstance(rows, list):
+        raise RunFailed("Kaggle returned an invalid submission list")
+    return next(
+        (row for row in rows if isinstance(row, dict) and row.get("description") == description),
+        None,
+    )
+
+
+def report_kaggle_poll(
+    claim: dict[str, Any], row: dict[str, Any] | None, description: str,
+) -> None:
+    kernel_slug = str(claim.get("kernel_slug") or "")
+    kernel_version = int(claim.get("kernel_version") or 0)
+    reference = str(claim.get("submission_ref") or description)
+    if row is None:
+        kaggle_result(
+            claim, "submitted", kernel_slug=kernel_slug, kernel_version=kernel_version,
+            submission_ref=reference, status_message="Kaggle submission is waiting to appear.",
+        )
+        return
+    reference = str(row.get("ref") or reference)
+    public_score = optional_score(row.get("publicScore"))
+    private_score = optional_score(row.get("privateScore"))
+    kaggle_status = str(row.get("status") or "pending")
+    lowered = kaggle_status.lower()
+    if any(word in lowered for word in ("error", "fail", "cancel")):
+        status = "failed"
+    elif public_score is not None or private_score is not None \
+            or lowered in ("complete", "completed", "scored", "finished"):
+        status = "scored"
+    else:
+        status = "submitted"
+    kaggle_result(
+        claim, status, kernel_slug=kernel_slug, kernel_version=kernel_version,
+        submission_ref=reference, public_score=public_score, private_score=private_score,
+        status_message=f"Kaggle status: {kaggle_status}",
+    )
+
+
+def process_kaggle_claim(claim: dict[str, Any]) -> None:
+    phase = str(claim.get("phase") or "")
+    run_id = str(claim.get("run_id") or "")
+    job_id = str(claim.get("id") or "")
+    token = str(claim.get("token") or "")
+    username = str(claim.get("username") or "")
+    commit_sha = str(claim.get("commit_sha") or "").lower()
+    competition = str(claim.get("competition") or "")
+    if phase not in ("submit", "poll") or competition != "arc-prize-2026-arc-agi-3" \
+            or str(claim.get("benchmark_version")) != HARNESS_VERSION:
+        raise InfrastructureFailed("official submission claim did not match this worker version")
+    for value in (run_id, job_id, str(claim.get("lease_token") or "")):
+        try:
+            uuid.UUID(value)
+        except ValueError as exc:
+            raise InfrastructureFailed("official submission claim contained an invalid identifier") from exc
+    if not re.fullmatch(r"[A-Za-z0-9_-]{2,64}", username) or not 20 <= len(token) <= 500:
+        raise InfrastructureFailed("official submission claim contained invalid credentials")
+    kernel_slug = str(claim.get("kernel_slug") or f"exposure-{run_id.replace('-', '')[:20]}")
+    description = f"Exposure Academy {run_id} {commit_sha[:12]}"
+    work = Path(tempfile.mkdtemp(prefix=f"kaggle-{job_id[:8]}-"))
+    home = work / "home"
+    home.mkdir(mode=0o700)
+    env = kaggle_environment(token, home)
+    try:
+        if phase == "poll":
+            try:
+                row = kaggle_submission_row(competition, description, env, timeout=30)
+                report_kaggle_poll(claim, row, description)
+            except RunFailed as exc:
+                safe_error = str(exc).replace(token, "[redacted]")
+                kaggle_result(
+                    claim, "submitted", kernel_slug=kernel_slug,
+                    kernel_version=int(claim.get("kernel_version") or 0),
+                    submission_ref=str(claim.get("submission_ref") or description),
+                    status_message=f"Kaggle poll will retry: {safe_error}",
+                )
+            return
+
+        repo = clone_exact_submission(str(claim.get("repo_url") or ""), commit_sha, work)
+        bundle = work / "bundle"
+        run_checked([
+            str(ARC_PYTHON), str(ROOT / "kaggle_bundle.py"), "--repo", str(repo),
+            "--output", str(bundle), "--username", username, "--slug", kernel_slug,
+            "--starter", str(ARC_STARTER),
+        ], timeout=30)
+        pushed = run_checked(
+            [str(KAGGLE_CLI), "kernels", "push", "-p", str(bundle)],
+            timeout=120, env=env,
+        )
+        match = re.search(r"Kernel version (\d+) successfully pushed", pushed.stdout)
+        if match is None:
+            raise RunFailed("Kaggle did not return the pushed kernel version")
+        kernel_version = int(match.group(1))
+        kernel_ref = f"{username}/{kernel_slug}"
+        run_checked([
+            str(KAGGLE_CLI), "competitions", "submit", competition,
+            "-k", kernel_ref, "-v", str(kernel_version), "-m", description,
+        ], timeout=60, env=env)
+        kaggle_result(
+            claim, "submitted", kernel_slug=kernel_ref, kernel_version=kernel_version,
+            submission_ref=description, status_message="Kaggle accepted the notebook submission.",
+        )
+        log(f"official submission {job_id} -> submitted")
+    except RunFailed as exc:
+        safe_error = str(exc).replace(token, "[redacted]")
+        kaggle_result(claim, "failed", status_message=safe_error)
+        log(f"official submission {job_id} -> failed")
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
 
-def main():
-    log(f"runner up — site={SITE} smoke={SMOKE}")
+def selfcheck() -> None:
+    ensure_host()
+    ensure_image()
+    print(json.dumps({
+        "ok": True,
+        "version": HARNESS_VERSION,
+        "image": HARNESS_IMAGE,
+        "arc_games": list(ARC_GAMES),
+        "frontier_tasks": list(FRONTIER_TASKS),
+        "bedrock_profile": BEDROCK_PROFILE_NAME,
+    }, indent=2))
+
+
+def main() -> None:
+    ensure_host()
+    ensure_image()
     once = "--once" in sys.argv
+    log(f"runner ready: site={SITE} version={HARNESS_VERSION} profile={BEDROCK_PROFILE_NAME}")
     while True:
         try:
-            _, pending = api("/api/worker/harness/pending")
-        except Exception as e:
-            log(f"pending poll failed: {e}")
-            pending = None
-        if pending:
-            run = pending[0]
-            log(f"claimed {run['id']} ({run['repo_url']})")
-            process(run["id"], run["repo_url"])
+            did_work = False
+            claim = api("/api/worker/harness/claim", {})
+            if claim:
+                log(f"claimed {claim['id']} ({claim['repo_url']})")
+                process_claim(claim)
+                did_work = True
+            official = api("/api/worker/harness/kaggle/claim", {})
+            if official:
+                log(f"claimed official submission {official['id']} ({official['phase']})")
+                process_kaggle_claim(official)
+                did_work = True
             if once:
+                if not did_work:
+                    log("no queued run or official submission")
                 return
-        elif once:
-            log("no queued run")
+            if not did_work:
+                time.sleep(POLL_SECONDS)
+        except KeyboardInterrupt:
             return
-        else:
+        except Exception as exc:
+            log(f"worker loop error: {exc}")
+            if once:
+                raise
             time.sleep(POLL_SECONDS)
 
 
 if __name__ == "__main__":
-    if "--selftest" in sys.argv:
-        _selftest()
+    if "--selfcheck" in sys.argv:
+        selfcheck()
     else:
         main()

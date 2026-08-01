@@ -100,7 +100,16 @@ Server side is done; the real runner lives at `worker/runner.py` (see its header
 one-time host setup: ARC starter checkout + `make setup` and the frontier-bench dataset
 under `worker/cache/`, `uv tool install harbor`, Docker). `SMOKE_MODE=1` caps the run
 to 2 frontier tasks and 2 short ARC games for pipeline checks; `--once` processes a
-single run and exits. Same auth (`X-Worker-Token`), same pull model. One team submission = one run = scores for all three boards
+single run and exits; `--selftest` checks the trial-result parser. Same auth
+(`X-Worker-Token`), same pull model.
+
+The three boards are measured independently. ARC-AGI-3 overlays the student's
+`agent/my_agent.py` onto the cached starter and plays the local engine, reaching the
+provider through `OPENAI_BASE_URL`/`OPENAI_API_KEY`. Frontier-bench runs `harbor run`
+with `agent/harbor_agent.py` and `-m <provider>/<model>` (LiteLLM), GPU tasks excluded.
+RAM-bench is its own benchmark: the student's `main.py`, 1 then 10 concurrent, peak
+summed PSS over a fixed window with `HARNESS_RAM_PROBE=1` — it never touches the game
+engine or Harbor. One team submission = one run = scores for all three boards
 (ARC-AGI-3, Frontier-bench, RAM-bench). Stages are forward-only; every update is
 guarded on the expected current stage — on a `409` drop the run and move on.
 

@@ -134,6 +134,19 @@ alter table submissions_exposure_academy drop constraint if exists submissions_p
 alter table submissions_exposure_academy
   add constraint submissions_points_override_nonneg check (points_override is null or points_override >= 0);
 
+-- the student's deployed site for this submission (Vercel / GitHub Pages / …), shown as a
+-- live preview in the /board/sites/{task_id} gallery. Resolved from, in order: what they
+-- pasted on the submit form, the repo's GitHub `homepage` (where Vercel writes the deploy
+-- URL), the repo's GitHub Pages URL. Null until they actually deploy — most students submit
+-- the repo days earlier, so the admin rescan fills those in later. Mirrors example_url above.
+alter table submissions_exposure_academy add column if not exists live_url text;
+-- true = site allows iframe embedding (live preview); false/null = show cached screenshot instead
+alter table submissions_exposure_academy add column if not exists live_embeddable boolean;
+-- when the background resolver last tried this row, successful or not. It's the retry
+-- backoff: a repo that never deploys would otherwise be re-asked every tick forever and
+-- eat the 60/hour unauthenticated GitHub budget on its own.
+alter table submissions_exposure_academy add column if not exists live_checked_at timestamptz;
+
 -- cached hero screenshots for example URLs that block iframe embedding, keyed by
 -- URL so tasks sharing a URL share one image; fetched once from Microlink then served from here
 create table if not exists screenshot_cache_exposure_academy (
@@ -198,3 +211,156 @@ create unique index if not exists harness_runs_one_active_per_team
 -- live progress blob written by the runner mid-stage (JSON: done/total/score/detail),
 -- shown under the active stepper step; cleared when the run reaches a terminal state.
 alter table harness_runs_exposure_academy add column if not exists progress text;
+
+-- ---- AI Monopoly ----
+-- Teams finetune a small model, publish it to Hugging Face, give it a merchant persona,
+-- and the models negotiate with each other. Rosters are deliberately separate from the
+-- harness: the two sections group the kids differently.
+create table if not exists monopoly_teams_exposure_academy (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  created_at timestamptz not null default now()
+);
+create unique index if not exists monopoly_teams_name_lower_key
+  on monopoly_teams_exposure_academy (lower(name));
+
+-- user_id as PK = one Monopoly team per student, same rule the harness uses.
+create table if not exists monopoly_team_members_exposure_academy (
+  user_id uuid primary key references users_exposure_academy(id) on delete cascade,
+  team_id uuid not null references monopoly_teams_exposure_academy(id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+create index if not exists monopoly_team_members_team_idx
+  on monopoly_team_members_exposure_academy (team_id);
+
+-- The team's current entry, one row, UPSERTED on team_id. Replacing it is how a team
+-- changes its model or profile, which is allowed right up until the admin starts the
+-- tournament — no extra state needed to express that. Validation (repo exists, size cap,
+-- no quantization, has a chat template) happens synchronously in the submit handler, so
+-- a row existing here means it passed.
+create table if not exists monopoly_entries_exposure_academy (
+  id uuid primary key default gen_random_uuid(),
+  team_id uuid not null unique references monopoly_teams_exposure_academy(id) on delete cascade,
+  submitted_by uuid references users_exposure_academy(id) on delete set null,
+  hf_repo text not null,                     -- "org/model"
+  hf_revision text,                          -- commit sha resolved at submit; the run pins it
+  size_bytes bigint,                         -- summed safetensors bytes = what must fit in VRAM
+  char_name text not null,                   -- the merchant this model plays
+  product_name text not null,
+  product_desc text not null,
+  list_price int not null,
+  persona text not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists monopoly_tournaments_exposure_academy (
+  id uuid primary key default gen_random_uuid(),
+  status text not null default 'queued' check (status in
+    ('queued','booting','loading','running','judging','done','failed')),
+  round int not null default 0,
+  rounds_total int not null,
+  progress text,                             -- live blob, same role as harness_runs.progress
+  error_log text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+-- At most ONE tournament in flight, ever. Partial unique index on a constant is the
+-- standard idiom for a singleton row; it means an admin double-click can't start two.
+create unique index if not exists monopoly_one_active_tournament
+  on monopoly_tournaments_exposure_academy ((true)) where status not in ('done','failed');
+
+-- A player is a FROZEN profile snapshot plus that profile's ledger. Everything else
+-- references players rather than entries, which is what keeps a finished tournament
+-- truthful after a team resubmits — and makes a practice decoy an ordinary row rather
+-- than a special case. tournament_id null = a throwaway player used for one practice match.
+create table if not exists monopoly_players_exposure_academy (
+  id uuid primary key default gen_random_uuid(),
+  tournament_id uuid references monopoly_tournaments_exposure_academy(id) on delete cascade,
+  team_id uuid not null references monopoly_teams_exposure_academy(id) on delete cascade,
+  entry_id uuid references monopoly_entries_exposure_academy(id) on delete set null,
+  hf_repo text not null,                     -- which weights actually answer for this player
+  hf_revision text,
+  char_name text not null,                   -- the profile as seen at match time; on a
+  product_name text not null,                -- practice opponent this is a decoy, not the
+  product_desc text not null,                -- team's real one
+  list_price int not null,
+  persona text not null,
+  cash int not null,
+  goods int not null default 0,              -- judged worth of everything bought
+  created_at timestamptz not null default now()
+);
+create unique index if not exists monopoly_players_one_per_team
+  on monopoly_players_exposure_academy (tournament_id, team_id) where tournament_id is not null;
+
+create table if not exists monopoly_matches_exposure_academy (
+  id uuid primary key default gen_random_uuid(),
+  tournament_id uuid references monopoly_tournaments_exposure_academy(id) on delete cascade, -- null = practice
+  requested_by_team uuid references monopoly_teams_exposure_academy(id) on delete cascade,   -- practice only
+  round int not null default 0,
+  kind text not null check (kind in ('mandatory','chosen','practice')),
+  a_player uuid not null references monopoly_players_exposure_academy(id) on delete cascade, -- speaks first
+  b_player uuid not null references monopoly_players_exposure_academy(id) on delete cascade,
+  status text not null default 'queued' check (status in ('queued','running','judging','done','failed')),
+  transcript_tr text,                        -- whole conversation, DeepL'd once when it ends
+  error_log text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists monopoly_matches_tournament_idx
+  on monopoly_matches_exposure_academy (tournament_id, round, created_at);
+-- one practice match in flight per team: a kid can queue the next one only once the
+-- current one lands, which bounds how much GPU a single bored student can hold.
+create unique index if not exists monopoly_one_active_practice
+  on monopoly_matches_exposure_academy (requested_by_team)
+  where requested_by_team is not null and status not in ('done','failed');
+
+-- One completed turn. Posted by the worker as it lands — this table IS the live feed,
+-- polled by /ai-monopoly/live with a `since seq` cursor.
+create table if not exists monopoly_messages_exposure_academy (
+  match_id uuid not null references monopoly_matches_exposure_academy(id) on delete cascade,
+  seq int not null,
+  speaker text not null check (speaker in ('a','b')),
+  content text not null,
+  created_at timestamptz not null default now(),
+  primary key (match_id, seq)
+);
+
+-- The judge's ruling, applied to the ledger server-side (never by the worker) so the
+-- money math has exactly one implementation. `price` is stored post-clamp: what the
+-- buyer could actually pay.
+create table if not exists monopoly_transactions_exposure_academy (
+  id uuid primary key default gen_random_uuid(),
+  match_id uuid not null references monopoly_matches_exposure_academy(id) on delete cascade,
+  buyer_player uuid not null references monopoly_players_exposure_academy(id) on delete cascade,
+  seller_player uuid not null references monopoly_players_exposure_academy(id) on delete cascade,
+  item text not null,
+  price int not null,
+  value_to_buyer int not null,               -- judge's read of what it's worth to that buyer
+  reasoning text,
+  created_at timestamptz not null default now()
+);
+create index if not exists monopoly_transactions_match_idx
+  on monopoly_transactions_exposure_academy (match_id);
+
+-- What a model wrote about its opponent after the conversation, re-injected when the two
+-- meet again. Hidden from students until the tournament reaches 'done'.
+create table if not exists monopoly_notes_exposure_academy (
+  match_id uuid not null references monopoly_matches_exposure_academy(id) on delete cascade,
+  author_player uuid not null references monopoly_players_exposure_academy(id) on delete cascade,
+  note text not null,
+  created_at timestamptz not null default now(),
+  primary key (match_id, author_player)
+);
+
+-- The self-chosen extra conversation each round: who asked whom, and whether they agreed.
+-- `accepted` null = the invitation was issued but not answered yet.
+create table if not exists monopoly_invites_exposure_academy (
+  tournament_id uuid not null references monopoly_tournaments_exposure_academy(id) on delete cascade,
+  round int not null,
+  from_player uuid not null references monopoly_players_exposure_academy(id) on delete cascade,
+  to_player uuid not null references monopoly_players_exposure_academy(id) on delete cascade,
+  accepted boolean,
+  created_at timestamptz not null default now(),
+  primary key (tournament_id, round, from_player)
+);

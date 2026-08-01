@@ -1,31 +1,61 @@
+// Wiring only: state, startup, and the route table. Every handler lives in the module
+// for its section, and each of those owns its student pages, its admin handlers and its
+// worker API together.
+mod admin;
+mod auth;
+mod board;
+mod harness;
 mod html;
 mod model;
+mod monopoly;
+mod portal;
 
+use axum::extract::DefaultBodyLimit;
 use axum::{
-    Form, Json, Router,
-    extract::{DefaultBodyLimit, Multipart, Path, Query, Request, State},
-    http::{HeaderMap, HeaderValue, StatusCode, header},
-    middleware::{self, Next},
-    response::{Html, IntoResponse, Redirect, Response},
+    Router, middleware,
     routing::{get, post},
 };
 use rand::RngCore;
-use serde::Deserialize;
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use model::*;
+use admin::*;
+use auth::*;
+use board::*;
+use harness::*;
+use monopoly::*;
+use portal::*;
 
 #[derive(Clone)]
-struct App {
-    pool: PgPool,
-    worker_token: String,
-    http: reqwest::Client,
-    resend_key: String,
-    mail_from: String,
-    base_url: String,
+pub struct App {
+    pub pool: PgPool,
+    pub worker_token: String,
+    pub http: reqwest::Client,
+    pub resend_key: String,
+    pub mail_from: String,
+    pub base_url: String,
     /// Optional Microlink API key for screenshot generation; blank = free tier.
-    microlink_key: String,
+    pub microlink_key: String,
+    /// DeepL key for the Turkish transcripts. Blank just means the toggle shows English.
+    pub deepl_key: String,
+    /// XChaCha20-Poly1305 key for team Kaggle tokens. None disables official submit.
+    pub kaggle_key: Option<[u8; 32]>,
+}
+
+fn secret_key(name: &str) -> Option<[u8; 32]> {
+    let Ok(raw) = std::env::var(name) else {
+        return None;
+    };
+    let raw = raw.trim();
+    assert!(
+        raw.len() == 64 && raw.chars().all(|c| c.is_ascii_hexdigit()),
+        "{name} must be exactly 64 hexadecimal characters"
+    );
+    let mut key = [0u8; 32];
+    for (i, byte) in key.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(&raw[i * 2..i * 2 + 2], 16).unwrap();
+    }
+    Some(key)
 }
 
 #[tokio::main]
@@ -37,25 +67,48 @@ async fn main() {
     let pool = PgPool::connect(&db_url).await.expect("db connect failed");
 
     // idempotent schema + seed admin
-    sqlx::raw_sql(include_str!("../migrations/001_init.sql")).execute(&pool).await.expect("migration failed");
+    sqlx::raw_sql(include_str!("../migrations/001_init.sql"))
+        .execute(&pool)
+        .await
+        .expect("migration failed");
+    sqlx::raw_sql(include_str!("../migrations/002_harness_v2.sql"))
+        .execute(&pool)
+        .await
+        .expect("harness v2 migration failed");
     seed_admin(&pool).await;
     seed_invite_code(&pool).await;
     seed_videos(&pool).await;
     // opportunistic cleanup of stale magic links and sessions, no scheduler needed
-    let _ = sqlx::query("delete from magic_links_exposure_academy where expires_at < now() - interval '1 day'")
-        .execute(&pool).await;
+    let _ = sqlx::query(
+        "delete from magic_links_exposure_academy where expires_at < now() - interval '1 day'",
+    )
+    .execute(&pool)
+    .await;
     let _ = sqlx::query("delete from sessions_exposure_academy where expires_at < now()")
-        .execute(&pool).await;
+        .execute(&pool)
+        .await;
 
     let app = App {
         pool,
         worker_token: std::env::var("WORKER_TOKEN").unwrap_or_default(),
-        http: reqwest::Client::new(),
+        // A User-Agent is not optional: api.github.com answers 403 to any request without
+        // one, and reqwest sends none by default — the live-site resolver would silently
+        // find nothing for every submission.
+        http: reqwest::Client::builder()
+            .user_agent("exposure-academy")
+            .build()
+            .expect("http client"),
         resend_key: std::env::var("RESEND_API_KEY").expect("RESEND_API_KEY missing (.env)"),
         mail_from: std::env::var("MAIL_FROM").expect("MAIL_FROM missing (.env)"),
         base_url: std::env::var("APP_BASE_URL").expect("APP_BASE_URL missing (.env)"),
         microlink_key: std::env::var("MICROLINK_API_KEY").unwrap_or_default(),
+        deepl_key: std::env::var("DEEPL_API_KEY").unwrap_or_default(),
+        kaggle_key: secret_key("KAGGLE_CREDENTIAL_KEY"),
     };
+
+    // background: keeps submissions' live site URLs up to date. Students deploy after they
+    // submit, so this can't be a one-shot at submit time.
+    spawn_resolver(app.clone());
 
     let router = Router::new()
         .route("/", get(landing))
@@ -70,15 +123,35 @@ async fn main() {
         .route("/agentic-harness", get(agentic_harness))
         .route("/agentic-harness/submit", post(harness_submit))
         .route("/agentic-harness/status", get(harness_status))
+        .route(
+            "/agentic-harness/kaggle/credentials",
+            post(harness_kaggle_credentials),
+        )
+        .route(
+            "/agentic-harness/kaggle/credentials/delete",
+            post(harness_kaggle_credentials_delete),
+        )
+        .route(
+            "/agentic-harness/kaggle/submit",
+            post(harness_kaggle_submit),
+        )
         .route("/ai-monopoly", get(ai_monopoly))
+        .route("/ai-monopoly/submit", post(monopoly_submit))
+        .route("/ai-monopoly/live", get(monopoly_live_json))
+        .route("/ai-monopoly/practice", post(monopoly_practice))
+        .route("/ai-monopoly/match/{id}", get(monopoly_match_page))
         .route("/demos", get(demos))
         .route("/watch/{id}", get(watch))
         .route("/api/progress", post(progress))
         .route("/leaderboard", get(leaderboard))
         .route("/board", get(board))
         .route("/board/profiles", post(board_profiles))
-        .route("/board/submit", post(board_submit).layer(DefaultBodyLimit::max(300 * 1024)))
+        .route(
+            "/board/submit",
+            post(board_submit).layer(DefaultBodyLimit::max(300 * 1024)),
+        )
         .route("/board/interest", post(board_interest))
+        .route("/board/sites/{task_id}", get(board_sites))
         .route("/admin", get(admin_page))
         .route("/admin/video", post(admin_video))
         .route("/admin/video/level", post(admin_video_level))
@@ -96,23 +169,75 @@ async fn main() {
         .route("/admin/review", post(admin_review))
         .route("/admin/prompts.txt", get(admin_prompts_txt))
         .route("/admin/invite", post(admin_rotate_invite))
+        .route("/admin/submission/live", post(admin_submission_live))
         .route("/admin/harness/team", post(admin_harness_team))
-        .route("/admin/harness/team/delete", post(admin_harness_team_delete))
+        .route(
+            "/admin/harness/team/delete",
+            post(admin_harness_team_delete),
+        )
         .route("/admin/harness/member", post(admin_harness_member))
-        .route("/admin/harness/member/remove", post(admin_harness_member_remove))
+        .route(
+            "/admin/harness/member/remove",
+            post(admin_harness_member_remove),
+        )
         .route("/admin/harness/run/fail", post(admin_harness_run_fail))
+        .route("/admin/monopoly/team", post(admin_monopoly_team))
+        .route(
+            "/admin/monopoly/team/delete",
+            post(admin_monopoly_team_delete),
+        )
+        .route("/admin/monopoly/member", post(admin_monopoly_member))
+        .route(
+            "/admin/monopoly/member/remove",
+            post(admin_monopoly_member_remove),
+        )
+        .route("/admin/monopoly/start", post(admin_monopoly_start))
+        .route("/admin/monopoly/fail", post(admin_monopoly_fail))
         .route("/api/worker/pending", get(worker_pending))
         .route("/api/worker/result", post(worker_result))
-        .route("/api/worker/harness/pending", get(worker_harness_pending))
+        .route("/api/worker/harness/claim", post(worker_harness_claim))
+        .route(
+            "/api/worker/harness/heartbeat",
+            post(worker_harness_heartbeat),
+        )
         .route("/api/worker/harness/stage", post(worker_harness_stage))
-        .route("/api/worker/harness/progress", post(worker_harness_progress))
+        .route(
+            "/api/worker/harness/progress",
+            post(worker_harness_progress),
+        )
         .route("/api/worker/harness/result", post(worker_harness_result))
+        .route(
+            "/api/worker/harness/kaggle/claim",
+            post(worker_harness_kaggle_claim),
+        )
+        .route(
+            "/api/worker/harness/kaggle/result",
+            post(worker_harness_kaggle_result),
+        )
+        .route("/api/worker/monopoly/pending", get(worker_monopoly_pending))
+        .route("/api/worker/monopoly/stage", post(worker_monopoly_stage))
+        .route(
+            "/api/worker/monopoly/progress",
+            post(worker_monopoly_progress),
+        )
+        .route(
+            "/api/worker/monopoly/message",
+            post(worker_monopoly_message),
+        )
+        .route("/api/worker/monopoly/invite", post(worker_monopoly_invite))
+        .route(
+            "/api/worker/monopoly/verdict",
+            post(worker_monopoly_verdict),
+        )
+        .route("/api/worker/monopoly/note", post(worker_monopoly_note))
+        .route("/api/worker/monopoly/result", post(worker_monopoly_result))
         // rolling session refresh — applies to the routes above only; static assets
         // are mounted after the layer so they don't each cost a session write
         .layer(middleware::from_fn_with_state(app.clone(), rolling_session))
         // cached example-URL screenshots: public cacheable assets like /static, mounted
         // after the layer so they don't cost a session write and need no auth
         .route("/preview/{id}", get(task_preview))
+        .route("/preview/sub/{id}", get(submission_preview))
         .nest_service("/static", tower_http::services::ServeDir::new("static"))
         .with_state(app);
 
@@ -123,10 +248,16 @@ async fn main() {
 }
 
 async fn seed_admin(pool: &PgPool) {
-    let Ok(email) = std::env::var("ADMIN_EMAIL") else { return };
+    let Ok(email) = std::env::var("ADMIN_EMAIL") else {
+        return;
+    };
     let email = email.trim().to_lowercase();
-    let exists: Option<(Uuid,)> = sqlx::query_as("select id from users_exposure_academy where email = $1")
-        .bind(&email).fetch_optional(pool).await.unwrap();
+    let exists: Option<(Uuid,)> =
+        sqlx::query_as("select id from users_exposure_academy where email = $1")
+            .bind(&email)
+            .fetch_optional(pool)
+            .await
+            .unwrap();
     match exists {
         None => {
             sqlx::query("insert into users_exposure_academy (email, display_name, is_admin) values ($1,$2,true)")
@@ -135,7 +266,10 @@ async fn seed_admin(pool: &PgPool) {
         }
         Some(_) => {
             sqlx::query("update users_exposure_academy set is_admin = true where email = $1")
-                .bind(&email).execute(pool).await.unwrap();
+                .bind(&email)
+                .execute(pool)
+                .await
+                .unwrap();
         }
     }
 }
@@ -169,1549 +303,73 @@ const VIDEO_TITLES: [&str; 15] = [
 
 async fn seed_videos(pool: &PgPool) {
     let hex = include_str!("../videos.dat").trim();
-    let bytes: Vec<u8> = (0..hex.len()).step_by(2)
+    let bytes: Vec<u8> = (0..hex.len())
+        .step_by(2)
         .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).expect("videos.dat not valid hex"))
         .collect();
     let blob = String::from_utf8(bytes).expect("videos.dat not valid utf-8");
     for (i, yt) in blob.lines().filter(|l| !l.is_empty()).enumerate() {
         let pos = (i + 1) as i32;
         let level = if pos <= 8 { "PRESEED" } else { "SEED" };
-        let title = VIDEO_TITLES.get(i).map(|t| t.to_string())
+        let title = VIDEO_TITLES
+            .get(i)
+            .map(|t| t.to_string())
             .unwrap_or_else(|| format!("Ders {pos}"));
         sqlx::query(
             "insert into videos_exposure_academy (youtube_id, title, level, position)
              select $1,$2,$3,$4
-             where not exists (select 1 from videos_exposure_academy where youtube_id = $1)")
-            .bind(yt).bind(&title).bind(level).bind(pos)
-            .execute(pool).await.unwrap();
+             where not exists (select 1 from videos_exposure_academy where youtube_id = $1)",
+        )
+        .bind(yt)
+        .bind(&title)
+        .bind(level)
+        .bind(pos)
+        .execute(pool)
+        .await
+        .unwrap();
         // Rows seeded before real titles existed still say "Ders N" — rename those
         // in place. Admin-edited titles don't match the default and are left alone.
         sqlx::query(
             "update videos_exposure_academy set title = $2
-             where youtube_id = $1 and title = $3")
-            .bind(yt).bind(&title).bind(format!("Ders {pos}"))
-            .execute(pool).await.unwrap();
+             where youtube_id = $1 and title = $3",
+        )
+        .bind(yt)
+        .bind(&title)
+        .bind(format!("Ders {pos}"))
+        .execute(pool)
+        .await
+        .unwrap();
     }
 }
 
 async fn seed_invite_code(pool: &PgPool) {
-    let Ok(code) = std::env::var("INVITE_CODE") else { return };
+    let Ok(code) = std::env::var("INVITE_CODE") else {
+        return;
+    };
     sqlx::query(
         "insert into app_settings_exposure_academy (key, value, updated_at) values ('invite_code', $1, now())
          on conflict (key) do update set value = $1, updated_at = now()")
         .bind(code.trim()).execute(pool).await.unwrap();
 }
 
-fn random_token() -> String {
+pub fn random_token() -> String {
     let mut buf = [0u8; 32];
     rand::rngs::OsRng.fill_bytes(&mut buf);
     buf.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-async fn send_magic_link_email(app: &App, to: &str, link: &str) {
-    // Ensure a display name so clients don't show the bare address as sender.
-    let from = if app.mail_from.contains('<') {
-        app.mail_from.clone()
-    } else {
-        format!("Exposure Academy <{}>", app.mail_from)
-    };
-    // Email-client-safe HTML: table layout, inline styles, no external assets.
-    let html = format!(
-        r##"<!DOCTYPE html>
-<html lang="tr">
-<body style="margin:0;padding:0;background-color:#FFFCF6;">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#FFFCF6;padding:40px 16px;">
-<tr><td align="center">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:440px;">
-    <tr><td style="padding:0 4px 20px 4px;">
-      <span style="font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;font-size:22px;font-weight:800;letter-spacing:-0.5px;color:#0D0D0D;">exposure</span>
-      <span style="font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;font-size:9px;font-weight:700;letter-spacing:3px;color:#a1a1aa;text-transform:uppercase;">&nbsp;AI ACADEMY</span>
-    </td></tr>
-    <tr><td style="background-color:#ffffff;border:1px solid #e8e4da;border-radius:16px;padding:36px 32px;">
-      <p style="margin:0 0 6px 0;font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;font-size:22px;font-weight:800;letter-spacing:-0.5px;color:#0D0D0D;">Oturum aç</p>
-      <p style="margin:0 0 26px 0;font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;font-size:14px;line-height:1.6;color:#71717a;">Exposure Academy hesabına giriş yapmak için aşağıdaki butona tıkla.</p>
-      <table role="presentation" cellpadding="0" cellspacing="0" width="100%"><tr><td align="center">
-        <a href="{link}" style="display:block;background-color:#0339A6;color:#ffffff;font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;font-size:14px;font-weight:700;letter-spacing:1px;text-transform:uppercase;text-decoration:none;padding:14px 24px;border-radius:12px;text-align:center;">Oturum a&ccedil; &rarr;</a>
-      </td></tr></table>
-      <p style="margin:26px 0 0 0;font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;font-size:12px;line-height:1.6;color:#a1a1aa;">Bu bağlantı <strong style="color:#71717a;">15 dakika</strong> geçerlidir ve yalnızca bir kez kullanılabilir.</p>
-      <p style="margin:8px 0 0 0;font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;font-size:12px;line-height:1.6;color:#a1a1aa;">Buton çalışmıyorsa bu bağlantıyı tarayıcına yapıştır:<br><a href="{link}" style="color:#0339A6;word-break:break-all;">{link}</a></p>
-    </td></tr>
-    <tr><td style="padding:20px 4px 0 4px;">
-      <p style="margin:0;font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;font-size:11px;line-height:1.6;color:#a1a1aa;">Bu e-postayı sen istemediysen görmezden gelebilirsin — hesabında hiçbir işlem yapılmaz.<br>&copy; Exposure Academy</p>
-    </td></tr>
-  </table>
-</td></tr>
-</table>
-</body>
-</html>"##
-    );
-    let body = serde_json::json!({
-        "from": from,
-        "to": [to],
-        "subject": "Exposure Academy giriş bağlantın",
-        "html": html,
-    });
-    if let Err(e) = app.http.post("https://api.resend.com/emails")
-        .bearer_auth(&app.resend_key)
-        .json(&body)
-        .send().await
-    {
-        eprintln!("resend send failed: {e}");
-    }
-}
-
 // ---- session helpers ----
-
-/// Session lifetime. Kept in one place so the DB row's `expires_at`, the cookie's
-/// Max-Age and the rolling refresh below can never drift apart.
-const SESSION_DAYS: i64 = 30;
-const SESSION_MAX_AGE: i64 = SESSION_DAYS * 24 * 60 * 60;
-/// Refresh once the session drops below this — one extra write per user per day,
-/// not one per request.
-const SESSION_REFRESH_BELOW_DAYS: i64 = SESSION_DAYS - 1;
-
-fn session_cookie(token: &str) -> String {
-    format!("session={token}; HttpOnly; Secure; Path=/; Max-Age={SESSION_MAX_AGE}; SameSite=Lax")
-}
-
-fn cookie_token(headers: &HeaderMap) -> Option<String> {
-    headers.get(header::COOKIE)?.to_str().ok()?
-        .split(';').map(str::trim)
-        .find_map(|c| c.strip_prefix("session=").map(String::from))
-}
-
-async fn current_user(app: &App, headers: &HeaderMap) -> Option<User> {
-    let token = cookie_token(headers)?;
-    sqlx::query_as::<_, User>(
-        "select u.id, u.display_name, u.nickname, u.is_admin from sessions_exposure_academy s join users_exposure_academy u on u.id = s.user_id where s.token = $1 and s.expires_at > now()")
-        .bind(token).fetch_optional(&app.pool).await.ok()?
-}
-
-/// insert a 30-day session row and build the matching Set-Cookie + redirect to /app
-async fn issue_session(app: &App, uid: Uuid) -> Response {
-    let session_token = random_token();
-    sqlx::query("insert into sessions_exposure_academy (token, user_id, expires_at) values ($1,$2, now() + make_interval(days => $3))")
-        .bind(&session_token).bind(uid).bind(SESSION_DAYS as i32).execute(&app.pool).await.unwrap();
-    (
-        // cookie Max-Age mirrors the row's expires_at; the DB check is the one that counts
-        [(header::SET_COOKIE, session_cookie(&session_token))],
-        Redirect::to("/app"),
-    ).into_response()
-}
-
-/// Rolling window: every request carrying a live session pushes its expiry back out
-/// to the full 30 days, so an active user is never logged out mid-use — only 30 days
-/// of *inactivity* ends the session.
-///
-/// Two things that matter here, both learned the hard way in the Next.js version:
-/// the DB row and the browser cookie must be extended *together* (extending only the
-/// row leaves the cookie to expire out from under a still-valid session), and the
-/// refresh must run after the handler so /logout's delete wins — a deleted row
-/// matches nothing below, so no Set-Cookie is appended and the logout sticks.
-async fn rolling_session(State(app): State<App>, req: Request, next: Next) -> Response {
-    let token = cookie_token(req.headers());
-    let mut res = next.run(req).await;
-    let Some(token) = token else { return res };
-
-    let rolled: Option<(Uuid,)> = sqlx::query_as(
-        "update sessions_exposure_academy set expires_at = now() + make_interval(days => $2)
-         where token = $1 and expires_at > now() and expires_at < now() + make_interval(days => $3)
-         returning user_id")
-        .bind(&token)
-        .bind(SESSION_DAYS as i32)
-        .bind(SESSION_REFRESH_BELOW_DAYS as i32)
-        .fetch_optional(&app.pool).await.ok().flatten();
-
-    if rolled.is_some() {
-        if let Ok(v) = HeaderValue::from_str(&session_cookie(&token)) {
-            res.headers_mut().append(header::SET_COOKIE, v);
-        }
-    }
-    res
-}
-
-fn require(user: Option<User>) -> Result<User, Response> {
-    user.ok_or_else(|| Redirect::to("/login").into_response())
-}
-
-/// Same as `require`, plus: no nickname means onboarding never finished, so send them
-/// to /profile to pick one. Used by every student page except /profile itself, which
-/// would otherwise redirect to itself forever.
-fn require_onboarded(user: Option<User>) -> Result<User, Response> {
-    let u = require(user)?;
-    // admins never appear on the leaderboard, so a nickname is optional for them —
-    // gating them too would just lock you out of the portal after a fresh seed
-    if u.nickname.is_none() && !u.is_admin {
-        return Err(Redirect::to("/profile").into_response());
-    }
-    Ok(u)
-}
-
-fn require_admin(user: Option<User>) -> Result<User, Response> {
-    match user {
-        Some(u) if u.is_admin => Ok(u),
-        Some(_) => Err(StatusCode::FORBIDDEN.into_response()),
-        None => Err(Redirect::to("/login").into_response()),
-    }
-}
 
 // ---- pages ----
 
-async fn landing(State(app): State<App>, headers: HeaderMap) -> Response {
-    // valid session cookie -> straight to the portal, skip the marketing page
-    if current_user(&app, &headers).await.is_some() {
-        return Redirect::to("/app").into_response();
-    }
-    Html(html::landing()).into_response()
-}
-
-async fn login_page(State(app): State<App>, headers: HeaderMap) -> Response {
-    if current_user(&app, &headers).await.is_some() {
-        return Redirect::to("/app").into_response();
-    }
-    Html(html::login(None)).into_response()
-}
-
-#[derive(Deserialize)]
-struct LoginForm { email: String }
-
-const CHECK_EMAIL_MSG: &str = "Eğer bu e-posta kayıtlıysa, giriş bağlantısı gönderildi.";
-
-async fn login_post(State(app): State<App>, Form(f): Form<LoginForm>) -> Response {
-    let email = f.email.trim().to_lowercase();
-    let allowed: Option<(Uuid,)> = sqlx::query_as("select id from users_exposure_academy where email = $1")
-        .bind(&email).fetch_optional(&app.pool).await.unwrap();
-    if allowed.is_some() {
-        send_login_link(&app, &email).await;
-    }
-    // same response whether or not the email is registered — avoids account enumeration
-    Html(html::login(Some(CHECK_EMAIL_MSG))).into_response()
-}
-
-async fn magic_consume(State(app): State<App>, Path(token): Path<String>) -> Response {
-    let row: Option<(String,)> = sqlx::query_as(
-        "update magic_links_exposure_academy set used_at = now()
-         where token = $1 and used_at is null and expires_at > now()
-         returning email")
-        .bind(&token).fetch_optional(&app.pool).await.unwrap();
-    let Some((email,)) = row else {
-        return Html(html::login(Some("Bağlantı geçersiz ya da süresi dolmuş, yeniden deneyin."))).into_response();
-    };
-    let user_id: Option<(Uuid,)> = sqlx::query_as("select id from users_exposure_academy where email = $1")
-        .bind(&email).fetch_optional(&app.pool).await.unwrap();
-    let Some((uid,)) = user_id else {
-        return Html(html::login(Some("Hesap bulunamadı."))).into_response();
-    };
-    issue_session(&app, uid).await
-}
-
-async fn join_page() -> Html<String> {
-    Html(html::join(&JoinForm::default(), false, None))
-}
-
-/// The link that goes in the WhatsApp group: /join/<invite code>. The code rides in
-/// the path so students only fill in their own details; it is still validated on POST.
-async fn join_page_code(Path(code): Path<String>) -> Html<String> {
-    let f = JoinForm { code, ..Default::default() };
-    Html(html::join(&f, true, None))
-}
-
-async fn invite_code(app: &App) -> String {
-    sqlx::query_scalar("select value from app_settings_exposure_academy where key = 'invite_code'")
-        .fetch_optional(&app.pool).await.unwrap().unwrap_or_default()
-}
-
-async fn join_post(State(app): State<App>, Form(f): Form<JoinForm>) -> Response {
-    let locked = !f.code.trim().is_empty();
-    let fail = |msg: &str| Html(html::join(&f, locked, Some(msg))).into_response();
-
-    if f.code.trim() != invite_code(&app).await {
-        return fail("Davet kodu geçersiz.");
-    }
-    let email = f.email.trim().to_lowercase();
-    if !email.contains('@') {
-        return fail("Geçerli bir e-posta gir.");
-    }
-    let name = f.display_name.trim();
-    if name.chars().count() < 2 {
-        return fail("Ad soyadını yaz.");
-    }
-    let nickname = match validate_nickname(&f.nickname) {
-        Ok(n) => n,
-        Err(e) => return fail(e),
-    };
-    let taken: Option<(Uuid,)> = sqlx::query_as(
-        "select id from users_exposure_academy where lower(nickname) = lower($1)")
-        .bind(&nickname).fetch_optional(&app.pool).await.unwrap();
-    if taken.is_some() {
-        return fail("Bu nickname alınmış, başka bir tane seç.");
-    }
-    let school = f.school.trim();
-    if school.chars().count() < 2 {
-        return fail("Okulunu yaz.");
-    }
-    // the browser enforces `required`, but the grade must also be one we offer — a
-    // hand-rolled POST could otherwise put anything in the column
-    if !GRADES.contains(&f.grade.trim()) {
-        return fail("Sınıfını seç.");
-    }
-    // GitHub/LinkedIn are optional — the student may skip them here and add them in-app
-    // later. Only validate when actually provided.
-    let github = match normalize_profile_url(&f.github_url, "github.com") {
-        Ok(v) => v,
-        Err(()) => return fail("GitHub bağlantısı github.com adresinde olmalı (ör. https://github.com/kullanici)."),
-    };
-    let linkedin = match normalize_profile_url(&f.linkedin_url, "linkedin.com") {
-        Ok(v) => v,
-        Err(()) => return fail("LinkedIn bağlantısı linkedin.com adresinde olmalı (ör. https://linkedin.com/in/adin)."),
-    };
-
-    // `do nothing` on an existing email: a returning student (or one the admin added
-    // by hand) just gets a login link, and their existing profile is left alone rather
-    // than being overwritten by whoever typed their address.
-    sqlx::query(
-        "insert into users_exposure_academy (email, display_name, nickname, school, grade, github_url, linkedin_url)
-         values ($1,$2,$3,$4,$5,$6,$7)
-         on conflict (email) do nothing")
-        .bind(&email).bind(name).bind(&nickname).bind(school).bind(f.grade.trim())
-        .bind(&github).bind(&linkedin)
-        .execute(&app.pool).await.unwrap();
-
-    send_login_link(&app, &email).await;
-    Html(html::join_sent(&email)).into_response()
-}
-
-/// Mint a magic link for an email that is known to have an account, unless one was
-/// already sent in the last minute.
-async fn send_login_link(app: &App, email: &str) {
-    let recent: Option<(i32,)> = sqlx::query_as(
-        "select 1 from magic_links_exposure_academy where email = $1 and used_at is null and created_at > now() - interval '60 seconds'")
-        .bind(email).fetch_optional(&app.pool).await.unwrap();
-    if recent.is_some() { return }
-    let token = random_token();
-    sqlx::query("insert into magic_links_exposure_academy (token, email, expires_at) values ($1,$2, now() + interval '15 minutes')")
-        .bind(&token).bind(email).execute(&app.pool).await.unwrap();
-    let link = format!("{}/magic/{}", app.base_url, token);
-    send_magic_link_email(app, email, &link).await;
-}
-
 // ---- profile ----
-
-async fn load_profile(app: &App, uid: Uuid) -> Profile {
-    sqlx::query_as::<_, Profile>(
-        "select email, display_name, nickname, school, grade from users_exposure_academy where id = $1")
-        .bind(uid).fetch_one(&app.pool).await.unwrap()
-}
-
-async fn profile_page(State(app): State<App>, headers: HeaderMap) -> Result<Html<String>, Response> {
-    let user = require(current_user(&app, &headers).await)?;
-    let p = load_profile(&app, user.id).await;
-    Ok(Html(html::profile(&user, &p, None, None)))
-}
-
-#[derive(Deserialize)]
-struct ProfileForm {
-    display_name: String,
-    nickname: String,
-    // optional fields: default so a missing one is an empty value, not a 422 with no
-    // error banner for the student to read
-    #[serde(default)] school: String,
-    #[serde(default)] grade: String,
-}
-
-async fn profile_post(State(app): State<App>, headers: HeaderMap, Form(f): Form<ProfileForm>) -> Result<Response, Response> {
-    let user = require(current_user(&app, &headers).await)?;
-    let mut p = load_profile(&app, user.id).await;
-    // echo the attempted values back so a rejected edit isn't retyped from scratch
-    p.display_name = f.display_name.trim().to_string();
-    p.nickname = Some(f.nickname.trim().to_string());
-    p.school = Some(f.school.trim().to_string());
-    p.grade = Some(f.grade.trim().to_string());
-    let err = |p: &Profile, msg: &str| Html(html::profile(&user, p, None, Some(msg))).into_response();
-
-    if p.display_name.chars().count() < 2 {
-        return Ok(err(&p, "Ad soyadını yaz."));
-    }
-    let nickname = match validate_nickname(&f.nickname) {
-        Ok(n) => n,
-        Err(e) => return Ok(err(&p, e)),
-    };
-    let taken: Option<(Uuid,)> = sqlx::query_as(
-        "select id from users_exposure_academy where lower(nickname) = lower($1) and id <> $2")
-        .bind(&nickname).bind(user.id).fetch_optional(&app.pool).await.unwrap();
-    if taken.is_some() {
-        return Ok(err(&p, "Bu nickname alınmış, başka bir tane seç."));
-    }
-    let school = f.school.trim();
-    if school.chars().count() < 2 {
-        return Ok(err(&p, "Okulunu yaz."));
-    }
-    if !GRADES.contains(&f.grade.trim()) {
-        return Ok(err(&p, "Sınıfını seç."));
-    }
-
-    sqlx::query(
-        "update users_exposure_academy
-         set display_name = $2, nickname = $3, school = $4, grade = $5
-         where id = $1")
-        .bind(user.id).bind(&p.display_name).bind(&nickname).bind(school).bind(f.grade.trim())
-        .execute(&app.pool).await.map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
-
-    // first save completes onboarding — drop them into the portal instead of sitting on /profile
-    if user.nickname.is_none() {
-        return Ok(Redirect::to("/app").into_response());
-    }
-    let user = current_user(&app, &headers).await.unwrap_or(user);
-    let p = load_profile(&app, user.id).await;
-    Ok(Html(html::profile(&user, &p, Some("Profilin güncellendi."), None)).into_response())
-}
-
-async fn logout(State(app): State<App>, headers: HeaderMap) -> Response {
-    if let Some(t) = cookie_token(&headers) {
-        let _ = sqlx::query("delete from sessions_exposure_academy where token = $1").bind(t).execute(&app.pool).await;
-    }
-    (
-        [(header::SET_COOKIE, "session=; HttpOnly; Secure; Path=/; Max-Age=0; SameSite=Lax".to_string())],
-        Redirect::to("/"),
-    ).into_response()
-}
-
-#[derive(Deserialize)]
-struct LevelQ { level: Option<String> }
 
 // ---- Agentic Harness (student side) ----
 
-#[derive(Deserialize)]
-struct HarnessQ { tab: Option<String>, bench: Option<String> }
-
-/// The team the student belongs to, if any. Teams are admin-assigned for now.
-async fn harness_team_of(app: &App, uid: Uuid) -> Option<HarnessTeam> {
-    sqlx::query_as(
-        "select t.id, t.name from harness_team_members_exposure_academy tm
-         join harness_teams_exposure_academy t on t.id = tm.team_id
-         where tm.user_id = $1")
-        .bind(uid).fetch_optional(&app.pool).await.unwrap()
-}
-
-async fn agentic_harness(State(app): State<App>, headers: HeaderMap, Query(q): Query<HarnessQ>) -> Result<Html<String>, Response> {
-    let user = require_onboarded(current_user(&app, &headers).await)?;
-    // unknown values fall back to defaults, same as /demos?lang=
-    let tab = match q.tab.as_deref() {
-        Some("history") => "history",
-        Some("instructions") => "instructions",
-        _ => "main",
-    };
-    if tab == "instructions" {
-        return Ok(Html(html::agentic_harness_instructions(&user)));
-    }
-    let team = harness_team_of(&app, user.id).await;
-    if tab == "history" {
-        let runs: Vec<HarnessRun> = match &team {
-            Some(t) => sqlx::query_as(
-                "select repo_url, commit_sha, stage, score_arc, score_frontier,
-                        ram_1session_mb, ram_10session_mb, error_log, created_at
-                 from harness_runs_exposure_academy where team_id = $1 order by created_at desc")
-                .bind(t.id).fetch_all(&app.pool).await.unwrap(),
-            None => Vec::new(),
-        };
-        return Ok(Html(html::agentic_harness_history(&user, team.as_ref(), &runs)));
-    }
-    let bench = match q.bench.as_deref() {
-        Some("frontier") => "frontier",
-        Some("ram") => "ram",
-        _ => "arc",
-    };
-    // Kid names shown next to each team, real names per the leaderboard convention.
-    // One query for all teams; html filters per row in memory, same as board() does
-    // with interests. `public` = onboarded and not hidden — the leaderboard shows only
-    // those, but your own team panel shows the full roster (admins/interns included,
-    // it's your roster, not the published standings).
-    let members: Vec<HarnessTeamMemberRow> = sqlx::query_as(
-        "select tm.team_id, tm.user_id, u.display_name,
-                (u.nickname is not null and not u.hidden_from_leaderboard) as public
-         from harness_team_members_exposure_academy tm
-         join users_exposure_academy u on u.id = tm.user_id
-         order by tm.created_at")
-        .fetch_all(&app.pool).await.unwrap();
-    let active_run: Option<HarnessRun> = match &team {
-        Some(t) => sqlx::query_as(
-            "select repo_url, commit_sha, stage, score_arc, score_frontier,
-                    ram_1session_mb, ram_10session_mb, error_log, created_at
-             from harness_runs_exposure_academy
-             where team_id = $1 and stage not in ('done','failed')")
-            .bind(t.id).fetch_optional(&app.pool).await.unwrap(),
-        None => None,
-    };
-    // Best score per team over its done runs. ARC/Frontier: higher wins. RAM: ranked
-    // by the lowest 10-session PSS, and the 1-session column comes from that same run
-    // (distinct on picks it), not from whichever run happened to have the lowest 1s.
-    let (rows, ram_rows): (Vec<HarnessLeaderRow>, Vec<HarnessRamRow>) = if bench == "ram" {
-        (Vec::new(), sqlx::query_as(
-            "select id, name, ram_1session_mb, ram_10session_mb from (
-               select distinct on (t.id) t.id, t.name, r.ram_1session_mb, r.ram_10session_mb
-               from harness_teams_exposure_academy t
-               join harness_runs_exposure_academy r
-                 on r.team_id = t.id and r.stage = 'done' and r.ram_10session_mb is not null
-               order by t.id, r.ram_10session_mb asc, r.created_at desc
-             ) best order by ram_10session_mb asc, lower(name)")
-            .fetch_all(&app.pool).await.unwrap())
-    } else {
-        let sql = if bench == "frontier" {
-            "select t.id, t.name, max(r.score_frontier) as best
-             from harness_teams_exposure_academy t
-             join harness_runs_exposure_academy r
-               on r.team_id = t.id and r.stage = 'done' and r.score_frontier is not null
-             group by t.id, t.name order by best desc, lower(t.name)"
-        } else {
-            "select t.id, t.name, max(r.score_arc) as best
-             from harness_teams_exposure_academy t
-             join harness_runs_exposure_academy r
-               on r.team_id = t.id and r.stage = 'done' and r.score_arc is not null
-             group by t.id, t.name order by best desc, lower(t.name)"
-        };
-        (sqlx::query_as(sql).fetch_all(&app.pool).await.unwrap(), Vec::new())
-    };
-    Ok(Html(html::agentic_harness_main(
-        &user, bench, team.as_ref(), &members, active_run.as_ref(), &rows, &ram_rows)))
-}
-
-#[derive(Deserialize)]
-struct HarnessSubmitForm { repo_url: String }
-
-async fn harness_submit(State(app): State<App>, headers: HeaderMap, Form(f): Form<HarnessSubmitForm>) -> Result<Redirect, Response> {
-    let user = require_onboarded(current_user(&app, &headers).await)?;
-    let bad = |msg: &str| (StatusCode::BAD_REQUEST, msg.to_string()).into_response();
-    let Some(team) = harness_team_of(&app, user.id).await else {
-        // the form isn't rendered for team-less students; this catches hand-rolled POSTs
-        return Err(bad("Bir takımda değilsin — eğitmenine yaz."));
-    };
-    let repo_url = f.repo_url.trim().to_string();
-    if !repo_url.starts_with("https://github.com/") {
-        return Err(bad("Repo bağlantısı https://github.com/ ile başlamalı."));
-    }
-    let in_flight = "Takımının devam eden bir çalıştırması var — bitmesini bekleyin.";
-    let active: Option<Uuid> = sqlx::query_scalar(
-        "select id from harness_runs_exposure_academy where team_id = $1 and stage not in ('done','failed')")
-        .bind(team.id).fetch_optional(&app.pool).await.unwrap();
-    if active.is_some() {
-        return Err(bad(in_flight));
-    }
-    // The one-active-run partial unique index backstops the pre-check above, so a
-    // double-click race lands here as a constraint error, not a second run — map it
-    // to the same friendly message instead of unwrap-panicking into a 500.
-    sqlx::query("insert into harness_runs_exposure_academy (team_id, submitted_by, repo_url) values ($1,$2,$3)")
-        .bind(team.id).bind(user.id).bind(&repo_url)
-        .execute(&app.pool).await
-        .map_err(|_| bad(in_flight))?;
-    Ok(Redirect::to("/agentic-harness"))
-}
-
-/// Tiny JSON the stepper polls. The server resolves "my team's latest run" from the
-/// session — no run id in the URL, so nothing cross-team is addressable.
-async fn harness_status(State(app): State<App>, headers: HeaderMap) -> Result<Json<serde_json::Value>, Response> {
-    let user = require(current_user(&app, &headers).await)?;
-    let row: Option<(String, Option<String>, Option<String>)> = sqlx::query_as(
-        "select r.stage, r.commit_sha, r.progress from harness_runs_exposure_academy r
-         join harness_team_members_exposure_academy tm on tm.team_id = r.team_id
-         where tm.user_id = $1 order by r.created_at desc limit 1")
-        .bind(user.id).fetch_optional(&app.pool).await.unwrap();
-    Ok(Json(match row {
-        Some((stage, sha, progress)) => serde_json::json!({"stage": stage, "commit_sha": sha, "progress": progress}),
-        None => serde_json::json!({"stage": null}),
-    }))
-}
-
-async fn ai_monopoly(State(app): State<App>, headers: HeaderMap) -> Result<Html<String>, Response> {
-    let user = require_onboarded(current_user(&app, &headers).await)?;
-    Ok(Html(html::ai_monopoly(&user)))
-}
-
-#[derive(Deserialize)]
-struct LangQ { lang: Option<String> }
-
-async fn demos(State(app): State<App>, headers: HeaderMap, Query(q): Query<LangQ>) -> Result<Html<String>, Response> {
-    let user = require_onboarded(current_user(&app, &headers).await)?;
-    let lang = if q.lang.as_deref() == Some("en") { "en" } else { "tr" };
-    Ok(Html(html::demos(&user, lang)))
-}
-
-/// Ana Sayfa. No content of its own — three doors (videolar / görevler / puan tablosu),
-/// each carrying the one number that tells the student where they stand.
-async fn home(State(app): State<App>, headers: HeaderMap) -> Result<Html<String>, Response> {
-    let user = require_onboarded(current_user(&app, &headers).await)?;
-    let videos_total: i64 = sqlx::query_scalar("select count(*) from videos_exposure_academy")
-        .fetch_one(&app.pool).await.unwrap();
-    let videos_done: i64 = sqlx::query_scalar(
-        "select count(*) from watch_progress_exposure_academy
-         where user_id = $1 and duration > 0 and max_position >= duration * 0.9")
-        .bind(user.id).fetch_one(&app.pool).await.unwrap();
-    // "Açık" = bu öğrencinin henüz geçmiş bir gönderimi olmayan görev.
-    let open_tasks: i64 = sqlx::query_scalar(
-        "select count(*) from tasks_exposure_academy t
-         where not exists (select 1 from submissions_exposure_academy s
-                           where s.task_id = t.id and s.user_id = $1 and s.status = 'passed')")
-        .bind(user.id).fetch_one(&app.pool).await.unwrap();
-    let all = leader_rows(&app).await;
-    // Points come from the full list so a hidden (intern) account still sees its own
-    // total; the rank comes from the visible standings, where it has no place at all.
-    let points = all.iter().find(|r| r.id == user.id).map(|r| r.points()).unwrap_or(0);
-    let rows: Vec<LeaderRow> = all.into_iter().filter(|r| !r.hidden).collect();
-    let ranks = html::dense_ranks(&rows);
-    let rank = rows.iter().position(|r| r.id == user.id).map(|i| ranks[i]);
-    Ok(Html(html::home(&user, videos_done, videos_total, open_tasks, points, rank)))
-}
-
-async fn video_grid(State(app): State<App>, headers: HeaderMap, Query(q): Query<LevelQ>) -> Result<Html<String>, Response> {
-    let user = require_onboarded(current_user(&app, &headers).await)?;
-    let level = q.level.as_deref().filter(|l| html::LEVELS.iter().any(|(k, _)| k == l));
-    let videos = sqlx::query_as::<_, VideoWithProgress>(
-        "select v.id, v.youtube_id, v.title, v.level,
-                coalesce(w.max_position, 0) as max_position, coalesce(w.duration, 0) as duration
-         from videos_exposure_academy v
-         left join watch_progress_exposure_academy w on w.video_id = v.id and w.user_id = $1
-         -- videos are presented as one Beginner-Intermediate tier, so either of those
-         -- filters shows the whole PRESEED+SEED set; Advanced (SERIES_A) stays separate.
-         where ($2::text is null
-             or ($2 in ('PRESEED','SEED') and v.level in ('PRESEED','SEED'))
-             or v.level = $2)
-         order by v.level, v.position, v.created_at")
-        .bind(user.id).bind(level)
-        .fetch_all(&app.pool).await.unwrap();
-    Ok(Html(html::video_grid(&user, &videos, level)))
-}
-
-async fn watch(State(app): State<App>, headers: HeaderMap, Path(id): Path<Uuid>) -> Result<Html<String>, Response> {
-    let user = require_onboarded(current_user(&app, &headers).await)?;
-    let video = sqlx::query_as::<_, Video>("select id, youtube_id, title, level from videos_exposure_academy where id = $1")
-        .bind(id).fetch_optional(&app.pool).await.unwrap()
-        .ok_or_else(|| StatusCode::NOT_FOUND.into_response())?;
-    let playlist = sqlx::query_as::<_, VideoWithProgress>(
-        "select v.id, v.youtube_id, v.title, v.level,
-                coalesce(w.max_position, 0) as max_position, coalesce(w.duration, 0) as duration
-         from videos_exposure_academy v
-         left join watch_progress_exposure_academy w on w.video_id = v.id and w.user_id = $1
-         where v.level = $2 order by v.position, v.created_at")
-        .bind(user.id).bind(&video.level)
-        .fetch_all(&app.pool).await.unwrap();
-    let resume_at = playlist.iter().find(|v| v.id == video.id)
-        .map(|v| if v.duration > 0.0 && v.max_position < v.duration - 10.0 { v.max_position as f64 } else { 0.0 })
-        .unwrap_or(0.0);
-    Ok(Html(html::watch(&user, &video, &playlist, resume_at)))
-}
-
-#[derive(Deserialize)]
-struct ProgressReq { video_id: Uuid, position: f32, duration: f32, delta: f32 }
-
-async fn progress(State(app): State<App>, headers: HeaderMap, Json(r): Json<ProgressReq>) -> Result<StatusCode, Response> {
-    let user = require(current_user(&app, &headers).await)?;
-    let delta = r.delta.clamp(0.0, 30.0); // heartbeat is 10s; anything bigger is a client lying
-    sqlx::query(
-        "insert into watch_progress_exposure_academy (user_id, video_id, seconds_watched, max_position, duration, updated_at)
-         values ($1,$2,$3,$4,$5, now())
-         on conflict (user_id, video_id) do update set
-           seconds_watched = watch_progress_exposure_academy.seconds_watched + $3,
-           max_position = greatest(watch_progress_exposure_academy.max_position, $4),
-           duration = $5, updated_at = now()")
-        .bind(user.id).bind(r.video_id).bind(delta).bind(r.position.max(0.0)).bind(r.duration.max(0.0))
-        .execute(&app.pool).await.unwrap();
-    Ok(StatusCode::NO_CONTENT)
-}
-
 // ---- leaderboard ----
-
-async fn leaderboard(State(app): State<App>, headers: HeaderMap) -> Result<Html<String>, Response> {
-    let user = require_onboarded(current_user(&app, &headers).await)?;
-    // Hidden (intern) accounts never reach a rendered standings list — not even their
-    // own, so nothing about them can leak through a shared screen or a screenshot.
-    let rows: Vec<LeaderRow> = leader_rows(&app).await.into_iter().filter(|r| !r.hidden).collect();
-    Ok(Html(html::leaderboard(&user, &rows)))
-}
-
-/// The standings, ordered. Shared by /leaderboard and the Ana Sayfa summary card so
-/// the two can never disagree about a student's points or place.
-///
-/// Includes hidden (intern) accounts, flagged as `hidden` — they are scored like anyone
-/// else so they can see their own total, and every caller drops them before rendering a
-/// list. Ranks are therefore computed over the visible rows only: a hidden account never
-/// pushes a student down a place.
-///
-/// A video counts once it is ≥90% watched — same threshold the grid calls "Tamamlanmış".
-/// A project counts once per task, and only when the submission passed, so resubmits
-/// of the same task don't stack points.
-///
-/// A passed project is worth its level default (PTS_PROJECT_L*) unless the admin typed
-/// a number into the Puan box, which stores a `points_override` on that submission row.
-/// Where a student has several passed submissions for one task, the newest one is the
-/// one that counts — so re-scoring means editing (or re-passing) the latest row.
-async fn leader_rows(app: &App) -> Vec<LeaderRow> {
-    sqlx::query_as::<_, LeaderRow>(
-        "select u.id, u.display_name, u.nickname, u.hidden_from_leaderboard as hidden,
-                coalesce(w.videos, 0) as videos,
-                coalesce(p.projects, 0) as projects,
-                coalesce(p.project_points, 0) as project_points
-         from users_exposure_academy u
-         left join (select user_id, count(*) as videos
-                    from watch_progress_exposure_academy
-                    where duration > 0 and max_position >= duration * 0.9
-                    group by user_id) w on w.user_id = u.id
-         -- one row per (user, passed task) first so a task counts once — the newest
-         -- passed submission wins, and it carries the override the admin typed.
-         -- sum() over bigint yields numeric, so cast back for the i64 decode.
-         left join (select d.user_id,
-                           count(*) as projects,
-                           sum(coalesce(d.points_override,
-                                        case t.level when 'PRESEED' then $2 when 'SEED' then $3
-                                                     when 'SERIES_A' then $4 else 0 end))::bigint as project_points
-                    from (select distinct on (user_id, task_id) user_id, task_id, points_override
-                          from submissions_exposure_academy where status = 'passed'
-                          order by user_id, task_id, created_at desc) d
-                    join tasks_exposure_academy t on t.id = d.task_id
-                    group by d.user_id) p on p.user_id = u.id
-         -- nickname is null until onboarding is done: it is no longer what the board
-         -- shows, but it still marks a finished onboarding, so keep gating on it
-         where not u.is_admin and u.nickname is not null
-         order by coalesce(w.videos,0) * $1 + coalesce(p.project_points,0) desc, u.created_at")
-        .bind(PTS_VIDEO)
-        .bind(PTS_PROJECT_L1).bind(PTS_PROJECT_L2).bind(PTS_PROJECT_L3)
-        .fetch_all(&app.pool).await.unwrap()
-}
 
 // ---- board ----
 
-/// True once the student has BOTH public profiles on file. The board is gated on this:
-/// they could skip the profiles during onboarding, but not to reach the task board.
-async fn has_both_profiles(app: &App, uid: Uuid) -> (bool, Option<String>, Option<String>) {
-    let (github, linkedin): (Option<String>, Option<String>) = sqlx::query_as(
-        "select github_url, linkedin_url from users_exposure_academy where id = $1")
-        .bind(uid).fetch_one(&app.pool).await.unwrap();
-    let ok = github.as_deref().is_some_and(|s| !s.trim().is_empty())
-        && linkedin.as_deref().is_some_and(|s| !s.trim().is_empty());
-    (ok, github, linkedin)
-}
-
-async fn board(State(app): State<App>, headers: HeaderMap) -> Result<Html<String>, Response> {
-    let user = require_onboarded(current_user(&app, &headers).await)?;
-    // Gate: no board until both GitHub and LinkedIn are set. Skippable at onboarding,
-    // enforced here — show the setup requirement instead of the tasks. Admins are exempt,
-    // same as the onboarding gate (they don't onboard and need to see the board).
-    if !user.is_admin {
-        let (ok, github, linkedin) = has_both_profiles(&app, user.id).await;
-        if !ok {
-            return Ok(Html(html::board_locked(&user, github.as_deref(), linkedin.as_deref(), None)));
-        }
-    }
-    let tasks = sqlx::query_as::<_, Task>("select id, title, description, level, example_url, example_embeddable from tasks_exposure_academy order by level, position")
-        .fetch_all(&app.pool).await.unwrap();
-    let subs = sqlx::query_as::<_, SubmissionView>(
-        "select distinct on (s.task_id) s.id, s.task_id, s.repo_url, s.status, s.feedback, s.demo_video_url, s.plan_md,
-                u.display_name, u.email, t.title as task_title, t.level as task_level, s.points_override, s.created_at
-         from submissions_exposure_academy s join users_exposure_academy u on u.id = s.user_id join tasks_exposure_academy t on t.id = s.task_id
-         where s.user_id = $1 order by s.task_id, s.created_at desc")
-        .bind(user.id).fetch_all(&app.pool).await.unwrap();
-    // Include my own interest rows even when I have no nickname (admins don't
-    // onboard, so nickname is null) — otherwise `mine`/`started` never flips for
-    // them. Others still need a nickname to appear as a teammate chip. coalesce
-    // keeps nickname a non-null String; blank ones are filtered out at render.
-    // Hidden (intern) accounts are dropped for the same reason as on the leaderboard,
-    // but `or u.id = $1` keeps their own row so their "Göreve başladım" state survives.
-    let interests = sqlx::query_as::<_, InterestRow>(
-        "select ti.task_id, coalesce(u.nickname, '') as nickname, (u.id = $1) as is_me
-         from task_interest_exposure_academy ti
-         join users_exposure_academy u on u.id = ti.user_id
-         where (u.nickname is not null and not u.hidden_from_leaderboard) or u.id = $1
-         order by ti.created_at")
-        .bind(user.id).fetch_all(&app.pool).await.unwrap();
-    Ok(Html(html::board(&user, &tasks, &subs, &interests)))
-}
-
-#[derive(Deserialize)]
-struct ProfilesForm {
-    #[serde(default)] github_url: String,
-    #[serde(default)] linkedin_url: String,
-}
-
-/// Save the GitHub/LinkedIn profiles from the board gate. Both are required here (the
-/// board stays locked otherwise); on success we drop the student straight into /board.
-async fn board_profiles(State(app): State<App>, headers: HeaderMap, Form(f): Form<ProfilesForm>) -> Result<Response, Response> {
-    let user = require_onboarded(current_user(&app, &headers).await)?;
-    // re-render the gate with an error, echoing back what they typed
-    let fail = |msg: &str| Html(html::board_locked(&user, Some(f.github_url.trim()), Some(f.linkedin_url.trim()), Some(msg))).into_response();
-
-    let github = match normalize_profile_url(&f.github_url, "github.com") {
-        Ok(Some(u)) => u,
-        Ok(None) => return Ok(fail("GitHub profilini ekle.")),
-        Err(()) => return Ok(fail("GitHub bağlantısı github.com adresinde olmalı (ör. https://github.com/kullanici).")),
-    };
-    let linkedin = match normalize_profile_url(&f.linkedin_url, "linkedin.com") {
-        Ok(Some(u)) => u,
-        Ok(None) => return Ok(fail("LinkedIn profilini ekle.")),
-        Err(()) => return Ok(fail("LinkedIn bağlantısı linkedin.com adresinde olmalı (ör. https://linkedin.com/in/adin).")),
-    };
-
-    sqlx::query("update users_exposure_academy set github_url = $2, linkedin_url = $3 where id = $1")
-        .bind(user.id).bind(&github).bind(&linkedin)
-        .execute(&app.pool).await.map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
-    Ok(Redirect::to("/board").into_response())
-}
-
-#[derive(Deserialize)]
-struct InterestForm { task_id: Uuid }
-
-// toggle: delete my interest if present, else add it. Two idempotent statements,
-// no tx needed — worst case a double-click is a harmless no-op either way.
-async fn board_interest(State(app): State<App>, headers: HeaderMap, Form(f): Form<InterestForm>) -> Result<Redirect, Response> {
-    let user = require_onboarded(current_user(&app, &headers).await)?;
-    let deleted = sqlx::query("delete from task_interest_exposure_academy where task_id = $1 and user_id = $2")
-        .bind(f.task_id).bind(user.id).execute(&app.pool).await
-        .map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
-    if deleted.rows_affected() == 0 {
-        sqlx::query("insert into task_interest_exposure_academy (task_id, user_id) values ($1,$2) on conflict do nothing")
-            .bind(f.task_id).bind(user.id).execute(&app.pool).await
-            .map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
-    }
-    Ok(Redirect::to("/board"))
-}
-
-/// plan.md is stored inline in the DB as text, so it stays small.
-const PLAN_MAX_BYTES: usize = 200 * 1024;
-
-async fn board_submit(State(app): State<App>, headers: HeaderMap, mut mp: Multipart) -> Result<Redirect, Response> {
-    let user = require_onboarded(current_user(&app, &headers).await)?;
-    let bad = |msg: &str| (StatusCode::BAD_REQUEST, msg.to_string()).into_response();
-
-    let mut task_id: Option<Uuid> = None;
-    let mut repo_url = String::new();
-    let mut plan_md: Option<String> = None;
-    while let Some(field) = mp.next_field().await.map_err(|_| bad("Form okunamadı."))? {
-        // name() borrows the field, text()/bytes() consume it — copy the name out first
-        let name = field.name().unwrap_or("").to_string();
-        match name.as_str() {
-            "task_id" => task_id = field.text().await.ok().and_then(|t| t.parse().ok()),
-            "repo_url" => repo_url = field.text().await.map_err(|_| bad("Form okunamadı."))?.trim().to_string(),
-            "plan" => {
-                let bytes = field.bytes().await.map_err(|_| bad("plan.md okunamadı."))?;
-                if bytes.len() > PLAN_MAX_BYTES {
-                    return Err(bad("plan.md 200 KB'den büyük olamaz."));
-                }
-                let text = String::from_utf8(bytes.to_vec()).map_err(|_| bad("plan.md UTF-8 metin olmalı."))?;
-                if !text.trim().is_empty() {
-                    plan_md = Some(text);
-                }
-            }
-            _ => {}
-        }
-    }
-
-    let Some(task_id) = task_id else { return Err(bad("Görev bulunamadı.")) };
-    if !repo_url.starts_with("https://github.com/") {
-        return Err(bad("Repo bağlantısı https://github.com/ ile başlamalı."));
-    }
-    let Some(plan_md) = plan_md else { return Err(bad("plan.md dosyası gerekli.")) };
-    sqlx::query("insert into submissions_exposure_academy (task_id, user_id, repo_url, plan_md) values ($1,$2,$3,$4)")
-        .bind(task_id).bind(user.id).bind(&repo_url).bind(&plan_md)
-        .execute(&app.pool).await.unwrap();
-    Ok(Redirect::to("/board"))
-}
-
 // ---- admin ----
 
-async fn admin_page(State(app): State<App>, headers: HeaderMap) -> Result<Html<String>, Response> {
-    let user = require_admin(current_user(&app, &headers).await)?;
-    let stats = sqlx::query_as::<_, StatRow>(
-        "select u.display_name, v.title as video_title, w.seconds_watched, w.max_position, w.duration, w.updated_at
-         from watch_progress_exposure_academy w join users_exposure_academy u on u.id = w.user_id join videos_exposure_academy v on v.id = w.video_id
-         order by w.updated_at desc limit 200")
-        .fetch_all(&app.pool).await.unwrap();
-    let subs = sqlx::query_as::<_, SubmissionView>(
-        "select s.id, s.task_id, s.repo_url, s.status, s.feedback, s.demo_video_url, s.plan_md,
-                u.display_name, u.email, t.title as task_title, t.level as task_level, s.points_override, s.created_at
-         from submissions_exposure_academy s join users_exposure_academy u on u.id = s.user_id join tasks_exposure_academy t on t.id = s.task_id
-         order by s.created_at desc")
-        .fetch_all(&app.pool).await.unwrap();
-    let videos = sqlx::query_as::<_, Video>("select id, youtube_id, title, level from videos_exposure_academy order by level, position")
-        .fetch_all(&app.pool).await.unwrap();
-    let tasks = sqlx::query_as::<_, Task>("select id, title, description, level, example_url, example_embeddable from tasks_exposure_academy order by level, position")
-        .fetch_all(&app.pool).await.unwrap();
-    let members = sqlx::query_as::<_, MemberRow>(
-        "select id, display_name, email, nickname, is_admin, hidden_from_leaderboard
-         from users_exposure_academy order by is_admin desc, lower(coalesce(nickname, display_name))")
-        .fetch_all(&app.pool).await.unwrap();
-    let invite_code = invite_code(&app).await;
-    // Interim harness-team management (until real team onboarding): the full team +
-    // membership lists are small, so load them whole like everything else here.
-    let harness = HarnessAdmin {
-        teams: sqlx::query_as("select id, name from harness_teams_exposure_academy order by lower(name)")
-            .fetch_all(&app.pool).await.unwrap(),
-        members: sqlx::query_as(
-            "select tm.team_id, tm.user_id, u.display_name,
-                    (u.nickname is not null and not u.hidden_from_leaderboard) as public
-             from harness_team_members_exposure_academy tm
-             join users_exposure_academy u on u.id = tm.user_id
-             order by lower(u.display_name)")
-            .fetch_all(&app.pool).await.unwrap(),
-        active_runs: sqlx::query_as(
-            "select r.id, t.name as team_name, r.stage, r.created_at
-             from harness_runs_exposure_academy r
-             join harness_teams_exposure_academy t on t.id = r.team_id
-             where r.stage not in ('done','failed') order by r.created_at")
-            .fetch_all(&app.pool).await.unwrap(),
-    };
-    Ok(Html(html::admin(&user, &stats, &subs, &videos, &tasks, &members, &invite_code, &app.base_url, &harness)))
-}
-
 // ---- admin: Agentic Harness teams (interim until team onboarding) ----
-
-#[derive(Deserialize)]
-struct HarnessTeamForm { name: String }
-
-async fn admin_harness_team(State(app): State<App>, headers: HeaderMap, Form(f): Form<HarnessTeamForm>) -> Result<Redirect, Response> {
-    require_admin(current_user(&app, &headers).await)?;
-    let name = f.name.trim().to_string();
-    if name.is_empty() {
-        return Err(StatusCode::BAD_REQUEST.into_response());
-    }
-    // unique on lower(name); a duplicate is a silent no-op, the list makes it obvious
-    sqlx::query("insert into harness_teams_exposure_academy (name) values ($1) on conflict do nothing")
-        .bind(&name)
-        .execute(&app.pool).await.map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
-    Ok(Redirect::to("/admin"))
-}
-
-async fn admin_harness_team_delete(State(app): State<App>, headers: HeaderMap, Form(f): Form<IdForm>) -> Result<Redirect, Response> {
-    require_admin(current_user(&app, &headers).await)?;
-    // cascades members AND runs — the confirm() on the button says so
-    sqlx::query("delete from harness_teams_exposure_academy where id = $1")
-        .bind(f.id)
-        .execute(&app.pool).await.map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
-    Ok(Redirect::to("/admin"))
-}
-
-#[derive(Deserialize)]
-struct HarnessMemberForm { user_id: Uuid, team_id: Uuid }
-
-async fn admin_harness_member(State(app): State<App>, headers: HeaderMap, Form(f): Form<HarnessMemberForm>) -> Result<Redirect, Response> {
-    require_admin(current_user(&app, &headers).await)?;
-    // user_id is the PK: assigning an already-assigned student moves them. Past runs
-    // stay with the old team — runs are team-scoped, the score was the team's.
-    sqlx::query(
-        "insert into harness_team_members_exposure_academy (user_id, team_id) values ($1,$2)
-         on conflict (user_id) do update set team_id = excluded.team_id")
-        .bind(f.user_id).bind(f.team_id)
-        .execute(&app.pool).await.map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
-    Ok(Redirect::to("/admin"))
-}
-
-async fn admin_harness_member_remove(State(app): State<App>, headers: HeaderMap, Form(f): Form<IdForm>) -> Result<Redirect, Response> {
-    require_admin(current_user(&app, &headers).await)?;
-    sqlx::query("delete from harness_team_members_exposure_academy where user_id = $1")
-        .bind(f.id)
-        .execute(&app.pool).await.map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
-    Ok(Redirect::to("/admin"))
-}
-
-/// The stuck-run escape hatch: a worker that died after claiming leaves the run
-/// non-terminal, which blocks the team's resubmits (one-active-run index). Failing it
-/// here unblocks them; a late worker report against it then gets a 409 and is dropped.
-async fn admin_harness_run_fail(State(app): State<App>, headers: HeaderMap, Form(f): Form<IdForm>) -> Result<Redirect, Response> {
-    require_admin(current_user(&app, &headers).await)?;
-    sqlx::query(
-        "update harness_runs_exposure_academy
-         set stage = 'failed', error_log = 'Yönetici tarafından durduruldu.', updated_at = now()
-         where id = $1 and stage not in ('done','failed')")
-        .bind(f.id)
-        .execute(&app.pool).await.map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
-    Ok(Redirect::to("/admin"))
-}
-
-fn parse_youtube_id(input: &str) -> String {
-    // accepts raw ID, youtube.com/watch?v=ID, youtu.be/ID
-    let s = input.trim();
-    if let Some(i) = s.find("v=") {
-        return s[i + 2..].split('&').next().unwrap_or("").to_string();
-    }
-    if let Some(i) = s.find("youtu.be/") {
-        return s[i + 9..].split(['?', '&']).next().unwrap_or("").to_string();
-    }
-    s.rsplit('/').next().unwrap_or(s).to_string()
-}
-
-#[derive(Deserialize)]
-struct VideoForm { title: String, youtube: String, level: String }
-
-async fn admin_video(State(app): State<App>, headers: HeaderMap, Form(f): Form<VideoForm>) -> Result<Redirect, Response> {
-    require_admin(current_user(&app, &headers).await)?;
-    sqlx::query("insert into videos_exposure_academy (youtube_id, title, level) values ($1,$2,$3)")
-        .bind(parse_youtube_id(&f.youtube)).bind(&f.title).bind(&f.level)
-        .execute(&app.pool).await.map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
-    Ok(Redirect::to("/admin"))
-}
-
-fn valid_http_url(u: &str) -> bool {
-    u.starts_with("https://") || u.starts_with("http://")
-}
-
-/// Reject obvious internal targets before the server-side fetch (SSRF hardening).
-/// ponytail: literal host/IP denylist, no DNS resolution — a hostname that resolves
-/// to an internal IP still slips through. Proportionate here: the caller is an admin
-/// and only ever learns a boolean, never a response body. Upgrade to resolve-then-
-/// check-the-IP if this fetch is ever made to return data.
-fn is_internal_host(url: &str) -> bool {
-    use std::net::IpAddr;
-    let Ok(parsed) = reqwest::Url::parse(url) else { return true }; // unparseable → treat as blocked
-    let Some(host) = parsed.host_str() else { return true };
-    let h = host.trim_start_matches('[').trim_end_matches(']').to_ascii_lowercase();
-    if h == "localhost" || h.ends_with(".localhost") || h == "metadata.google.internal" {
-        return true;
-    }
-    match h.parse::<IpAddr>() {
-        Ok(IpAddr::V4(v4)) => v4.is_loopback() || v4.is_private() || v4.is_link_local() || v4.is_unspecified(),
-        Ok(IpAddr::V6(v6)) => {
-            v6.is_loopback() || v6.is_unspecified()
-                || (v6.segments()[0] & 0xfe00) == 0xfc00  // fc00::/7 unique-local
-                || (v6.segments()[0] & 0xffc0) == 0xfe80  // fe80::/10 link-local
-        }
-        Err(_) => false, // a real hostname — allowed (see the DNS-rebinding ceiling above)
-    }
-}
-
-/// GET the URL and decide whether it permits iframe embedding. Conservative:
-/// any framing restriction, or a network error/timeout, counts as NOT embeddable
-/// (so we fall back to a screenshot, which always renders).
-async fn check_embeddable(client: &reqwest::Client, url: &str) -> bool {
-    if is_internal_host(url) { return false; }
-    let Ok(resp) = client.get(url).timeout(std::time::Duration::from_secs(6)).send().await else { return false };
-    let h = resp.headers();
-    if let Some(xfo) = h.get("x-frame-options").and_then(|v| v.to_str().ok()) {
-        let x = xfo.to_ascii_lowercase();
-        if x.contains("deny") || x.contains("sameorigin") { return false; }
-    }
-    if let Some(csp) = h.get("content-security-policy").and_then(|v| v.to_str().ok()) {
-        let c = csp.to_ascii_lowercase();
-        // a frame-ancestors directive that isn't a blanket '*' means we're very likely blocked
-        if c.contains("frame-ancestors") && !c.contains('*') { return false; }
-    }
-    true
-}
-
-/// Fetch a hero (above-the-fold) screenshot via Microlink, returning (bytes, content_type).
-/// `embed=screenshot.url` makes Microlink respond with the image binary directly (one hop).
-async fn fetch_screenshot(client: &reqwest::Client, key: &str, url: &str) -> Option<(Vec<u8>, String)> {
-    let mut req = client.get("https://api.microlink.io/")
-        .query(&[
-            ("url", url), ("screenshot", "true"), ("meta", "false"),
-            ("embed", "screenshot.url"),
-            ("viewport.width", "1280"), ("viewport.height", "800"),
-        ])
-        .timeout(std::time::Duration::from_secs(25));
-    if !key.is_empty() { req = req.header("x-api-key", key); }
-    let resp = req.send().await.ok()?;
-    if !resp.status().is_success() { return None; }
-    let ct = resp.headers().get(reqwest::header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok()).unwrap_or("image/png").to_string();
-    if !ct.starts_with("image/") { return None; } // Microlink returns JSON error on failure
-    let bytes = resp.bytes().await.ok()?;
-    Some((bytes.to_vec(), ct))
-}
-
-#[derive(Deserialize)]
-struct TaskForm { title: String, description: String, level: String, #[serde(default)] example_url: String }
-
-async fn admin_task(State(app): State<App>, headers: HeaderMap, Form(f): Form<TaskForm>) -> Result<Redirect, Response> {
-    require_admin(current_user(&app, &headers).await)?;
-    let example = f.example_url.trim();
-    if !example.is_empty() && !valid_http_url(example) {
-        return Err((StatusCode::BAD_REQUEST, "Örnek URL http:// veya https:// ile başlamalı.").into_response());
-    }
-    let embeddable = if example.is_empty() { None } else { Some(check_embeddable(&app.http, example).await) };
-    // position = end of this level's order, so new tasks land last (hardest) until reordered
-    sqlx::query("insert into tasks_exposure_academy (title, description, level, example_url, example_embeddable, position) values ($1,$2,$3, nullif($4,''), $5, (select coalesce(max(position),0)+1 from tasks_exposure_academy where level=$3))")
-        .bind(&f.title).bind(&f.description).bind(&f.level).bind(example).bind(embeddable)
-        .execute(&app.pool).await.map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
-    Ok(Redirect::to("/admin"))
-}
-
-#[derive(Deserialize)]
-struct TaskEditForm { id: Uuid, title: String, description: String }
-
-async fn admin_task_edit(State(app): State<App>, headers: HeaderMap, Form(f): Form<TaskEditForm>) -> Result<Redirect, Response> {
-    require_admin(current_user(&app, &headers).await)?;
-    let title = f.title.trim();
-    let description = f.description.trim();
-    if title.is_empty() || description.is_empty() {
-        return Err((StatusCode::BAD_REQUEST, "Başlık ve tanım boş olamaz.").into_response());
-    }
-    sqlx::query("update tasks_exposure_academy set title = $2, description = $3 where id = $1")
-        .bind(f.id).bind(title).bind(description)
-        .execute(&app.pool).await.map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
-    Ok(Redirect::to("/admin"))
-}
-
-#[derive(Deserialize)]
-struct TaskExampleForm { id: Uuid, example_url: String }
-
-async fn admin_task_example(State(app): State<App>, headers: HeaderMap, Form(f): Form<TaskExampleForm>) -> Result<Redirect, Response> {
-    require_admin(current_user(&app, &headers).await)?;
-    let url = f.example_url.trim();
-    if !url.is_empty() && !valid_http_url(url) {
-        return Err((StatusCode::BAD_REQUEST, "Örnek URL http:// veya https:// ile başlamalı.").into_response());
-    }
-    // only update the URL — the live/image preview mode is the admin's manual choice
-    // (set via /admin/task/preview) and is preserved across URL edits
-    sqlx::query("update tasks_exposure_academy set example_url = nullif($2,'') where id = $1")
-        .bind(f.id).bind(url)
-        .execute(&app.pool).await.map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
-    Ok(Redirect::to("/admin"))
-}
-
-#[derive(Deserialize)]
-struct TaskPreviewForm { id: Uuid, mode: String }
-
-/// Admin's manual per-task choice: live iframe preview vs cached screenshot image.
-async fn admin_task_preview(State(app): State<App>, headers: HeaderMap, Form(f): Form<TaskPreviewForm>) -> Result<Redirect, Response> {
-    require_admin(current_user(&app, &headers).await)?;
-    let live = f.mode == "live";
-    sqlx::query("update tasks_exposure_academy set example_embeddable = $2 where id = $1")
-        .bind(f.id).bind(live)
-        .execute(&app.pool).await.map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
-    Ok(Redirect::to("/admin"))
-}
-
-// ---- example-project screenshot preview ----
-
-fn image_response(bytes: Vec<u8>, ct: &str) -> Response {
-    (
-        [(header::CONTENT_TYPE, ct.to_owned()),
-         (header::CACHE_CONTROL, "public, max-age=86400".to_string())],
-        bytes,
-    ).into_response()
-}
-
-/// Fallback shown when there's no cached image yet and generation failed. Short
-/// cache so the next view retries. Displays the URL's host, or a generic label.
-fn placeholder_svg(url: &str) -> Response {
-    let host = url.split("://").nth(1).unwrap_or(url).split('/').next().unwrap_or("");
-    let label = if host.is_empty() { "önizleme yok".to_string() } else { html::esc(host) };
-    let svg = format!(
-        r##"<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="800" viewBox="0 0 1280 800"><rect width="1280" height="800" fill="#18181b"/><text x="640" y="400" fill="#71717a" font-family="sans-serif" font-size="36" text-anchor="middle" dominant-baseline="middle">{label}</text></svg>"##,
-    );
-    (
-        [(header::CONTENT_TYPE, "image/svg+xml".to_string()),
-         (header::CACHE_CONTROL, "public, max-age=300".to_string())],
-        svg,
-    ).into_response()
-}
-
-/// Serve the cached hero screenshot for a task's example URL, generating it on
-/// first request. Keyed by task id (not raw URL) so only admin-set URLs are ever
-/// fetched — no open proxy. Public, no auth (it screenshots public sites).
-async fn task_preview(State(app): State<App>, Path(id): Path<Uuid>) -> Response {
-    let url: Option<String> = sqlx::query_scalar("select example_url from tasks_exposure_academy where id = $1")
-        .bind(id).fetch_optional(&app.pool).await.ok().flatten().flatten();
-    let Some(url) = url.filter(|u| !u.is_empty()) else { return placeholder_svg("") };
-
-    // cache hit?
-    if let Ok(Some((img, ct))) = sqlx::query_as::<_, (Vec<u8>, String)>(
-        "select image, content_type from screenshot_cache_exposure_academy where url = $1")
-        .bind(&url).fetch_optional(&app.pool).await {
-        return image_response(img, &ct);
-    }
-    // miss -> fetch from Microlink, cache, serve. On failure serve a non-cached placeholder.
-    match fetch_screenshot(&app.http, &app.microlink_key, &url).await {
-        Some((bytes, ct)) => {
-            let _ = sqlx::query("insert into screenshot_cache_exposure_academy (url, image, content_type) values ($1,$2,$3) on conflict (url) do nothing")
-                .bind(&url).bind(&bytes).bind(&ct).execute(&app.pool).await;
-            image_response(bytes, &ct)
-        }
-        None => placeholder_svg(&url),
-    }
-}
-
-#[derive(Deserialize)]
-struct IdForm { id: Uuid }
-
-#[derive(Deserialize)]
-struct IdLevelForm { id: Uuid, level: String }
-
-async fn admin_task_level(State(app): State<App>, headers: HeaderMap, Form(f): Form<IdLevelForm>) -> Result<Redirect, Response> {
-    require_admin(current_user(&app, &headers).await)?;
-    // level is checked by the DB constraint; an invalid value just 400s. Moving to a
-    // new level appends the task at the end of that level's order.
-    sqlx::query(
-        "update tasks_exposure_academy set level = $2,
-           position = (select coalesce(max(position),0)+1 from tasks_exposure_academy where level = $2)
-         where id = $1")
-        .bind(f.id).bind(&f.level)
-        .execute(&app.pool).await.map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
-    Ok(Redirect::to("/admin"))
-}
-
-#[derive(Deserialize)]
-struct TaskMoveForm { id: Uuid, dir: String }
-
-// swap a task's position with its neighbour in the same level (ponytail: adjacent-swap
-// assumes unique positions per level, which the backfill + insert-position guarantee).
-async fn admin_task_move(State(app): State<App>, headers: HeaderMap, Form(f): Form<TaskMoveForm>) -> Result<Redirect, Response> {
-    require_admin(current_user(&app, &headers).await)?;
-    let mut tx = app.pool.begin().await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())?;
-    let Some((level, position)) = sqlx::query_as::<_, (String, i32)>(
-        "select level, position from tasks_exposure_academy where id = $1")
-        .bind(f.id).fetch_optional(&mut *tx).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())?
-    else { return Ok(Redirect::to("/admin")); };
-    let neighbor = if f.dir == "up" {
-        "select id, position from tasks_exposure_academy where level = $1 and position < $2 order by position desc limit 1"
-    } else {
-        "select id, position from tasks_exposure_academy where level = $1 and position > $2 order by position asc limit 1"
-    };
-    if let Some((nid, npos)) = sqlx::query_as::<_, (Uuid, i32)>(neighbor)
-        .bind(&level).bind(position).fetch_optional(&mut *tx).await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())?
-    {
-        sqlx::query("update tasks_exposure_academy set position = $2 where id = $1")
-            .bind(f.id).bind(npos).execute(&mut *tx).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())?;
-        sqlx::query("update tasks_exposure_academy set position = $2 where id = $1")
-            .bind(nid).bind(position).execute(&mut *tx).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())?;
-    }
-    tx.commit().await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())?;
-    Ok(Redirect::to("/admin"))
-}
-
-async fn admin_task_delete(State(app): State<App>, headers: HeaderMap, Form(f): Form<IdForm>) -> Result<Redirect, Response> {
-    require_admin(current_user(&app, &headers).await)?;
-    // cascades to submissions (FK) — points earned from this task go with it
-    sqlx::query("delete from tasks_exposure_academy where id = $1")
-        .bind(f.id)
-        .execute(&app.pool).await.map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
-    Ok(Redirect::to("/admin"))
-}
-
-async fn admin_video_level(State(app): State<App>, headers: HeaderMap, Form(f): Form<IdLevelForm>) -> Result<Redirect, Response> {
-    require_admin(current_user(&app, &headers).await)?;
-    sqlx::query("update videos_exposure_academy set level = $2 where id = $1")
-        .bind(f.id).bind(&f.level)
-        .execute(&app.pool).await.map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
-    Ok(Redirect::to("/admin"))
-}
-
-async fn admin_video_delete(State(app): State<App>, headers: HeaderMap, Form(f): Form<IdForm>) -> Result<Redirect, Response> {
-    require_admin(current_user(&app, &headers).await)?;
-    // cascades to watch progress (FK) — points earned from this video go with it.
-    // NOTE: seed_videos re-inserts any ID still listed in videos.dat on next restart.
-    sqlx::query("delete from videos_exposure_academy where id = $1")
-        .bind(f.id)
-        .execute(&app.pool).await.map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
-    Ok(Redirect::to("/admin"))
-}
-
-#[derive(Deserialize)]
-struct UserForm {
-    email: String,
-    display_name: String,
-    /// Unchecked checkboxes are simply absent from the POST body, hence the Option.
-    #[serde(default)]
-    hidden: Option<String>,
-}
-
-async fn admin_user(State(app): State<App>, headers: HeaderMap, Form(f): Form<UserForm>) -> Result<Redirect, Response> {
-    require_admin(current_user(&app, &headers).await)?;
-    let email = f.email.trim().to_lowercase();
-    // Adding the row here with `hidden` pre-set is how an intern account gets created
-    // before she ever opens the invite link: join_post's `on conflict (email) do nothing`
-    // leaves this row alone, so she is never visible for even one page load.
-    sqlx::query(
-        "insert into users_exposure_academy (email, display_name, hidden_from_leaderboard)
-         values ($1,$2,$3) on conflict (email) do nothing")
-        .bind(&email).bind(&f.display_name).bind(f.hidden.is_some())
-        .execute(&app.pool).await.map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
-    Ok(Redirect::to("/admin"))
-}
-
-#[derive(Deserialize)]
-struct UserHiddenForm { id: Uuid, hidden: bool }
-
-/// Flip a student in or out of the published standings (and the board's teammate chips).
-/// Admins are excluded on both sides already, so the flag is only meaningful for students.
-async fn admin_user_hidden(State(app): State<App>, headers: HeaderMap, Form(f): Form<UserHiddenForm>) -> Result<Redirect, Response> {
-    require_admin(current_user(&app, &headers).await)?;
-    sqlx::query("update users_exposure_academy set hidden_from_leaderboard = $2 where id = $1")
-        .bind(f.id).bind(f.hidden)
-        .execute(&app.pool).await.map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
-    Ok(Redirect::to("/admin"))
-}
-
-async fn admin_user_delete(State(app): State<App>, headers: HeaderMap, Form(f): Form<IdForm>) -> Result<Redirect, Response> {
-    let me = require_admin(current_user(&app, &headers).await)?;
-    // guard rails: never let an admin delete themselves or another admin from here.
-    // Deleting a student cascades to their sessions, watch progress, and submissions (FK).
-    if f.id == me.id {
-        return Err(StatusCode::BAD_REQUEST.into_response());
-    }
-    sqlx::query("delete from users_exposure_academy where id = $1 and is_admin = false")
-        .bind(f.id)
-        .execute(&app.pool).await.map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
-    Ok(Redirect::to("/admin"))
-}
-
-async fn admin_rotate_invite(State(app): State<App>, headers: HeaderMap) -> Result<Redirect, Response> {
-    require_admin(current_user(&app, &headers).await)?;
-    let new_code = &random_token()[..8];
-    sqlx::query(
-        "insert into app_settings_exposure_academy (key, value, updated_at) values ('invite_code', $1, now())
-         on conflict (key) do update set value = $1, updated_at = now()")
-        .bind(new_code).execute(&app.pool).await.unwrap();
-    Ok(Redirect::to("/admin"))
-}
-
-#[derive(Deserialize)]
-struct ReviewForm {
-    id: Uuid,
-    status: String,
-    feedback: String,
-    /// The Puan box. Blank is the normal case and means "score it by level".
-    #[serde(default)] points: String,
-}
-
-async fn admin_review(State(app): State<App>, headers: HeaderMap, Form(f): Form<ReviewForm>) -> Result<Redirect, Response> {
-    require_admin(current_user(&app, &headers).await)?;
-    // Blank clears any previous override and puts the row back on the level default;
-    // anything that isn't a non-negative number is a typo, so reject rather than
-    // silently scoring the project at some other value.
-    let points: Option<i32> = match f.points.trim() {
-        "" => None,
-        s => Some(s.parse::<i32>().ok().filter(|p| *p >= 0)
-            .ok_or_else(|| StatusCode::BAD_REQUEST.into_response())?),
-    };
-    sqlx::query("update submissions_exposure_academy set status = $2, feedback = nullif($3,''), points_override = $4 where id = $1")
-        .bind(f.id).bind(&f.status).bind(&f.feedback).bind(points)
-        .execute(&app.pool).await.map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
-    Ok(Redirect::to("/admin"))
-}
-
-/// One .txt holding a review prompt per submission that hasn't reached a verdict yet,
-/// so a whole grading round can be pasted into an agent in one go. Its own narrow
-/// projection rather than SubmissionView — that struct has no task description, and
-/// widening it would drag the board query along for no reason.
-async fn admin_prompts_txt(State(app): State<App>, headers: HeaderMap) -> Result<Response, Response> {
-    require_admin(current_user(&app, &headers).await)?;
-    let rows: Vec<(String, String, String, String, chrono::DateTime<chrono::Utc>)> = sqlx::query_as(
-        "select u.display_name, t.title, t.description, s.repo_url, s.created_at
-         from submissions_exposure_academy s
-         join users_exposure_academy u on u.id = s.user_id
-         join tasks_exposure_academy t on t.id = s.task_id
-         where s.status in ('pending', 'reviewing')
-         order by s.created_at desc")
-        .fetch_all(&app.pool).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())?;
-
-    let body = if rows.is_empty() {
-        "İncelenmeyi bekleyen gönderim yok.\n".to_string()
-    } else {
-        rows.iter().map(|(name, title, desc, repo, at)| format!(
-            "=== {name} — {title} — {date} ===\n{prompt}\n",
-            date = at.format("%d.%m.%Y"),
-            prompt = review_prompt(repo, if desc.trim().is_empty() { title } else { desc }),
-        )).collect::<Vec<_>>().join("\n")
-    };
-
-    let filename = format!("prompts-{}.txt", chrono::Utc::now().format("%Y-%m-%d"));
-    Ok((
-        [(header::CONTENT_TYPE, "text/plain; charset=utf-8".to_string()),
-         (header::CONTENT_DISPOSITION, format!("attachment; filename=\"{filename}\"")),
-         (header::CACHE_CONTROL, "no-store".to_string())],
-        body,
-    ).into_response())
-}
-
-// ---- worker API (Phase 3 pipeline, see README) ----
-
-/// Constant-time byte equality — no early exit on the first mismatch, so the compare
-/// time doesn't leak how many leading bytes were right (would let a co-located
-/// attacker recover the token). Length is allowed to short-circuit; it isn't secret.
-fn ct_eq(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() { return false; }
-    let mut diff = 0u8;
-    for (x, y) in a.iter().zip(b) { diff |= x ^ y; }
-    diff == 0
-}
-
-fn check_worker(app: &App, headers: &HeaderMap) -> Result<(), Response> {
-    let ok = !app.worker_token.is_empty()
-        && headers.get("x-worker-token").and_then(|v| v.to_str().ok())
-            .is_some_and(|t| ct_eq(t.as_bytes(), app.worker_token.as_bytes()));
-    if ok { Ok(()) } else { Err(StatusCode::UNAUTHORIZED.into_response()) }
-}
-
-async fn worker_pending(State(app): State<App>, headers: HeaderMap) -> Result<Json<serde_json::Value>, Response> {
-    check_worker(&app, &headers)?;
-    // claim atomically: pending -> reviewing
-    let rows: Vec<(Uuid, String, String)> = sqlx::query_as(
-        "update submissions_exposure_academy set status = 'reviewing'
-         where id in (select id from submissions_exposure_academy where status = 'pending' order by created_at limit 5)
-         returning id, repo_url, (select title from tasks_exposure_academy where tasks_exposure_academy.id = submissions_exposure_academy.task_id)")
-        .fetch_all(&app.pool).await.unwrap();
-    Ok(Json(serde_json::json!(rows.iter().map(|(id, repo, task)| {
-        serde_json::json!({"id": id, "repo_url": repo, "task_title": task})
-    }).collect::<Vec<_>>())))
-}
-
-#[derive(Deserialize)]
-struct WorkerResult { id: Uuid, status: String, feedback: Option<String>, demo_video_url: Option<String> }
-
-async fn worker_result(State(app): State<App>, headers: HeaderMap, Json(r): Json<WorkerResult>) -> Result<StatusCode, Response> {
-    check_worker(&app, &headers)?;
-    if r.status != "passed" && r.status != "failed" {
-        return Err(StatusCode::BAD_REQUEST.into_response());
-    }
-    sqlx::query("update submissions_exposure_academy set status = $2, feedback = $3, demo_video_url = $4 where id = $1")
-        .bind(r.id).bind(&r.status).bind(&r.feedback).bind(&r.demo_video_url)
-        .execute(&app.pool).await.unwrap();
-    Ok(StatusCode::NO_CONTENT)
-}
-
-// ---- worker API: Agentic Harness runs ----
-//
-// Same shape as the board pipeline above: the runner polls `pending` to claim a run,
-// reports each stage transition as it goes (so the student's stepper moves), and posts
-// the final scores or the failure. Transitions are forward-only and guarded on the
-// expected current stage — a stale or duplicate report gets a 409 and must be dropped.
-
-async fn worker_harness_pending(State(app): State<App>, headers: HeaderMap) -> Result<Json<serde_json::Value>, Response> {
-    check_worker(&app, &headers)?;
-    // claim atomically: queued -> cloning. One run at a time keeps stage reporting simple.
-    let rows: Vec<(Uuid, String)> = sqlx::query_as(
-        "update harness_runs_exposure_academy set stage = 'cloning', updated_at = now()
-         where id in (select id from harness_runs_exposure_academy where stage = 'queued' order by created_at limit 1)
-         returning id, repo_url")
-        .fetch_all(&app.pool).await.unwrap();
-    Ok(Json(serde_json::json!(rows.iter().map(|(id, repo)| {
-        serde_json::json!({"id": id, "repo_url": repo})
-    }).collect::<Vec<_>>())))
-}
-
-#[derive(Deserialize)]
-struct HarnessStageReq { id: Uuid, stage: String, commit_sha: Option<String> }
-
-async fn worker_harness_stage(State(app): State<App>, headers: HeaderMap, Json(r): Json<HarnessStageReq>) -> Result<StatusCode, Response> {
-    check_worker(&app, &headers)?;
-    // Only the mid-pipeline stages are reportable here: `cloning` is set by the claim
-    // in `pending`, `done`/`failed` go through `result`. The expected predecessor is
-    // simply the previous entry in HARNESS_STAGES.
-    let Some(idx) = HARNESS_STAGES.iter().position(|s| *s == r.stage).filter(|i| (2..=5).contains(i)) else {
-        return Err(StatusCode::BAD_REQUEST.into_response());
-    };
-    let expected = HARNESS_STAGES[idx - 1];
-    // The cloning->building report must carry the commit it checked out; that SHA is
-    // what the history tab links to. Worker-supplied, so validate it's plain hex here.
-    let sha: Option<String> = if r.stage == "building" {
-        let Some(s) = r.commit_sha.as_deref().map(str::trim)
-            .filter(|s| (7..=40).contains(&s.len()) && s.chars().all(|c| c.is_ascii_hexdigit())) else {
-            return Err(StatusCode::BAD_REQUEST.into_response());
-        };
-        Some(s.to_lowercase())
-    } else {
-        None
-    };
-    let res = match &sha {
-        Some(sha) => sqlx::query(
-            "update harness_runs_exposure_academy set stage = $2, commit_sha = $3, updated_at = now()
-             where id = $1 and stage = $4")
-            .bind(r.id).bind(&r.stage).bind(sha).bind(expected)
-            .execute(&app.pool).await.unwrap(),
-        None => sqlx::query(
-            "update harness_runs_exposure_academy set stage = $2, updated_at = now()
-             where id = $1 and stage = $3")
-            .bind(r.id).bind(&r.stage).bind(expected)
-            .execute(&app.pool).await.unwrap(),
-    };
-    if res.rows_affected() == 0 {
-        return Err(StatusCode::CONFLICT.into_response());
-    }
-    Ok(StatusCode::NO_CONTENT)
-}
-
-#[derive(Deserialize)]
-struct HarnessProgressReq { id: Uuid, progress: String }
-
-/// Repeatable mid-stage progress report — no stage transition, just the live blob
-/// the student's stepper renders ("task 12/70 · score 5.7"). Capped and only
-/// accepted while the run is still in flight; a stale report gets a 409.
-async fn worker_harness_progress(State(app): State<App>, headers: HeaderMap, Json(r): Json<HarnessProgressReq>) -> Result<StatusCode, Response> {
-    check_worker(&app, &headers)?;
-    if r.progress.len() > 2000 {
-        return Err(StatusCode::BAD_REQUEST.into_response());
-    }
-    let res = sqlx::query(
-        "update harness_runs_exposure_academy set progress = $2, updated_at = now()
-         where id = $1 and stage not in ('done','failed')")
-        .bind(r.id).bind(&r.progress)
-        .execute(&app.pool).await.unwrap();
-    if res.rows_affected() == 0 {
-        return Err(StatusCode::CONFLICT.into_response());
-    }
-    Ok(StatusCode::NO_CONTENT)
-}
-
-#[derive(Deserialize)]
-struct HarnessResultReq {
-    id: Uuid,
-    status: String,
-    score_arc: Option<f32>,
-    score_frontier: Option<f32>,
-    ram_1session_mb: Option<f32>,
-    ram_10session_mb: Option<f32>,
-    error_log: Option<String>,
-}
-
-async fn worker_harness_result(State(app): State<App>, headers: HeaderMap, Json(r): Json<HarnessResultReq>) -> Result<StatusCode, Response> {
-    check_worker(&app, &headers)?;
-    if r.status != "done" && r.status != "failed" {
-        return Err(StatusCode::BAD_REQUEST.into_response());
-    }
-    // A `done` run scored all three boards or it didn't finish — no partial scores.
-    if r.status == "done"
-        && (r.score_arc.is_none() || r.score_frontier.is_none()
-            || r.ram_1session_mb.is_none() || r.ram_10session_mb.is_none()) {
-        return Err(StatusCode::BAD_REQUEST.into_response());
-    }
-    let (arc, frontier, ram1, ram10, log) = if r.status == "done" {
-        (r.score_arc, r.score_frontier, r.ram_1session_mb, r.ram_10session_mb, None)
-    } else {
-        (None, None, None, None, r.error_log.clone())
-    };
-    // Terminal from any non-terminal stage, so an early crash (clone failed) can still
-    // resolve the run; an admin-failed run answers 409 and the worker drops it.
-    let res = sqlx::query(
-        "update harness_runs_exposure_academy
-         set stage = $2, score_arc = $3, score_frontier = $4, ram_1session_mb = $5,
-             ram_10session_mb = $6, error_log = $7, progress = null, updated_at = now()
-         where id = $1 and stage not in ('done','failed')")
-        .bind(r.id).bind(&r.status).bind(arc).bind(frontier).bind(ram1).bind(ram10).bind(&log)
-        .execute(&app.pool).await.unwrap();
-    if res.rows_affected() == 0 {
-        return Err(StatusCode::CONFLICT.into_response());
-    }
-    Ok(StatusCode::NO_CONTENT)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn ct_eq_matches_only_exact() {
-        assert!(ct_eq(b"secret-token", b"secret-token"));
-        assert!(!ct_eq(b"secret-token", b"secret-toke"));  // length differs
-        assert!(!ct_eq(b"secret-token", b"Secret-token")); // one byte differs
-        assert!(!ct_eq(b"", b"x"));
-    }
-
-    #[test]
-    fn internal_hosts_blocked_public_allowed() {
-        for u in ["http://localhost/x", "http://127.0.0.1", "http://169.254.169.254/latest/meta-data",
-                  "https://10.0.0.5", "http://192.168.1.1", "http://172.16.0.1", "http://[::1]/",
-                  "http://metadata.google.internal", "not a url"] {
-            assert!(is_internal_host(u), "{u} should be blocked");
-        }
-        for u in ["https://example.com", "https://ornek.vercel.app", "http://172.15.0.1", "http://172.32.0.1"] {
-            assert!(!is_internal_host(u), "{u} should be allowed");
-        }
-    }
-}

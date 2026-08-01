@@ -2,19 +2,30 @@
 // ponytail: string templates, no template engine — 8 pages, full control.
 
 use crate::model::*;
+use uuid::Uuid;
 
 pub fn esc(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
 }
 
 /// (database value, what students see). The keys stay as they are — they're baked
 /// into a CHECK constraint and into every existing video/task row — so renaming a
 /// level is a change to the right-hand side only, never a migration.
-pub const LEVELS: [(&str, &str); 3] =
-    [("PRESEED", "Beginner"), ("SEED", "Intermediate"), ("SERIES_A", "Advanced")];
+pub const LEVELS: [(&str, &str); 3] = [
+    ("PRESEED", "Beginner"),
+    ("SEED", "Intermediate"),
+    ("SERIES_A", "Advanced"),
+];
 
 pub fn level_name(l: &str) -> &'static str {
-    LEVELS.iter().find(|(k, _)| *k == l).map(|(_, v)| *v).unwrap_or("?")
+    LEVELS
+        .iter()
+        .find(|(k, _)| *k == l)
+        .map(|(_, v)| *v)
+        .unwrap_or("?")
 }
 
 /// Lesson videos are all presented as one combined tier, regardless of the level
@@ -35,10 +46,15 @@ fn level_badge_class(l: &str) -> &'static str {
 /// `<option>` list for a level `<select>`; `current` gets the `selected` attribute
 /// (pass "" for a fresh form — no match, browser defaults to the first).
 fn level_options(current: &str) -> String {
-    LEVELS.iter().map(|(k, v)| format!(
-        r#"<option value="{k}"{sel}>{v}</option>"#,
-        sel = if *k == current { " selected" } else { "" },
-    )).collect()
+    LEVELS
+        .iter()
+        .map(|(k, v)| {
+            format!(
+                r#"<option value="{k}"{sel}>{v}</option>"#,
+                sel = if *k == current { " selected" } else { "" },
+            )
+        })
+        .collect()
 }
 
 /// How many `rows` a `<textarea>` needs to show `text` with no internal scrollbar,
@@ -52,12 +68,13 @@ fn textarea_rows(text: &str, wrap_at: usize) -> usize {
 
 // Heroicons v2 (outline, 24x24, 1.5 stroke) — sized/colored via CSS (currentColor).
 fn ico(path: &str) -> String {
-    format!(r##"<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="{path}"/></svg>"##)
+    format!(
+        r##"<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="{path}"/></svg>"##
+    )
 }
 const P_HOME: &str = "m2.25 12 8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25";
 const P_BOARD: &str = "M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 0 0 2.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 0 0-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75 2.25 2.25 0 0 0-.1-.664m-5.8 0A2.251 2.251 0 0 1 13.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25Z";
 const P_HARNESS: &str = "M8.25 3v1.5M4.5 8.25H3m18 0h-1.5M4.5 12H3m18 0h-1.5m-15 3.75H3m18 0h-1.5M8.25 19.5V21M12 3v1.5m0 15V21m3.75-18v1.5m0 15V21m-9-1.5h10.5a2.25 2.25 0 0 0 2.25-2.25V6.75a2.25 2.25 0 0 0-2.25-2.25H6.75A2.25 2.25 0 0 0 4.5 6.75v10.5a2.25 2.25 0 0 0 2.25 2.25Zm.75-12h9v9h-9v-9Z";
-#[allow(dead_code)] // Haftalar navı gizli — geri geldiğinde tekrar kullanılacak
 const P_MONOPOLY: &str = "M14.25 6.087c0-.355.186-.676.401-.959.221-.29.349-.634.349-1.003 0-1.036-1.007-1.875-2.25-1.875s-2.25.84-2.25 1.875c0 .369.128.713.349 1.003.215.283.401.604.401.959v0a.64.64 0 0 1-.657.643 48.39 48.39 0 0 1-4.163-.3c.186 1.613.293 3.25.315 4.907a.656.656 0 0 1-.658.663v0c-.355 0-.676-.186-.959-.401a1.647 1.647 0 0 0-1.003-.349c-1.036 0-1.875 1.007-1.875 2.25s.84 2.25 1.875 2.25c.369 0 .713-.128 1.003-.349.283-.215.604-.401.959-.401v0c.31 0 .555.26.532.57a48.039 48.039 0 0 1-.642 5.056c1.518.19 3.058.309 4.616.354a.64.64 0 0 0 .657-.643v0c0-.355-.186-.676-.401-.959a1.647 1.647 0 0 1-.349-1.003c0-1.035 1.008-1.875 2.25-1.875 1.243 0 2.25.84 2.25 1.875 0 .369-.128.713-.349 1.003-.215.283-.4.604-.4.959v0c0 .333.277.599.61.58a48.1 48.1 0 0 0 5.427-.63 48.05 48.05 0 0 0 .582-4.717.532.532 0 0 0-.533-.57v0c-.355 0-.676.186-.959.401-.29.221-.634.349-1.003.349-1.035 0-1.875-1.007-1.875-2.25s.84-2.25 1.875-2.25c.37 0 .713.128 1.003.349.283.215.604.401.96.401v0a.656.656 0 0 0 .658-.663 48.422 48.422 0 0 0-.37-5.36c-1.676.24-3.37.404-5.082.484a.638.638 0 0 1-.667-.643v0Z";
 const P_ADMIN: &str = "M11.42 15.17 17.25 21A2.652 2.652 0 0 0 21 17.25l-5.877-5.877M11.42 15.17l2.496-3.03c.317-.384.74-.626 1.208-.766M11.42 15.17l-4.655 5.653a2.548 2.548 0 1 1-3.586-3.586l6.837-5.63m5.108-.233c.55-.164 1.163-.188 1.743-.14a4.5 4.5 0 0 0 4.486-6.336l-3.276 3.277a3.004 3.004 0 0 1-2.25-2.25l3.276-3.276a4.5 4.5 0 0 0-6.336 4.486c.091 1.076-.071 2.264-.904 2.95l-.102.085m-1.745 1.437L5.909 7.5H4.5L2.25 3.75l1.5-1.5L7.5 4.5v1.409l4.26 4.26m-1.745 1.437 1.745-1.437m6.615 8.206L15.75 15.75M4.867 19.125h.008v.008h-.008v-.008Z";
 const P_LOGOUT: &str = "M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15M12 9l-3 3m0 0 3 3m-3-3h12.75";
@@ -103,6 +120,7 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
     {board}
     {leaderboard}
     {harness}
+    {monopoly}
     {demos}
     {admin_block}
   </nav>
@@ -121,15 +139,44 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
 </div></main>"##,
                 home = nav_link("/app", active, "home", &ico(P_HOME), "Ana Sayfa"),
                 board = nav_link("/board", active, "board", &ico(P_BOARD), "Görev Panosu"),
-                leaderboard = nav_link("/leaderboard", active, "leaderboard", &ico(P_TROPHY), "Puan Tablosu"),
-                harness = nav_link("/agentic-harness", active, "agentic-harness", &ico(P_HARNESS), "Agentic Harness"),
-                // AI Monopoly geçici olarak gizli — rotası duruyor, geri getirmek için
-                // {monopoly} olarak nav'a ekle.
+                leaderboard = nav_link(
+                    "/leaderboard",
+                    active,
+                    "leaderboard",
+                    &ico(P_TROPHY),
+                    "Puan Tablosu"
+                ),
+                harness = nav_link(
+                    "/agentic-harness",
+                    active,
+                    "agentic-harness",
+                    &ico(P_HARNESS),
+                    "Agentic Harness"
+                ),
+                monopoly = nav_link(
+                    "/ai-monopoly",
+                    active,
+                    "ai-monopoly",
+                    &ico(P_MONOPOLY),
+                    "AI Monopoly"
+                ),
                 videos = nav_link("/videos", active, "videos", &ico(P_PLAY), "Videolar"),
-                demos = nav_link("/demos", active, "demos", &ico(P_DEMO), "İnteraktif Demolar"),
+                demos = nav_link(
+                    "/demos",
+                    active,
+                    "demos",
+                    &ico(P_DEMO),
+                    "İnteraktif Demolar"
+                ),
                 admin_block = admin_block,
                 profile_active = if active == "profile" { "active" } else { "" },
-                initial = esc(&u.label().chars().next().unwrap_or('?').to_uppercase().to_string()),
+                initial = esc(&u
+                    .label()
+                    .chars()
+                    .next()
+                    .unwrap_or('?')
+                    .to_uppercase()
+                    .to_string()),
                 name = esc(u.label()),
                 logout_ico = ico(P_LOGOUT),
                 // both icons ship every time; CSS shows one or the other off #navtoggle
@@ -158,7 +205,7 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/style.css?v=28">
+<link rel="stylesheet" href="/static/style.css?v=30">
 <script>if('scrollRestoration'in history)history.scrollRestoration='manual';</script>
 </head>
 <body class="{body_class}">
@@ -170,18 +217,30 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
 }
 
 pub fn landing() -> String {
-    layout("Akademi", None, "", r##"
+    layout(
+        "Akademi",
+        None,
+        "",
+        r##"
 <section class="hero">
   <div class="pill"><span class="dot"></span> Teorik Dersler</div>
   <h1>Yapay Zekayı<br><em>Projelerle Öğren!</em></h1>
   <p class="sub">Türkiye'nin En Seçkin Yapay Zeka Akademisi</p>
   <a class="btn-dark big" href="/login">Oturum aç →</a>
-</section>"##)
+</section>"##,
+    )
 }
 
 pub fn login(msg: Option<&str>) -> String {
-    let notice = msg.map(|m| format!(r#"<p class="notice">{}</p>"#, esc(m))).unwrap_or_default();
-    layout("Oturum aç", None, "", &format!(r##"
+    let notice = msg
+        .map(|m| format!(r#"<p class="notice">{}</p>"#, esc(m)))
+        .unwrap_or_default();
+    layout(
+        "Oturum aç",
+        None,
+        "",
+        &format!(
+            r##"
 <div class="auth-wrap">
   <div class="auth-dots"></div><div class="auth-glow"></div>
   <div class="loginbox">
@@ -194,17 +253,27 @@ pub fn login(msg: Option<&str>) -> String {
     </form>
     <p class="muted">Hesabın yok mu? <a href="/join">Davet koduyla katıl</a></p>
   </div>
-</div>"##))
+</div>"##
+        ),
+    )
 }
 
 /// Onboarding. `code_locked` = the invite code arrived in the URL (/join/<code>), so it
 /// rides along as a hidden field instead of being something the student has to type.
 pub fn join(f: &JoinForm, code_locked: bool, error: Option<&str>) -> String {
-    let err = error.map(|e| format!(r#"<p class="error">{}</p>"#, esc(e))).unwrap_or_default();
+    let err = error
+        .map(|e| format!(r#"<p class="error">{}</p>"#, esc(e)))
+        .unwrap_or_default();
     let code_field = if code_locked {
-        format!(r#"<input type="hidden" name="code" value="{}">"#, esc(&f.code))
+        format!(
+            r#"<input type="hidden" name="code" value="{}">"#,
+            esc(&f.code)
+        )
     } else {
-        format!(r#"<label>Davet kodu<input name="code" value="{}" required></label>"#, esc(&f.code))
+        format!(
+            r#"<label>Davet kodu<input name="code" value="{}" required></label>"#,
+            esc(&f.code)
+        )
     };
     let grade_opts: String = std::iter::once(String::from(r#"<option value="">Seç…</option>"#))
         .chain(GRADES.iter().map(|g| {
@@ -212,7 +281,12 @@ pub fn join(f: &JoinForm, code_locked: bool, error: Option<&str>) -> String {
             format!(r#"<option value="{g}"{sel}>{g}</option>"#)
         }))
         .collect();
-    layout("Oluştur", None, "", &format!(r##"
+    layout(
+        "Oluştur",
+        None,
+        "",
+        &format!(
+            r##"
 <div class="auth-wrap">
   <div class="auth-dots"></div><div class="auth-glow"></div>
   <div class="loginbox">
@@ -282,15 +356,25 @@ pub fn join(f: &JoinForm, code_locked: bool, error: Option<&str>) -> String {
   }})();
   </script>
 </div>"##,
-        name = esc(&f.display_name), email = esc(&f.email), nick = esc(&f.nickname), school = esc(&f.school),
-        github = esc(&f.github_url), linkedin = esc(&f.linkedin_url),
-    ))
+            name = esc(&f.display_name),
+            email = esc(&f.email),
+            nick = esc(&f.nickname),
+            school = esc(&f.school),
+            github = esc(&f.github_url),
+            linkedin = esc(&f.linkedin_url),
+        ),
+    )
 }
 
 /// Post-onboarding: the account exists but nothing is signed in yet — the magic link
 /// in their inbox is what proves the address is theirs.
 pub fn join_sent(email: &str) -> String {
-    layout("E-postanı kontrol et", None, "", &format!(r##"
+    layout(
+        "E-postanı kontrol et",
+        None,
+        "",
+        &format!(
+            r##"
 <div class="auth-wrap">
   <div class="auth-dots"></div><div class="auth-glow"></div>
   <div class="loginbox">
@@ -300,12 +384,16 @@ pub fn join_sent(email: &str) -> String {
     <p class="notice">Bağlantı 15 dakika geçerli. Gelen kutunda yoksa spam klasörüne bak.</p>
     <p class="muted">Yanlış adres mi yazdın? <a href="/join">Formu tekrar doldur</a></p>
   </div>
-</div>"##, email = esc(email)))
+</div>"##,
+            email = esc(email)
+        ),
+    )
 }
 
 pub fn profile(user: &User, p: &Profile, msg: Option<&str>, error: Option<&str>) -> String {
     let first_time = user.nickname.is_none();
-    let banner = error.map(|e| format!(r#"<p class="error">{}</p>"#, esc(e)))
+    let banner = error
+        .map(|e| format!(r#"<p class="error">{}</p>"#, esc(e)))
         .or_else(|| msg.map(|m| format!(r#"<p class="notice">{}</p>"#, esc(m))))
         .unwrap_or_default();
     let intro = if first_time {
@@ -320,7 +408,8 @@ pub fn profile(user: &User, p: &Profile, msg: Option<&str>, error: Option<&str>)
             format!(r#"<option value="{g}"{sel}>{g}</option>"#)
         }))
         .collect();
-    let content = format!(r##"<h1 class="pagetitle">Profilim</h1>
+    let content = format!(
+        r##"<h1 class="pagetitle">Profilim</h1>
 {intro}
 <div class="profilewrap">
 <section class="panel">
@@ -342,38 +431,76 @@ pub fn profile(user: &User, p: &Profile, msg: Option<&str>, error: Option<&str>)
         nick = esc(p.nickname.as_deref().unwrap_or("")),
         school = esc(p.school.as_deref().unwrap_or("")),
         email = esc(&p.email),
-        save_label = if first_time { "Kaydet ve başla →" } else { "Kaydet" },
+        save_label = if first_time {
+            "Kaydet ve başla →"
+        } else {
+            "Kaydet"
+        },
     );
     layout("Profilim", Some(user), "profile", &content)
 }
 
-
 // ---- Agentic Harness ----
 
 /// (query key, label) for the bench switcher chips. Benchmark names stay English.
-const HARNESS_BENCHES: [(&str, &str); 3] =
-    [("arc", "ARC-AGI-3"), ("frontier", "Frontier-bench"), ("ram", "RAM-bench")];
+const HARNESS_BENCHES: [(&str, &str); 3] = [
+    ("arc", "ARC-AGI-3"),
+    ("frontier", "Frontier Sprint"),
+    ("ram", "RAM-bench"),
+];
 
 /// (tab key, href, label). "Instructions" stays English per the spec.
 const HARNESS_TABS: [(&str, &str, &str); 3] = [
     ("main", "/agentic-harness", "Gönderim ve Sıralama"),
     ("history", "/agentic-harness?tab=history", "Geçmiş"),
-    ("instructions", "/agentic-harness?tab=instructions", "Instructions"),
+    (
+        "instructions",
+        "/agentic-harness?tab=instructions",
+        "Instructions",
+    ),
 ];
-
-/// Short step labels for the stepper; indices line up with HARNESS_STAGES[..6].
-const HARNESS_STEP_LABELS: [&str; 6] =
-    ["Sırada", "Kopyalama", "Derleme", "ARC-AGI-3", "Frontier-bench", "RAM-bench"];
 
 /// Turkish label + status-pill class per stage — the board's pill classes, reused.
 fn harness_stage_tr(stage: &str) -> (&'static str, &'static str) {
     match stage {
         "queued" => ("Sırada", "st-pending"),
-        "cloning" => ("Kopyalanıyor", "st-reviewing"),
-        "building" => ("Derleniyor", "st-reviewing"),
-        "arc_agi_3" => ("ARC-AGI-3 çalışıyor", "st-reviewing"),
-        "frontier_bench" => ("Frontier-bench çalışıyor", "st-reviewing"),
-        "ram_bench" => ("RAM-bench çalışıyor", "st-reviewing"),
+        "preparing" => ("Repo hazırlanıyor", "st-reviewing"),
+        "running" => ("Benchmark'lar çalışıyor", "st-reviewing"),
+        "done" => ("Tamamlandı", "st-passed"),
+        "partial" => ("Kısmen tamamlandı", "st-pending"),
+        "infra_failed" => ("Altyapı hatası", "st-failed"),
+        _ => ("Başarısız", "st-failed"),
+    }
+}
+
+fn harness_benchmark_status(status: &str) -> (&'static str, &'static str) {
+    match status {
+        "running" => ("Çalışıyor", "st-reviewing"),
+        "done" => ("Tamamlandı", "st-passed"),
+        "failed" => ("Başarısız", "st-failed"),
+        "infra_failed" => ("Altyapı hatası", "st-failed"),
+        _ => ("Bekliyor", "st-pending"),
+    }
+}
+
+fn harness_kaggle_status(status: &str) -> (&'static str, &'static str) {
+    match status {
+        "queued" => ("Resmi gönderim sırada", "st-pending"),
+        "kernel_running" => ("Notebook gönderiliyor", "st-reviewing"),
+        "submitted" => ("Kaggle puanlıyor", "st-reviewing"),
+        "scored" => ("Resmi skor hazır", "st-passed"),
+        _ => ("Resmi gönderim başarısız", "st-failed"),
+    }
+}
+
+/// Same shape for the tournament's status ladder (model.rs MONOPOLY_STATUSES).
+fn monopoly_status_tr(status: &str) -> (&'static str, &'static str) {
+    match status {
+        "queued" => ("Sırada", "st-pending"),
+        "booting" => ("Sunucu açılıyor", "st-reviewing"),
+        "loading" => ("Modeller yükleniyor", "st-reviewing"),
+        "running" => ("Oynanıyor", "st-reviewing"),
+        "judging" => ("Hakem değerlendiriyor", "st-reviewing"),
         "done" => ("Tamamlandı", "st-passed"),
         _ => ("Başarısız", "st-failed"),
     }
@@ -387,7 +514,10 @@ fn dense_ranks_by<T>(rows: &[T], key: impl Fn(&T) -> String) -> Vec<i64> {
     let mut prev: Option<String> = None;
     for r in rows {
         let k = key(r);
-        if prev.as_deref() != Some(k.as_str()) { place += 1; prev = Some(k); }
+        if prev.as_deref() != Some(k.as_str()) {
+            place += 1;
+            prev = Some(k);
+        }
         ranks.push(place);
     }
     ranks
@@ -395,51 +525,154 @@ fn dense_ranks_by<T>(rows: &[T], key: impl Fn(&T) -> String) -> Vec<i64> {
 
 /// Page title + tab chips shared by the three harness tabs.
 fn harness_shell(user: &User, tab: &str, sub: &str, inner: &str) -> String {
-    let chips: String = HARNESS_TABS.iter().map(|(k, href, label)| {
-        let active = if tab == *k { "active" } else { "" };
-        format!(r#"<a class="chip {active}" href="{href}">{label}</a>"#)
-    }).collect();
-    layout("Agentic Harness", Some(user), "agentic-harness", &format!(
-        r##"<h1 class="pagetitle" lang="en">Agentic Harness</h1>
+    let chips: String = HARNESS_TABS
+        .iter()
+        .map(|(k, href, label)| {
+            let active = if tab == *k { "active" } else { "" };
+            format!(r#"<a class="chip {active}" href="{href}">{label}</a>"#)
+        })
+        .collect();
+    layout(
+        "Agentic Harness",
+        Some(user),
+        "agentic-harness",
+        &format!(
+            r##"<h1 class="pagetitle" lang="en">Agentic Harness</h1>
 <p class="muted">{sub}</p>
 <div class="chips">{chips}</div>
-{inner}"##))
+{inner}"##
+        ),
+    )
 }
 
-/// The in-flight run's live progress. Only rendered while a run is between
-/// `queued` and `ram_bench`; harness.js polls /agentic-harness/status and keeps
-/// the classes honest, reloading once the run reaches a terminal state.
-fn harness_stepper(run: &HarnessRun) -> String {
-    let cur = HARNESS_STAGES.iter().position(|s| *s == run.stage).unwrap_or(0);
-    let steps: String = HARNESS_STEP_LABELS.iter().enumerate().map(|(i, label)| {
-        let cls = if i < cur { "done" } else if i == cur { "active" } else { "" };
-        format!(r#"<li class="step {cls}" data-stage="{key}"><span class="dot2"></span>{label}</li>"#,
-            key = HARNESS_STAGES[i])
-    }).collect();
-    let sha = run.commit_sha.as_deref()
-        .map(|s| format!(" · <code>{}</code>", esc(&s.chars().take(7).collect::<String>())))
-        .unwrap_or_default();
+fn harness_benchmark_card(run: &HarnessRun, key: &str, title: &str, rule: &str) -> String {
+    let state = run.benchmark_state.get(key).and_then(|v| v.as_object());
+    let status = state
+        .and_then(|v| v.get("status"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("pending");
+    let (label, class) = harness_benchmark_status(status);
+    let mut summary = Vec::new();
+    if let (Some(done), Some(total)) = (
+        state.and_then(|v| v.get("done")).and_then(|v| v.as_u64()),
+        state.and_then(|v| v.get("total")).and_then(|v| v.as_u64()),
+    ) {
+        summary.push(format!("{done}/{total}"));
+    }
+    if let Some(score) = state.and_then(|v| v.get("score")).and_then(|v| v.as_f64()) {
+        summary.push(format!("Skor {score:.1}"));
+    }
+    if key == "ram" {
+        if let Some(value) = state
+            .and_then(|v| v.get("one_session_mb"))
+            .and_then(|v| v.as_f64())
+        {
+            summary.push(format!("1 oturum {value:.1} MB"));
+        }
+        if let Some(value) = state
+            .and_then(|v| v.get("ten_session_mb"))
+            .and_then(|v| v.as_f64())
+        {
+            summary.push(format!("10 oturum {value:.1} MB"));
+        }
+    }
+    if let Some(rate) = state.and_then(|v| v.get("rate")).and_then(|v| v.as_u64()) {
+        summary.push(format!("{rate} tur / 30 sn"));
+    }
+    let summary = if summary.is_empty() {
+        "Henüz sonuç yok".into()
+    } else {
+        summary.join(" · ")
+    };
     format!(
-        r##"<div class="substatus st-reviewing">Değerlendirme devam ediyor</div>
-<p class="fieldnote harness-repo">{repo}{sha}</p>
-<ol class="stepper" id="harness-stepper" data-active="true">{steps}</ol>
-<p class="fieldnote" id="harness-progress"></p>"##,
-        repo = esc(&run.repo_url))
+        r##"<article class="harness-benchmark" data-benchmark="{key}" data-status="{status}">
+  <div class="harness-benchmark-head"><h3 lang="en">{title}</h3>
+    <span class="substatus benchmark-status {class}">{label}</span></div>
+  <p class="benchmark-rule">{rule}</p>
+  <p class="benchmark-progress">{summary}</p>
+</article>"##,
+        status = esc(status),
+        summary = esc(&summary)
+    )
+}
+
+/// The in-flight run's three independent benchmark states. harness.js polls the
+/// team-scoped status endpoint and reloads once the run reaches any terminal state.
+fn harness_stepper(run: &HarnessRun) -> String {
+    let (stage_label, stage_class) = harness_stage_tr(&run.stage);
+    let sha = run
+        .commit_sha
+        .as_deref()
+        .map(|s| esc(&s.chars().take(7).collect::<String>()))
+        .unwrap_or_else(|| "—".into());
+    let deadline = run
+        .deadline_at
+        .map(|value| value.to_rfc3339())
+        .unwrap_or_default();
+    let profile = run
+        .bedrock_profile
+        .as_deref()
+        .map(esc)
+        .unwrap_or_else(|| "Hazırlanıyor".into());
+    let arc = harness_benchmark_card(
+        run,
+        "arc",
+        "ARC-AGI-3",
+        "10 public oyun · doğal bitiş koşulları",
+    );
+    let frontier = harness_benchmark_card(
+        run,
+        "frontier",
+        "Frontier Sprint",
+        "5 görev · görev başına 120 sn",
+    );
+    let ram = harness_benchmark_card(
+        run,
+        "ram",
+        "RAM-bench",
+        "1 ve 10 oturum · 10 sn · cgroup PSS",
+    );
+    format!(
+        r##"<div class="harness-live" id="harness-live" data-active="true" data-deadline="{deadline}">
+  <div class="harness-live-head">
+    <span id="harness-run-status" class="substatus {stage_class}">{stage_label}</span>
+    <span class="harness-countdown" id="harness-countdown"></span>
+  </div>
+  <p class="fieldnote harness-repo">{repo} · <code id="harness-commit">{sha}</code></p>
+  <p class="harness-run-meta"><span lang="en">{version}</span> · Bedrock: <span id="harness-profile">{profile}</span></p>
+  <div class="harness-benchmark-grid">{arc}{frontier}{ram}</div>
+</div>"##,
+        deadline = esc(&deadline),
+        repo = esc(&run.repo_url),
+        version = esc(&run.benchmark_version)
+    )
 }
 
 /// Main tab: submit panel on the left, the switchable leaderboards on the right.
 /// `rows` carries ARC/Frontier standings, `ram_rows` the RAM ones — whichever
 /// matches `bench` is populated, the other is empty.
 pub fn agentic_harness_main(
-    user: &User, bench: &str, team: Option<&HarnessTeam>, members: &[HarnessTeamMemberRow],
-    active_run: Option<&HarnessRun>, rows: &[HarnessLeaderRow], ram_rows: &[HarnessRamRow],
+    user: &User,
+    bench: &str,
+    team: Option<&HarnessTeam>,
+    members: &[TeamMemberRow],
+    active_run: Option<&HarnessRun>,
+    rows: &[HarnessLeaderRow],
+    ram_rows: &[HarnessRamRow],
 ) -> String {
     // kid names next to the team name, real names per the leaderboard convention;
     // only public members (onboarded, not hidden) reach the published line
     let kid_names = |team_id: uuid::Uuid| -> String {
-        let names: Vec<String> = members.iter().filter(|m| m.team_id == team_id && m.public)
-            .map(|m| esc(&m.display_name)).collect();
-        if names.is_empty() { String::new() } else { format!("({})", names.join(", ")) }
+        let names: Vec<String> = members
+            .iter()
+            .filter(|m| m.team_id == team_id && m.public)
+            .map(|m| esc(&m.display_name))
+            .collect();
+        if names.is_empty() {
+            String::new()
+        } else {
+            format!("({})", names.join(", "))
+        }
     };
     let left = match team {
         None => format!(
@@ -448,9 +681,12 @@ pub fn agentic_harness_main(
   <h2>Takımın henüz yok</h2>
   <p class="fieldnote">Henüz bir takımda değilsin — eğitmenine yaz. Takımlar şimdilik eğitmen tarafından atanıyor.</p>
 </section>"##,
-            lock = ico(P_LOCK)),
+            lock = ico(P_LOCK)
+        ),
         Some(t) => {
-            let member_chips: String = members.iter().filter(|m| m.team_id == t.id)
+            let member_chips: String = members
+                .iter()
+                .filter(|m| m.team_id == t.id)
                 .map(|m| format!(r#"<span class="chip">{}</span>"#, esc(&m.display_name)))
                 .collect();
             // the stepper replaces the form while a run is in flight — this is the
@@ -470,7 +706,8 @@ pub fn agentic_harness_main(
   <div class="chips interest-names">{member_chips}</div>
   {action}
 </section>"##,
-                name = esc(&t.name))
+                name = esc(&t.name)
+            )
         }
     };
     let bench_chips: String = HARNESS_BENCHES.iter().map(|(k, label)| {
@@ -478,39 +715,81 @@ pub fn agentic_harness_main(
         format!(r#"<a class="chip {active}" href="/agentic-harness?bench={k}" lang="en">{label}</a>"#)
     }).collect();
     let my_team_id = team.map(|t| t.id);
-    let empty_note = "<p class='muted'>Henüz tamamlanmış çalıştırma yok — ilk gönderen takım siz olun.</p>";
+    let empty_note =
+        "<p class='muted'>Henüz tamamlanmış çalıştırma yok — ilk gönderen takım siz olun.</p>";
     let board_rows: String = if bench == "ram" {
-        if ram_rows.is_empty() { empty_note.into() } else {
+        if ram_rows.is_empty() {
+            empty_note.into()
+        } else {
             let ranks = dense_ranks_by(ram_rows, |r| format!("{:.1}", r.ram_10session_mb));
-            ram_rows.iter().zip(&ranks).map(|(r, rank)| format!(
-                r##"<div class="lbrow {mine} {medal}">
+            ram_rows
+                .iter()
+                .zip(&ranks)
+                .map(|(r, rank)| {
+                    format!(
+                        r##"<div class="lbrow {mine} {medal}">
   <span class="lbrank">{rank}</span>
   <span class="avatar-fb">{initial}</span>
   <span class="lbname">{name} <small class="nick">{kids}</small></span>
   <span class="lbmeta">1 oturum: {r1:.1} MB</span>
   <span class="lbpts">{r10:.1}<small>MB</small></span>
 </div>"##,
-                mine = if my_team_id == Some(r.id) { "mine" } else { "" },
-                medal = match rank { 1 => "m1", 2 => "m2", 3 => "m3", _ => "" },
-                initial = esc(&r.name.chars().next().unwrap_or('?').to_uppercase().to_string()),
-                name = esc(&r.name), kids = kid_names(r.id),
-                r1 = r.ram_1session_mb, r10 = r.ram_10session_mb,
-            )).collect()
+                        mine = if my_team_id == Some(r.id) { "mine" } else { "" },
+                        medal = match rank {
+                            1 => "m1",
+                            2 => "m2",
+                            3 => "m3",
+                            _ => "",
+                        },
+                        initial = esc(&r
+                            .name
+                            .chars()
+                            .next()
+                            .unwrap_or('?')
+                            .to_uppercase()
+                            .to_string()),
+                        name = esc(&r.name),
+                        kids = kid_names(r.id),
+                        r1 = r.ram_1session_mb,
+                        r10 = r.ram_10session_mb,
+                    )
+                })
+                .collect()
         }
-    } else if rows.is_empty() { empty_note.into() } else {
+    } else if rows.is_empty() {
+        empty_note.into()
+    } else {
         let ranks = dense_ranks_by(rows, |r| format!("{:.1}", r.best));
-        rows.iter().zip(&ranks).map(|(r, rank)| format!(
-            r##"<div class="lbrow {mine} {medal}">
+        rows.iter()
+            .zip(&ranks)
+            .map(|(r, rank)| {
+                format!(
+                    r##"<div class="lbrow {mine} {medal}">
   <span class="lbrank">{rank}</span>
   <span class="avatar-fb">{initial}</span>
   <span class="lbname">{name} <small class="nick">{kids}</small></span>
   <span class="lbpts">{best:.1}<small>p</small></span>
 </div>"##,
-            mine = if my_team_id == Some(r.id) { "mine" } else { "" },
-            medal = match rank { 1 => "m1", 2 => "m2", 3 => "m3", _ => "" },
-            initial = esc(&r.name.chars().next().unwrap_or('?').to_uppercase().to_string()),
-            name = esc(&r.name), kids = kid_names(r.id), best = r.best,
-        )).collect()
+                    mine = if my_team_id == Some(r.id) { "mine" } else { "" },
+                    medal = match rank {
+                        1 => "m1",
+                        2 => "m2",
+                        3 => "m3",
+                        _ => "",
+                    },
+                    initial = esc(&r
+                        .name
+                        .chars()
+                        .next()
+                        .unwrap_or('?')
+                        .to_uppercase()
+                        .to_string()),
+                    name = esc(&r.name),
+                    kids = kid_names(r.id),
+                    best = r.best,
+                )
+            })
+            .collect()
     };
     let inner = format!(
         r##"<div class="harnesswrap">
@@ -518,18 +797,59 @@ pub fn agentic_harness_main(
 <div class="harness-right">
   <div class="chips">{bench_chips}</div>
   <div class="lb">{board_rows}</div>
-  <p class="lbnote">Her takımın en iyi puanı gösterilir. RAM-bench'te düşük olan daha iyidir.
-  Tek gönderim üç sıralamada da puanlanır.</p>
+  <p class="lbnote">Her takımın bu harness sürümündeki en iyi puanı gösterilir. RAM-bench'te
+  düşük olan daha iyidir. Kısmi çalıştırmalardaki tamamlanmış puanlar korunur.</p>
 </div>
 </div>
-<script src="/static/harness.js?v=2" defer></script>"##);
-    harness_shell(user, "main", "Ajanınızı gönderin ve üç skor tablosunda da puan alın.", &inner)
+<script src="/static/harness.js?v=3" defer></script>"##
+    );
+    harness_shell(
+        user,
+        "main",
+        "10 dakikalık sürümlenmiş koşuda üç bağımsız benchmark.",
+        &inner,
+    )
 }
 
 /// History tab: every run of the viewer's team — which commit went in, what it scored.
-pub fn agentic_harness_history(user: &User, team: Option<&HarnessTeam>, runs: &[HarnessRun]) -> String {
+pub fn agentic_harness_history(
+    user: &User,
+    team: Option<&HarnessTeam>,
+    runs: &[HarnessRun],
+    official_enabled: bool,
+    credential_username: Option<&str>,
+    official: &[HarnessKaggleSubmission],
+) -> String {
     let fmt = |v: Option<f32>| v.map(|v| format!("{v:.1}")).unwrap_or_else(|| "—".into());
-    let inner = if team.is_none() {
+    let credential_panel = if team.is_none() {
+        String::new()
+    } else if !official_enabled {
+        r##"<section class="panel harness-official"><h2>Official Kaggle</h2>
+  <p class="muted">Resmi gönderim bu sunucuda yapılandırılmamış. Yerel skorlar etkilenmez.</p>
+</section>"##
+            .to_string()
+    } else {
+        let current = credential_username.map(|username| format!(
+            r##"<p class="fieldnote">Kayıtlı hesap: <b>{}</b>. Token hiçbir zaman tekrar gösterilmez.</p>
+<form method="post" action="/agentic-harness/kaggle/credentials/delete" class="inline"
+      onsubmit="return confirm('Kayıtlı Kaggle tokenı silinsin mi?')">
+  <button class="btn-outline" type="submit">Tokenı sil</button>
+</form>"##, esc(username))).unwrap_or_else(||
+            "<p class='fieldnote'>Henüz Kaggle hesabı kaydedilmedi.</p>".into());
+        format!(
+            r##"<section class="panel harness-official"><h2>Official Kaggle</h2>
+  <p>ARC-AGI-3 public yarışmasına gönderim yerel harness'ten ayrıdır ve yalnızca aşağıdaki
+  düğmeye bastığınızda başlar. Resmi skor yerel sıralamayı değiştirmez.</p>
+  {current}
+  <form method="post" action="/agentic-harness/kaggle/credentials" class="subform kaggle-credentials">
+    <input name="username" autocomplete="username" placeholder="Kaggle kullanıcı adı" required>
+    <input name="token" type="password" autocomplete="new-password" placeholder="Kaggle API token" required>
+    <button class="btn-dark">Tokenı kaydet / değiştir</button>
+  </form>
+</section>"##
+        )
+    };
+    let history = if team.is_none() {
         "<p class='muted'>Henüz bir takımda değilsin — eğitmenine yaz.</p>".to_string()
     } else if runs.is_empty() {
         "<p class='muted'>Henüz gönderim yok.</p>".to_string()
@@ -548,9 +868,38 @@ pub fn agentic_harness_history(user: &User, team: Option<&HarnessTeam>, runs: &[
             let log = r.error_log.as_deref().filter(|l| !l.trim().is_empty())
                 .map(|l| format!(r#"<details class="plan-details"><summary>Günlük</summary><pre class="plan-pre">{}</pre></details>"#, esc(l)))
                 .unwrap_or_else(|| "—".into());
+            let official_cell = match official.iter().find(|submission| submission.run_id == r.id) {
+                Some(submission) => {
+                    let (official_label, official_class) = harness_kaggle_status(&submission.status);
+                    let score = match (submission.public_score, submission.private_score) {
+                        (None, None) => String::new(),
+                        (public, private) => format!("<small>public {} · private {}</small>", fmt(public), fmt(private)),
+                    };
+                    let kernel = submission.kernel_slug.as_deref()
+                        .filter(|slug| slug.split('/').count() == 2 && slug.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '-' | '_')))
+                        .map(|slug| format!(r#"<a href="https://www.kaggle.com/code/{slug}" target="_blank" rel="noopener">notebook v{}</a>"#,
+                            submission.kernel_version.unwrap_or(0)))
+                        .unwrap_or_default();
+                    let message = submission.status_message.as_deref().filter(|v| !v.is_empty())
+                        .map(|v| format!("<small>{}</small>", esc(v))).unwrap_or_default();
+                    let reference = submission.submission_ref.as_deref().filter(|v| !v.is_empty())
+                        .map(|v| format!("<small><code>{}</code></small>", esc(v))).unwrap_or_default();
+                    let retry = if submission.status == "failed" && credential_username.is_some() {
+                        format!(r#"<form method="post" action="/agentic-harness/kaggle/submit">
+  <input type="hidden" name="run_id" value="{}"><button class="btn-outline">Tekrar gönder</button></form>"#, r.id)
+                    } else { String::new() };
+                    format!(r#"<div class="official-state"><span class="substatus {official_class}">{official_label}</span>{score}{kernel}{message}{reference}<small>{}</small>{retry}</div>"#,
+                        submission.updated_at.format("%d.%m.%Y %H:%M"))
+                }
+                None if official_enabled && credential_username.is_some() && r.benchmark_version == HARNESS_VERSION
+                    && r.score_arc.is_some() && r.commit_sha.is_some() => format!(
+                    r#"<form method="post" action="/agentic-harness/kaggle/submit" onsubmit="return confirm('Bu commit ARC-AGI-3 public yarışmasına gönderilsin mi?')">
+  <input type="hidden" name="run_id" value="{}"><button class="btn-outline">Resmi gönder</button></form>"#, r.id),
+                _ => "—".into(),
+            };
             format!(
                 "<tr><td>{date}</td><td>{commit}</td><td><span class=\"substatus {class}\">{label}</span></td>\
-                 <td>{arc}</td><td>{frontier}</td><td>{r1}</td><td>{r10}</td><td>{log}</td></tr>",
+                 <td>{arc}</td><td>{frontier}</td><td>{r1}</td><td>{r10}</td><td>{official_cell}</td><td>{log}</td></tr>",
                 date = r.created_at.format("%d.%m.%Y %H:%M"),
                 arc = fmt(r.score_arc), frontier = fmt(r.score_frontier),
                 r1 = fmt(r.ram_1session_mb), r10 = fmt(r.ram_10session_mb),
@@ -558,11 +907,17 @@ pub fn agentic_harness_history(user: &User, team: Option<&HarnessTeam>, runs: &[
         }).collect();
         format!(
             r##"<section class="panel wide">
-  <table><tr><th>Tarih</th><th>Commit</th><th>Durum</th><th lang="en">ARC-AGI-3</th><th lang="en">Frontier-bench</th><th>RAM 1 oturum (MB)</th><th>RAM 10 oturum (MB)</th><th></th></tr>{table_rows}</table>
-</section>"##)
+  <table><tr><th>Tarih</th><th>Commit</th><th>Durum</th><th lang="en">ARC-AGI-3</th><th lang="en">Frontier Sprint</th><th>RAM 1 oturum (MB)</th><th>RAM 10 oturum (MB)</th><th>Official Kaggle</th><th></th></tr>{table_rows}</table>
+</section>"##
+        )
     };
-    harness_shell(user, "history",
-        "Hangi commit hangi puanı aldı — takımınızın her çalıştırması burada listelenir.", &inner)
+    let inner = format!("{credential_panel}{history}");
+    harness_shell(
+        user,
+        "history",
+        "Hangi commit hangi puanı aldı — yerel ve açıkça başlatılan resmi gönderimler burada listelenir.",
+        &inner,
+    )
 }
 
 /// Instructions tab — the submission rules. Turkish prose via Google Translate API
@@ -587,20 +942,19 @@ pub fn agentic_harness_instructions(user: &User) -> String {
 │   ├── my_agent.py       # ARC-AGI-3: class MyAgent(Agent)
 │   ├── harbor_agent.py   # Frontier-bench: class HarborAgent(BaseAgent)
 │   └── ...               # geri kalanı size kalmış
-├── main.py               # duman testi giriş noktası
+├── main.py               # RAM-bench oturum giriş noktası
 └── requirements.txt      # bağımlılıklar</pre>
-  <p><code>main.py</code> ajanınızın bağımsız bir oturumudur. Harness onu iki kez çalıştırır:
-  bir kez <b>building</b> aşamasında (60 saniye içinde başarıyla çıkması gerekir) ve bir kez de
-  <b lang="en">RAM-bench</b> için.</p>
+  <p><code>main.py</code> ajanınızın bağımsız RAM oturumudur. Standart prompt'u stdin'den okur,
+  stdout'a boş olmayan bir yanıt yazar ve 10 saniyelik sert sınır içinde başarıyla çıkar.</p>
 </section>
 <section class="panel">
   <h2 lang="en">RAM-bench</h2>
   <p><span lang="en">RAM-bench</span> kendi başına bir benchmark'tır ve diğer ikisiyle hiçbir
   ilgisi yoktur. <code>main.py</code>'yi önce 1 oturum, ardından 10 eşzamanlı oturum olarak
-  çalıştırıyoruz ve toplam belleği (<span lang="en">PSS</span>) sabit 30 saniyelik bir pencere
-  boyunca örnekliyoruz; zirve değer puanınızdır. Bu ölçüm sırasında
-  <code>HARNESS_RAM_PROBE=1</code> ayarlanır. <code>main.py</code>'nin yaptığı her şey ölçülür,
-  bu yüzden ajanınızın gerçek işinden temsili bir dilim çalıştırın. Daha düşük olması daha iyidir.</p>
+  aynı sabit prompt ile çalıştırıyoruz. Her senaryo en fazla 10 saniye sürer. Tek konteyner
+  cgroup'undaki tüm alt süreçlerin toplam belleğini (<span lang="en">PSS</span>) 20 ms'de bir
+  örnekliyoruz; zirve değer puanınızdır. Her oturum tam bir LLM isteği yapmalıdır ve
+  <code>main.py</code>'nin yaptığı her şey ölçülür. Daha düşük olması daha iyidir.</p>
 </section>
 <section class="panel">
   <h2 lang="en">agent/my_agent.py — ARC-AGI-3</h2>
@@ -614,9 +968,8 @@ pub fn agentic_harness_instructions(user: &User) -> String {
   <pre class="plan-pre" lang="en">from agents.templates.llm_agents import LLM
 
 class MyAgent(LLM):
-    MAX_ACTIONS = 200
     MODEL = os.environ["HARNESS_LLM_MODEL"]
-    MODEL_REQUIRES_TOOLS = True     # gemma yanıtı tool_calls ile döner
+    MODEL_REQUIRES_TOOLS = True
     DO_OBSERVATION = False          # True = her eylem öncesi ek bir düşünme çağrısı
 
     def build_user_prompt(self, latest_frame) -> str:
@@ -624,38 +977,70 @@ class MyAgent(LLM):
   <p>Sıfırdan yazmak isterseniz <code>agents.agent.Agent</code>'ı devralıp
   <code>choose_action(frames, latest_frame)</code> ve <code>is_done(...)</code> metotlarını
   kendiniz yazın.</p>
+  <p>Yerel puan, sabitlenmiş <code>arc-agi==0.9.9</code> public veri setindeki 10 oyunun
+  paralel çalıştırılan ortalamasıdır. Harness eylem sayısına yapay bir sınır koymaz: oyun
+  kazanıldığında veya ölüm/hamle tükenmesiyle <code>GAME_OVER</code> olduğunda biter. On oyunun
+  tamamı, çalıştırmanın ortak 10 dakikalık sınırına tabidir.</p>
   <p>Uç nokta size <code lang="en">OPENAI_BASE_URL</code> ve <code lang="en">OPENAI_API_KEY</code>
   ile verilir; <span lang="en">OpenAI SDK</span> bunları kendi kendine okur.
   <span lang="en">LLM</span> şablonunu devralırsanız <code>requirements.txt</code> dosyanıza
   <code lang="en">openai</code> ekleyin.</p>
+  <p><b>Token maliyeti:</b> varsayılan çerçeve kodlaması her satırı bir
+  <span lang="en">Python</span> listesi olarak yazdırır ve bu, çağrı başına yaklaşık 52 bin
+  token'a mal olur. <code>pretty_print_3d</code>'yi hücre başına bir karakter yazacak şekilde
+  geçersiz kılmak, hiçbir bilgi kaybı olmadan bunu kabaca beş kat azaltır.</p>
+  <p><b>Hız hedefi:</b> Tüm aktif oyunlar birlikte 30 saniyede 100 tamamlanmış ajan turunu
+  hedefler; oyunlar bittikçe hedef aktif oyun sayısıyla orantılı azalır. İki ardışık düşük
+  pencere gönderimi cezalandırmaz, çalıştırmayı altyapı hatası olarak işaretler.</p>
 </section>
 <section class="panel">
-  <h2 lang="en">agent/harbor_agent.py — Frontier-bench</h2>
-  <p>Bu dosya <span lang="en">Frontier-bench (Harbor)</span> ortamının içinde çalışır. Her görevi,
-  yalıtılmış bir konteyner içinde kabuk komutları çalıştırarak çözer. Önemli: bu dosya yalnızca
-  Python standart kütüphanesini kullanabilir — <code>requirements.txt</code> onun için yüklenmez.
-  LLM'yi <code>urllib</code> ile çağırın ve bir <code lang="en">User-Agent</code> başlığı
-  ekleyin — varsayılan başlık 403 ile reddedilir.</p>
-  <pre class="plan-pre" lang="en">from harbor.agents.base import BaseAgent
+  <h2 lang="en">agent/harbor_agent.py — Frontier Sprint</h2>
+  <p>Bu dosya <span lang="en">Frontier Sprint (Harbor)</span> ortamının içinde çalışır. Her görevi,
+  yalıtılmış bir konteyner içinde kabuk komutları çalıştırarak çözer.</p>
+  <p>En kolay yol, <span lang="en">Harbor</span> içinde hazır gelen referans terminal ajanı
+  <span lang="en">Terminus 2</span>'yi devralmaktır: konteynerde bir <span lang="en">tmux</span>
+  oturumu, araç çağrısı protokolü ve bağlam özetleme — hepsi ayarlanmış durumda.
+  Siz yalnızca ayarları değiştirirsiniz.</p>
+  <pre class="plan-pre" lang="en">from harbor.agents.terminus_2 import Terminus2
 
-class HarborAgent(BaseAgent):
+class HarborAgent(Terminus2):
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault("max_turns", 40)
+        kwargs.setdefault("temperature", 0.0)
+        super().__init__(*args, **kwargs)
+
     @staticmethod
     def name() -> str: return "takim-ajani"
-    def version(self) -> str: return "1.0"
-    async def setup(self, environment): pass
-    async def run(self, instruction, environment, context):
-        # environment.exec("komut") ile görevi çöz
-        ...</pre>
+    def version(self) -> str: return "1.0"</pre>
+  <p>Sıfırdan yazmak isterseniz <code lang="en">harbor.agents.base.BaseAgent</code>'ı devralıp
+  <code>name()</code>, <code>version()</code>, <code>setup()</code> ve <code>run()</code>
+  metotlarını yazın; görevi <code>environment.exec("komut")</code> ile çözersiniz.</p>
+  <p>Önemli: bu dosya <span lang="en">Harbor</span>'ın kendi Python'unda çalışır, yani
+  <code>requirements.txt</code> onun için <b>yüklenmez</b> — yalnızca
+  <span lang="en">Harbor</span>'ın kendi paketlerini ve standart kütüphaneyi içe aktarabilirsiniz.
+  Model, çalıştırıcı tarafından verilir; deponuzda hiçbir anahtar durmaz. Kendi
+  <span lang="en">HTTP</span> çağrınızı <code>urllib</code> ile yazarsanız bir
+  <code lang="en">User-Agent</code> başlığı ekleyin — varsayılan başlık 403 ile reddedilir.</p>
+  <p>Sprint tam Frontier-bench değildir: sürümlenmiş beş görev aynı anda başlar. Her ajanın
+  sert süresi 120 saniye, doğrulayıcının süresi 60 saniyedir. İki dakika bilinçli bir sprint
+  bütçesidir; derin görevler zaman aşımına uğrayabilir ve bu puanın parçasıdır. Hız hedefi,
+  tüm aktif görevlerde toplam 100 tur / 30 saniyedir.</p>
 </section>
 <section class="panel">
   <h2>LLM erişimi</h2>
-  <p>Ajanınız çalışırken LLM erişimini ortam değişkenleri olarak enjekte ederiz.
-  API anahtarlarını asla deponuza koymayın.</p>
+  <p>Tüm LLM çağrıları AWS Bedrock application inference profile üzerinden, harness'ın yerel
+  OpenAI uyumlu geçidiyle gider. AWS kimlik bilgileri konteynere verilmez; geçici yerel anahtar
+  yalnızca bu geçide erişir. API anahtarlarını asla deponuza koymayın.</p>
   <table><tr><th>Değişken</th><th>Açıklama</th></tr>
     <tr><td><code>HARNESS_LLM_BASE</code></td><td><span lang="en">OpenAI</span> uyumlu API adresi</td></tr>
     <tr><td><code>HARNESS_LLM_KEY</code></td><td>API anahtarı</td></tr>
     <tr><td><code>HARNESS_LLM_MODEL</code></td><td>Model adı</td></tr>
+    <tr><td><code lang="en">OPENAI_BASE_URL</code> / <code lang="en">OPENAI_API_KEY</code></td>
+      <td>Aynı adres ve anahtar, <span lang="en">OpenAI SDK</span>'nın okuduğu isimlerle —
+      <code>agent/my_agent.py</code> için</td></tr>
   </table>
+  <p><code>agent/harbor_agent.py</code> bu değişkenleri kullanmaz: modeli
+  <span lang="en">Harbor</span>'ın <code>-m</code> parametresiyle çalıştırıcı verir.</p>
 </section>
 <section class="panel">
   <h2>Kurallar</h2>
@@ -663,12 +1048,20 @@ class HarborAgent(BaseAgent):
     <li>Tüm bağımlılıklar <code>requirements.txt</code> dosyasında listelenmelidir.</li>
     <li>Ajanın başsız (<span lang="en">headless</span>) çalışması gerekir: GUI penceresi ve
     etkileşimli bilgi istemi yok.</li>
-    <li><span lang="en">Frontier-bench</span>, görev başına bir denemeyle 70 görevi (4 GPU görevi
-    hariç) çalıştırır. Puan, çözülen görevlerin yüzdesidir. Tam bir çalıştırma saatler sürebilir —
-    aşama göstergesinin altındaki ilerleme satırı mevcut görevi canlı olarak gösterir.</li>
-    <li><code>main.py</code> 60 saniye içinde başarıyla çıkmalıdır, yoksa gönderim
-    <b>building</b> aşamasında başarısız olur.</li>
+    <li><span lang="en">Frontier Sprint</span>, sürümlenmiş 5 görevi paralel ve görev başına
+    tek denemeyle çalıştırır. Puan, doğrulayıcı ödüllerinin 0–100 ortalamasıdır.</li>
+    <li>RAM, ARC ve Frontier bağımsız sonuç verir. Biri başarısız olsa bile biten benchmark'ın
+    puanı korunur. Tüm yerel çalıştırma hazırlık dahil en fazla 10 dakikadır.</li>
+    <li><code>requirements.txt</code> doğrudan URL, git, yerel dosya veya pip seçeneği içeremez;
+    repo 100 MiB, tek dosya 10 MiB ile sınırlıdır.</li>
   </ul>
+</section>
+<section class="panel">
+  <h2>Official Kaggle</h2>
+  <p>Geçmiş sekmesinden takımınızın Kaggle kullanıcı adı ve API tokenını şifreli olarak
+  kaydedebilirsiniz. Yalnızca açıkça “Resmi gönder” düğmesine bastığınızda, yerelde puanlanan
+  tam commit official ARC-AGI-3 public yarışma notebook'una paketlenir. Kaggle puanlaması
+  asenkron izlenir ve yerel sıralamayı değiştirmez. Token hiçbir zaman ajan konteynerine girmez.</p>
 </section>
 <section class="panel">
   <h2>Örnek repo ve bağlantılar</h2>
@@ -682,24 +1075,678 @@ class HarborAgent(BaseAgent):
   </ul>
 </section>
 </div>"##;
-    harness_shell(user, "instructions", "Gönderim kuralları — repo yapısı ve değerlendirme süreci.", inner)
+    harness_shell(
+        user,
+        "instructions",
+        "Gönderim kuralları — repo yapısı ve değerlendirme süreci.",
+        inner,
+    )
 }
 
-pub fn ai_monopoly(user: &User) -> String {
-    layout("AI Monopoly", Some(user), "ai-monopoly", r##"
-<h1>AI Monopoly — 2. Hafta</h1>
-<p class="muted">Yakında burada.</p>"##)
+// ---- AI Monopoly ----
+
+/// (tab key, href, label). "Instructions" stays English, matching the harness.
+const MONOPOLY_TABS: [(&str, &str, &str); 4] = [
+    ("main", "/ai-monopoly", "Gönderim ve Sıralama"),
+    ("live", "/ai-monopoly?tab=live", "Canlı"),
+    ("history", "/ai-monopoly?tab=history", "Geçmiş"),
+    (
+        "instructions",
+        "/ai-monopoly?tab=instructions",
+        "Instructions",
+    ),
+];
+
+fn monopoly_shell(user: &User, tab: &str, sub: &str, inner: &str) -> String {
+    let chips: String = MONOPOLY_TABS
+        .iter()
+        .map(|(k, href, label)| {
+            let active = if tab == *k { "active" } else { "" };
+            format!(r#"<a class="chip {active}" href="{href}">{label}</a>"#)
+        })
+        .collect();
+    layout(
+        "AI Monopoly",
+        Some(user),
+        "ai-monopoly",
+        &format!(
+            r##"<h1 class="pagetitle" lang="en">AI Monopoly</h1>
+<p class="muted">{sub}</p>
+<div class="chips">{chips}</div>
+{inner}"##
+        ),
+    )
+}
+
+/// ₺ with Turkish thousands separators (1.234 ₺). Used everywhere money is shown so the
+/// arena, the standings and the history tab can't drift apart on formatting.
+fn money(v: i32) -> String {
+    let digits = v.unsigned_abs().to_string();
+    let mut out = String::new();
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i) % 3 == 0 {
+            out.push('.');
+        }
+        out.push(c);
+    }
+    format!("{}{} ₺", if v < 0 { "-" } else { "" }, out)
+}
+
+/// The standings list, shared by the main tab and the arena's sidebar. `my_team` gets
+/// the `.mine` highlight, same convention as the points leaderboard.
+fn monopoly_standings_rows(standings: &[MonopolyStandingRow], my_team: Option<Uuid>) -> String {
+    if standings.is_empty() {
+        return "<p class='muted'>Turnuva başlayınca sıralama burada görünecek.</p>".into();
+    }
+    let ranks = dense_ranks_by(standings, |r| r.net_worth().to_string());
+    standings
+        .iter()
+        .zip(ranks)
+        .map(|(r, rank)| {
+            let medal = match rank {
+                1 => "m1",
+                2 => "m2",
+                3 => "m3",
+                _ => "",
+            };
+            let mine = if Some(r.team_id) == my_team {
+                "mine"
+            } else {
+                ""
+            };
+            format!(
+                r##"<div class="lbrow {medal} {mine}">
+  <span class="lbrank">{rank}</span>
+  <span class="lbname">{char}<span class="lbmeta">{team} · {product}</span></span>
+  <span class="lbpts">{net}<span class="lbmeta">{cash} nakit · {goods} mal</span></span>
+</div>"##,
+                char = esc(&r.char_name),
+                team = esc(&r.team_name),
+                product = esc(&r.product_name),
+                net = money(r.net_worth()),
+                cash = money(r.cash),
+                goods = money(r.goods)
+            )
+        })
+        .collect()
+}
+
+pub fn monopoly_main(
+    user: &User,
+    team: Option<&MonopolyTeam>,
+    members: &[TeamMemberRow],
+    entry: Option<&MonopolyEntry>,
+    tournament: Option<&MonopolyTournament>,
+    standings: &[MonopolyStandingRow],
+    practice: &[MonopolyMatchRow],
+) -> String {
+    let running = tournament.is_some_and(|t| t.status != "done" && t.status != "failed");
+    let left = match team {
+        None => r##"<div class="panel">
+  <h2>Takımın yok</h2>
+  <p class="muted">Bu bölüm takım hâlinde oynanır. Eğitmenine yaz, seni bir takıma eklesin.</p>
+</div>"##
+            .to_string(),
+        Some(t) => {
+            let roster: String = members
+                .iter()
+                .filter(|m| m.team_id == t.id)
+                .map(|m| format!(r#"<span class="chip">{}</span>"#, esc(&m.display_name)))
+                .collect();
+            // Prefill from the current entry so "change one field" doesn't mean retyping
+            // the whole merchant.
+            let v = |s: Option<&str>| esc(s.unwrap_or(""));
+            let (repo, char_name, product_name, product_desc, persona) = (
+                v(entry.map(|e| e.hf_repo.as_str())),
+                v(entry.map(|e| e.char_name.as_str())),
+                v(entry.map(|e| e.product_name.as_str())),
+                v(entry.map(|e| e.product_desc.as_str())),
+                v(entry.map(|e| e.persona.as_str())),
+            );
+            let price = entry.map(|e| e.list_price).unwrap_or(100);
+            let current = match entry {
+                Some(e) => format!(
+                    r##"<p class="fieldnote">Şu anki gönderim: <b>{char}</b> — {product} · {price}
+                    · <span lang="en">{repo}</span>{size} · {when} tarihinde güncellendi.</p>"##,
+                    char = esc(&e.char_name),
+                    product = esc(&e.product_name),
+                    price = money(e.list_price),
+                    repo = esc(&e.hf_repo),
+                    size = match e.size_bytes {
+                        Some(b) => format!(" · {:.1} GiB", b as f64 / (1024.0 * 1024.0 * 1024.0)),
+                        None => String::new(),
+                    },
+                    when = e.updated_at.format("%d.%m.%Y %H:%M")
+                ),
+                None => r##"<p class="fieldnote">Henüz gönderim yok. Modelini
+                    <span lang="en">Hugging Face</span>'e yükle, kimliğini buraya yapıştır.</p>"##
+                    .to_string(),
+            };
+            let form = if running {
+                r##"<p class="muted">Turnuva sürerken gönderim değiştirilemez.</p>"##.to_string()
+            } else {
+                format!(
+                    r##"<form method="post" action="/ai-monopoly/submit">
+    <label>Model (<span lang="en">Hugging Face</span>)<input name="hf_repo" placeholder="org/model" value="{repo}" required></label>
+    <p class="fieldnote">Depo herkese açık olmalı, ağırlıklar <span lang="en">bf16 safetensors</span>
+    — nicemleme (<span lang="en">quantization</span>, <span lang="en">GGUF</span>) kabul edilmiyor.</p>
+    <label>Karakter adı<input name="char_name" maxlength="40" value="{char_name}" required></label>
+    <label>Ürün adı<input name="product_name" maxlength="60" value="{product_name}" required></label>
+    <label>Ürün açıklaması<textarea name="product_desc" rows="3" maxlength="300" required>{product_desc}</textarea></label>
+    <label>Fiyat (₺)<input name="list_price" type="number" min="1" max="100000" value="{price}" required></label>
+    <label>Karakter tanımı<textarea name="persona" rows="5" maxlength="1500" required>{persona}</textarea></label>
+    <p class="fieldnote">Karakter tanımı modelin sistem promptuna girer. Konuşmalar
+    <span lang="en">İngilizce</span> geçer — bu alanları da <span lang="en">İngilizce</span> yaz.</p>
+    <button class="btn-dark">Gönder</button>
+  </form>"##
+                )
+            };
+            // Practice needs a submission to practise with, and is closed while the
+            // tournament runs — the GPUs are busy and the entry is frozen anyway.
+            let practice_panel = if entry.is_none() {
+                String::new()
+            } else {
+                let rows: String = practice.iter().map(|p| {
+                    let (label, class) = match p.status.as_str() {
+                        "done" => ("Bitti", "st-passed"),
+                        "failed" => ("Başarısız", "st-failed"),
+                        "queued" => ("Sırada", "st-reviewing"),
+                        _ => ("Sürüyor", "st-reviewing"),
+                    };
+                    let body = format!(
+                        r##"<span class="lbname">{a} ↔ {b}<span class="lbmeta">{date}</span></span>
+  <span class="lbpts"><span class="substatus {class}">{label}</span></span>"##,
+                        a = esc(&p.a_name), b = esc(&p.b_name),
+                        date = p.created_at.format("%d.%m %H:%M"));
+                    // only a finished conversation has anything to open
+                    if p.status == "done" {
+                        format!(r#"<a class="lbrow" href="/ai-monopoly/match/{}">{body}</a>"#, p.id)
+                    } else {
+                        format!(r#"<div class="lbrow">{body}</div>"#)
+                    }
+                }).collect();
+                let button = if running {
+                    r##"<p class="fieldnote">Turnuva sürerken antrenman yapılamaz.</p>"##
+                        .to_string()
+                } else {
+                    r##"<form method="post" action="/ai-monopoly/practice">
+      <button class="btn-outline">Antrenman maçı başlat</button>
+    </form>"##
+                        .to_string()
+                };
+                format!(
+                    r##"<div class="panel">
+  <h2>Antrenman</h2>
+  <p class="fieldnote">Başka bir takımın modeline karşı deneme konuşması. Rakip, gerçek
+  kimliği yerine uydurma bir tüccar olarak çıkar — sonuçlar sıralamayı etkilemez.</p>
+  {button}
+  <div class="lb practicelist">{rows}</div>
+</div>"##
+                )
+            };
+            format!(
+                r##"<div class="panel">
+  <h2>{team}</h2>
+  <div class="chips">{roster}</div>
+  {current}
+  {form}
+</div>
+{practice_panel}"##,
+                team = esc(&t.name)
+            )
+        }
+    };
+    let status_line = match tournament {
+        Some(t) if t.status != "done" && t.status != "failed" => {
+            let (label, _) = monopoly_status_tr(&t.status);
+            format!(
+                "Turnuva sürüyor — tur {}/{} · {label}",
+                t.round, t.rounds_total
+            )
+        }
+        Some(t) if t.status == "done" => "Turnuva bitti — kazanan en üstte.".to_string(),
+        _ => "Turnuva henüz başlamadı.".to_string(),
+    };
+    let inner = format!(
+        r##"<div class="harnesswrap">
+<div class="harness-left">{left}</div>
+<div class="harness-right">
+  <p class="muted">{status_line}</p>
+  <div class="lb">{rows}</div>
+  <p class="lbnote">Sıralama servet = nakit + mal. Mal, hakemin o ürüne biçtiği değerdir.</p>
+</div>
+</div>"##,
+        rows = monopoly_standings_rows(standings, team.map(|t| t.id))
+    );
+    monopoly_shell(
+        user,
+        "main",
+        "Modelini gönder, karakterini yaz, pazarlığı izle.",
+        &inner,
+    )
+}
+
+/// The arena. Everything inside `#arena` is (re)built by monopoly.js from the poll
+/// payload — the server renders only the frame and the idle state, so there is exactly
+/// one implementation of a match view and it lives in the JS.
+pub fn monopoly_live(
+    user: &User,
+    tournament: Option<&MonopolyTournament>,
+    standings: &[MonopolyStandingRow],
+) -> String {
+    let running = tournament.is_some_and(|t| t.status != "done" && t.status != "failed");
+    // Idle is a real state, not an empty page: say where the game is and where to look.
+    let idle = match tournament {
+        None => r##"<div class="arena-idle">
+  <h2>Turnuva henüz başlamadı</h2>
+  <p class="muted">Takımlar modellerini gönderiyor. Başladığında konuşmalar burada canlı akacak.</p>
+  <a class="btn-outline" href="/ai-monopoly?tab=instructions">Kuralları oku</a>
+</div>"##
+            .to_string(),
+        Some(t) if t.status == "done" => {
+            let winner = standings
+                .first()
+                .map(|w| {
+                    format!(
+                        "<p class=\"arena-winner\">🏆 {} — {}</p>",
+                        esc(&w.char_name),
+                        money(w.net_worth())
+                    )
+                })
+                .unwrap_or_default();
+            format!(
+                r##"<div class="arena-idle">
+  <h2>Turnuva bitti</h2>
+  {winner}
+  <a class="btn-outline" href="/ai-monopoly?tab=history">Konuşmaları oku</a>
+</div>"##
+            )
+        }
+        Some(t) => format!(
+            r##"<div class="arena-idle">
+  <h2>{label}</h2>
+  <p class="muted">{progress}</p>
+</div>"##,
+            label = monopoly_status_tr(&t.status).0,
+            progress = esc(t.progress.as_deref().unwrap_or("Birazdan başlıyor…"))
+        ),
+    };
+    let inner = format!(
+        r##"<div class="arenawrap">
+  <div id="arena" class="arena" data-live="{live}">{idle}</div>
+  <aside class="arena-side">
+    <p class="muted">Sıralama</p>
+    <div class="lb" id="arena-standings">{rows}</div>
+  </aside>
+</div>
+<script src="/static/monopoly.js?v=2" defer></script>"##,
+        live = running,
+        rows = monopoly_standings_rows(standings, None)
+    );
+    monopoly_shell(
+        user,
+        "live",
+        "İki model karşı karşıya — konuşma bitince hakem parayı böler.",
+        &inner,
+    )
+}
+
+pub fn monopoly_history(
+    user: &User,
+    tournament: Option<&MonopolyTournament>,
+    matches: &[MonopolyMatchRow],
+) -> String {
+    let done = tournament.is_some_and(|t| t.status == "done");
+    let rows: String = if matches.is_empty() {
+        "<p class='muted'>Henüz tamamlanmış konuşma yok.</p>".into()
+    } else {
+        // the list is already ordered by round descending; a heading each time the round
+        // changes is enough grouping, and needs no second pass over the rows
+        let mut round = -1;
+        matches
+            .iter()
+            .map(|m| {
+                let head = if m.round != round {
+                    round = m.round;
+                    format!(r#"<p class="roundhead">Tur {round}</p>"#)
+                } else {
+                    String::new()
+                };
+                let kind = match m.kind.as_str() {
+                    "mandatory" => "Eşleşme",
+                    "chosen" => "Davet",
+                    _ => "Deneme",
+                };
+                let (label, class) = match m.status.as_str() {
+                    "done" => ("Bitti", "st-passed"),
+                    "failed" => ("Başarısız", "st-failed"),
+                    _ => ("Sürüyor", "st-reviewing"),
+                };
+                format!(
+                    r##"{head}<a class="lbrow" href="/ai-monopoly/match/{id}">
+  <span class="lbname">{a} ↔ {b}<span class="lbmeta">{kind} · {date}</span></span>
+  <span class="lbpts"><span class="substatus {class}">{label}</span></span>
+</a>"##,
+                    head = head,
+                    id = m.id,
+                    a = esc(&m.a_name),
+                    b = esc(&m.b_name),
+                    kind = kind,
+                    date = m.created_at.format("%d.%m %H:%M"),
+                    class = class,
+                    label = label
+                )
+            })
+            .collect()
+    };
+    let note = if done {
+        "Turnuva bittiği için modellerin birbiri hakkında tuttuğu notlar da açık."
+    } else {
+        "Modellerin birbiri hakkında tuttuğu notlar turnuva bitince açılacak."
+    };
+    let inner = format!(
+        r##"<div class="lb">{rows}</div>
+<p class="lbnote">{note}</p>"##
+    );
+    monopoly_shell(
+        user,
+        "history",
+        "Bütün konuşmalar, hakem kararları ve para akışı.",
+        &inner,
+    )
+}
+
+/// One conversation, replayed. Both languages ship in the same markup and the toggle
+/// flips a class on the wrapper — no second request, and the English original is always
+/// one click away from the translation.
+pub fn monopoly_match(
+    user: &User,
+    m: &MonopolyMatchRow,
+    msgs: &[MonopolyMessage],
+    msgs_tr: &[String],
+    txs: &[MonopolyTxRow],
+    txs_tr: &[String],
+    notes: &[MonopolyNoteRow],
+    notes_tr: &[String],
+    reveal: bool,
+) -> String {
+    let translated = !msgs_tr.is_empty();
+    /// Both languages in the markup; CSS shows one. Empty translation falls back to the
+    /// English, which is what an untranslatable or un-keyed match ends up rendering.
+    fn pair(en: &str, tr: Option<&String>) -> String {
+        match tr.filter(|t| !t.is_empty()) {
+            Some(t) => format!(
+                r#"<span class="en">{}</span><span class="tr">{}</span>"#,
+                esc(en),
+                esc(t)
+            ),
+            None => esc(en),
+        }
+    }
+    let bubbles: String = msgs
+        .iter()
+        .enumerate()
+        .map(|(i, x)| {
+            let (side, who) = if x.speaker == "a" {
+                ("l", &m.a_name)
+            } else {
+                ("r", &m.b_name)
+            };
+            let turkish = match msgs_tr.get(i).filter(|t| !t.is_empty()) {
+                Some(t) => format!(r#"<div class="say tr">{}</div>"#, esc(t)),
+                None => String::new(),
+            };
+            format!(
+                r##"<div class="bub {side}">
+  <div class="who">{who}</div>
+  <div class="say en">{en}</div>
+  {turkish}
+</div>"##,
+                who = esc(who),
+                en = esc(&x.content)
+            )
+        })
+        .collect();
+
+    let verdict = if txs.is_empty() {
+        "<p class='muted'>Hakem: satış yok — anlaşma çıkmadı.</p>".to_string()
+    } else {
+        let rows: String = txs
+            .iter()
+            .enumerate()
+            .map(|(i, t)| {
+                let s = t.surplus();
+                format!(
+                    r##"<div class="vrow">
+  <span class="vflow">{seller} → {buyer}</span>
+  <span class="vitem">{item}</span>
+  <span class="vprice">{price}</span>
+  <span class="vsurp {cls}">{sign}{surp}</span>
+</div>{why}"##,
+                    seller = esc(&t.seller_name),
+                    buyer = esc(&t.buyer_name),
+                    item = esc(&t.item),
+                    price = money(t.price),
+                    cls = if s >= 0 { "ok" } else { "bad" },
+                    sign = if s >= 0 { "+" } else { "" },
+                    surp = money(s),
+                    why = match &t.reasoning {
+                        Some(r) if !r.is_empty() =>
+                            format!(r#"<p class="vwhy">{}</p>"#, pair(r, txs_tr.get(i))),
+                        _ => String::new(),
+                    }
+                )
+            })
+            .collect();
+        format!(r##"<h3>Hakem kararı</h3>{rows}"##)
+    };
+
+    let notes_block = if !reveal {
+        r##"<p class="lbnote">Modellerin birbiri hakkında tuttuğu notlar turnuva bitince açılacak.</p>"##.to_string()
+    } else if notes.is_empty() {
+        r##"<p class="lbnote">Bu konuşmadan not çıkmadı.</p>"##.to_string()
+    } else {
+        let rows: String = notes
+            .iter()
+            .enumerate()
+            .map(|(i, n)| {
+                format!(
+                    r##"<div class="noterow">
+  <span class="notewho">{author} → {about}</span>
+  <p class="notetext">{note}</p>
+</div>"##,
+                    author = esc(&n.author_name),
+                    about = esc(&n.about_name),
+                    note = pair(&n.note, notes_tr.get(i))
+                )
+            })
+            .collect();
+        format!(r##"<div class="panel"><h2>Modellerin notları</h2>{rows}</div>"##)
+    };
+
+    let kind = match m.kind.as_str() {
+        "mandatory" => "Eşleşme",
+        "chosen" => "Davet",
+        _ => "Deneme",
+    };
+    let inner = format!(
+        r##"<p class="muted"><a href="/ai-monopoly?tab=history">← Geçmiş</a></p>
+<div class="matchhead">
+  <h2>{a} ↔ {b}</h2>
+  <p class="muted">Tur {round} · {kind} · {date}</p>
+  <div class="langtoggle">
+    <button class="chip active" data-lang="tr">Türkçe</button>
+    <button class="chip" data-lang="en" lang="en">English</button>
+  </div>
+</div>
+<div class="matchbody show-tr{no_tr}" id="replay">
+  <div class="arena-chat replay">{bubbles}</div>
+  <div class="arena-verdict">{verdict}</div>
+  {notes_block}
+</div>
+<script src="/static/monopoly.js?v=2" defer></script>"##,
+        a = esc(&m.a_name),
+        b = esc(&m.b_name),
+        round = m.round,
+        kind = kind,
+        date = m.created_at.format("%d.%m.%Y %H:%M"),
+        // with no translation the toggle would swap the transcript for nothing
+        no_tr = if translated { "" } else { " untranslated" }
+    );
+    monopoly_shell(
+        user,
+        "history",
+        "Konuşmanın tamamı, hakem kararı ve notlar.",
+        &inner,
+    )
+}
+
+/// Turkish prose, English technical terms in `lang="en"` spans, per the house convention.
+/// The paragraphs were written in English and run through DeepL rather than composed in
+/// Turkish here — same rule the transcripts follow.
+pub fn monopoly_instructions(user: &User) -> String {
+    monopoly_shell(
+        user,
+        "instructions",
+        "Gönderim kuralları ve oyunun işleyişi.",
+        r##"<div class="rulewrap">
+<section class="panel">
+  <h2>Nasıl işliyor</h2>
+  <p>Ekibiniz küçük bir dil modelini ince ayarlıyor, yayınlıyor ve ona bir tüccar karakteri
+  kazandırıyor. Turnuvada, modeliniz diğer ekiplerin modelleriyle masaya oturup pazarlık
+  yapıyor. Bir hakem modeli her bir konuşmayı inceliyor ve gerçekte neyin ne kadara
+  satıldığına karar veriyor. En zengin olan kazanır.</p>
+</section>
+
+<section class="panel">
+  <h2>Modelini gönder</h2>
+  <p>Modelinizi <span lang="en">Hugging Face</span>'te herkese açık bir depo olarak
+  yayınlayın, ardından adını <span lang="en">org/model</span> biçiminde buraya yapıştırın.
+  Sayfanın tam adresini de yapıştırabilirsiniz; adresi biz kendimiz kısaltacağız.</p>
+  <p>Gönderim yaptığınız anda deponun o anki tam <span lang="en">commit</span> durumunu
+  kaydediyoruz. Daha sonra yeni ağırlıklar gönderirseniz bile, turnuva yine de sizin
+  gönderdiğiniz sürümü kullanır. Bu nedenle, modelinizde her değişiklik yaptığınızda
+  yeniden gönderin.</p>
+  <ul class="harness-rules">
+    <li>Ağırlıklar <span lang="en">safetensors</span> formatında ve
+    <span lang="en">bf16</span> olarak olmalıdır. Kuantize edilmiş modeller ve
+    <span lang="en">GGUF</span> dosyaları kabul edilmez; çünkü kuantize edilmiş bir model
+    zayıflatılmış bir modeldir ve bu yarışmada önemli olan sıkıştırma değil, eğitim
+    sürecinizdir.</li>
+    <li>Deponun toplam boyutu en fazla 64 GB olmalıdır. Bu, <span lang="en">bf16</span>'da
+    yaklaşık 31 milyar parametreli bir modele karşılık gelir. Daha büyük depolar
+    reddedilir.</li>
+    <li><span lang="en">Tokenizer</span> yapılandırmasında bir
+    <span lang="en">chat template</span> bulunmalıdır. Bu şablon olmadan, bir sohbeti
+    modeliniz için bir komut satırına dönüştürmenin tanımlanmış bir yolu yoktur. Çoğu ince
+    ayar aracı bunu otomatik olarak ekler; eğer kullandığınız araç bunu yapmadıysa,
+    göndermeden önce ekleyin.</li>
+  </ul>
+</section>
+
+<section class="panel">
+  <h2>Tüccarını yaz</h2>
+  <p>Tüccarınızı kendiniz yazarsınız: bir karakter adı, bir ürün, o ürünün açıklaması,
+  istenen fiyat ve bir karakter tanımı. Karakter tanımı, maç sırasında modelinizin
+  <span lang="en">system prompt</span>'u haline gelir; bu nedenle bunu bize yönelik bir
+  açıklama olarak değil, modelinize yönelik bir talimat olarak yazın.</p>
+  <p>Bu alanların tümünü <span lang="en">İngilizce</span> olarak doldurun. Sohbetler
+  <span lang="en">İngilizce</span> olarak gerçekleştirilir ve tamamlanan her sohbet daha
+  sonra Türkçeye çevrilir; böylece geçmiş sekmesinden her iki versiyonu da
+  okuyabilirsiniz.</p>
+</section>
+
+<section class="panel">
+  <h2>Para nasıl işliyor</h2>
+  <p>Her esnaf, 1.000 ₺ nakit parayla başlar ve elinde mal yoktur.</p>
+  <p>Bir satış gerçekleştiğinde, üç şey aynı anda gerçekleşir. Alıcı, kararlaştırılan
+  bedeli elindeki nakit paradan öder ve asla sahip olduğu miktardan fazlasını ödeyemez.
+  Alıcı, hakemin o alıcı için gerçek değerinin ne olduğunu düşündüğü tutarda kayıt altına
+  alınmış ürünü alır. Satıcı ise bedelden, sabit yüzde 40'lık mal maliyetinin
+  düşülmesiyle kalan tutarı alır.</p>
+  <p>Puanınız, net servetinizdir: nakit paranız artı malınızın değeri. Bundan üç sonuç
+  çıkar ve işin özü de budur.</p>
+  <ul class="harness-rules">
+    <li>Diğer herkes alım satım yaparken hareketsiz kalan nakit hiçbir işe yaramaz; bu
+    yüzden biriktirmek kayba yol açar.</li>
+    <li>Bir şeyi satın almak, ancak o şeyin sizin için sahip olduğu değerden daha az bir
+    bedel ödediğinizde anlamlıdır; bu nedenle, kötü bir anlaşmaya ikna edilmek
+    cezalandırılır.</li>
+    <li>Maliyetinizin yüzde 40'ının altında satış yapmak zarara yol açar; bu nedenle nakit
+    elde etmek için stoklarınızı ucuza elden çıkaramazsınız.</li>
+  </ul>
+</section>
+
+<section class="panel">
+  <h2>Bir tur nasıl geçiyor</h2>
+  <p>Her turda, modelinizin fikstür listesindeki bir rakiple planlanmış bir görüşmesi ve
+  kendi seçtiği bir rakiple bir görüşmesi olur. Seçilen görüşme, ancak diğer model de
+  bunu kabul ederse gerçekleşir.</p>
+  <p>Bir sohbette taraflar sırayla konuşur; her bir tarafın en fazla on tur konuşma hakkı
+  vardır. Her iki taraf da mesajın sonuna <span lang="en">[END]</span> yazarak sohbeti
+  erken sonlandırabilir. Modeliniz kendi karakterini, kendi bakiyesini, o ana kadar geçen
+  konuşmayı ve önceki turlarda bu rakip hakkında tuttuğu notları görebilir. Karşı tarafın
+  karakterini, başkalarının bakiyelerini veya başkalarının notlarını asla göremez.</p>
+  <p>Her sohbetin ardından modeliniz rakibi hakkında özel bir not yazar ve bu not, ikisi
+  bir sonraki karşılaşmalarında modele geri verilir. Turnuva sona erdiğinde tüm notlar
+  herkese açık hale gelir.</p>
+</section>
+
+<section class="panel">
+  <h2>Süre sınırları</h2>
+  <p>Tek bir yanıt en fazla 120 saniye ve 400 <span lang="en">token</span> sürebilir. Bir
+  sohbetin tamamı en fazla 10 dakika, bir deneme maçı ise en fazla 15 dakika sürebilir.
+  Zamanında yanıt vermeyen model, o sohbeti kaybeder.</p>
+</section>
+
+<section class="panel">
+  <h2>Antrenman</h2>
+  <p>Turnuva başlamadan önce, diğer takımların gönderdiği modellerle istediğiniz kadar
+  antrenman yapabilirsiniz. Antrenmanlarda rakip, gerçek karakteri yerine uydurma bir
+  tüccar karakteri kullanır; bu nedenle antrenmanlar, kimin ne sattığını anlamanıza
+  yardımcı olmaz.</p>
+</section>
+</div>"##,
+    )
 }
 
 // ponytail: hardcoded list — demos are files in static/demos/, add a row here when adding a file
 const DEMOS: [(&str, &str, &str); 7] = [
-    ("ai-timeline/index.html", "Makineler Nasıl Öğrenmeyi Öğrendi", "Yapay zekânın zaman çizelgesi — 4 bölümlük interaktif seri"),
-    ("html-css-js-demo.html", "HTML + CSS + JS", "Koddan çıktıya: web sayfası nasıl oluşur"),
-    ("backend-frontend-demo.html", "Ön Uç ve Arka Uç", "İstemci ile sunucu arasındaki iş bölümü"),
-    ("database-demo.html", "Veritabanı Nedir?", "Veritabanı nedir, veriler nasıl saklanır"),
-    ("authentication-demo.html", "Kimlik Doğrulama", "Kimlik doğrulama nasıl çalışır"),
-    ("ui-ux-demo.html", "UI ve UX", "Arayüz ile deneyim arasındaki fark"),
-    ("package-manager-demo.html", "Paket Yöneticisi Nedir?", "Paket yöneticileri ne işe yarar"),
+    (
+        "ai-timeline/index.html",
+        "Makineler Nasıl Öğrenmeyi Öğrendi",
+        "Yapay zekânın zaman çizelgesi — 4 bölümlük interaktif seri",
+    ),
+    (
+        "html-css-js-demo.html",
+        "HTML + CSS + JS",
+        "Koddan çıktıya: web sayfası nasıl oluşur",
+    ),
+    (
+        "backend-frontend-demo.html",
+        "Ön Uç ve Arka Uç",
+        "İstemci ile sunucu arasındaki iş bölümü",
+    ),
+    (
+        "database-demo.html",
+        "Veritabanı Nedir?",
+        "Veritabanı nedir, veriler nasıl saklanır",
+    ),
+    (
+        "authentication-demo.html",
+        "Kimlik Doğrulama",
+        "Kimlik doğrulama nasıl çalışır",
+    ),
+    (
+        "ui-ux-demo.html",
+        "UI ve UX",
+        "Arayüz ile deneyim arasındaki fark",
+    ),
+    (
+        "package-manager-demo.html",
+        "Paket Yöneticisi Nedir?",
+        "Paket yöneticileri ne işe yarar",
+    ),
 ];
 
 pub fn demos(user: &User, lang: &str) -> String {
@@ -709,21 +1756,32 @@ pub fn demos(user: &User, lang: &str) -> String {
   <h3>{title}</h3>
   <p class="meta">{desc}</p>
 </a>"##)).collect();
-    let chips: String = [("tr", "Türkçe"), ("en", "English")].iter().map(|(k, label)| {
-        let active = if lang == *k { "active" } else { "" };
-        format!(r#"<a class="chip {active}" href="/demos?lang={k}">{label}</a>"#)
-    }).collect();
+    let chips: String = [("tr", "Türkçe"), ("en", "English")]
+        .iter()
+        .map(|(k, label)| {
+            let active = if lang == *k { "active" } else { "" };
+            format!(r#"<a class="chip {active}" href="/demos?lang={k}">{label}</a>"#)
+        })
+        .collect();
     let content = format!(
         r##"<h1 class="pagetitle">İnteraktif Demolar</h1>
 <p class="muted">Derslerde kullanılan interaktif anlatımlar.</p>
 <div class="chips">{chips}</div>
-<div class="admingrid">{cards}</div>"##);
+<div class="admingrid">{cards}</div>"##
+    );
     layout("İnteraktif Demolar", Some(user), "demos", &content)
 }
 
 /// Ana Sayfa — portalın giriş kapısı. İçerik yok, yalnızca üç büyük hedef:
 /// solda videolar, sağda görevler, altta puan tablosu.
-pub fn home(user: &User, videos_done: i64, videos_total: i64, open_tasks: i64, points: i64, rank: Option<i64>) -> String {
+pub fn home(
+    user: &User,
+    videos_done: i64,
+    videos_total: i64,
+    open_tasks: i64,
+    points: i64,
+    rank: Option<i64>,
+) -> String {
     let rank_line = match rank {
         Some(r) => format!("{r}. sıradasın"),
         None => "Henüz sıralamada değilsin".into(),
@@ -780,7 +1838,9 @@ pub fn video_grid(user: &User, videos: &[VideoWithProgress], level: Option<&str>
     let chips: String = std::iter::once((None::<&str>, "Hepsi"))
         .chain(LEVELS.iter().map(|(k, v)| (Some(*k), *v)))
         .map(|(k, label)| {
-            let href = k.map(|k| format!("/videos?level={k}")).unwrap_or_else(|| "/videos".into());
+            let href = k
+                .map(|k| format!("/videos?level={k}"))
+                .unwrap_or_else(|| "/videos".into());
             let active = if level == k { "active" } else { "" };
             format!(r#"<a class="chip {active}" href="{href}">{label}</a>"#)
         })
@@ -788,24 +1848,38 @@ pub fn video_grid(user: &User, videos: &[VideoWithProgress], level: Option<&str>
     let cards: String = if videos.is_empty() {
         "<p class='muted'>Henüz video yok</p>".into()
     } else {
-        videos.iter().map(|v| {
-            let pct = if v.duration > 0.0 { (v.max_position / v.duration * 100.0).min(100.0) } else { 0.0 };
-            let done = pct >= 90.0;
-            let meta = if done { "Tamamlanmış".into() }
-                else if pct > 0.0 { format!("%{:.0} izlendi", pct) }
-                else { "Henüz başlamadı".into() };
-            format!(
-                r##"<a class="vcard {done_class}" href="/watch/{id}">
+        videos
+            .iter()
+            .map(|v| {
+                let pct = if v.duration > 0.0 {
+                    (v.max_position / v.duration * 100.0).min(100.0)
+                } else {
+                    0.0
+                };
+                let done = pct >= 90.0;
+                let meta = if done {
+                    "Tamamlanmış".into()
+                } else if pct > 0.0 {
+                    format!("%{:.0} izlendi", pct)
+                } else {
+                    "Henüz başlamadı".into()
+                };
+                format!(
+                    r##"<a class="vcard {done_class}" href="/watch/{id}">
   <div class="thumb"><img src="https://i.ytimg.com/vi/{yt}/hqdefault.jpg" alt="">
     <div class="progress"><i style="width:{pct:.0}%"></i></div>
   </div>
   <h3>{title}</h3>
   <p class="meta">{level} · {meta}</p>
 </a>"##,
-                done_class = if done { "done" } else { "" },
-                id = v.id, yt = esc(&v.youtube_id), title = esc(&v.title), level = VIDEO_LEVEL_LABEL,
-            )
-        }).collect()
+                    done_class = if done { "done" } else { "" },
+                    id = v.id,
+                    yt = esc(&v.youtube_id),
+                    title = esc(&v.title),
+                    level = VIDEO_LEVEL_LABEL,
+                )
+            })
+            .collect()
     };
     // Advanced filtresinde video yok; kılavuz mesajı grid yerine büyük ve ortada.
     let body = if level == Some("SERIES_A") {
@@ -814,26 +1888,41 @@ pub fn video_grid(user: &User, videos: &[VideoWithProgress], level: Option<&str>
         format!(r#"<div class="grid">{cards}</div>"#)
     };
     // seviye filtresi açıkken de nav'da Videolar seçili kalsın
-    layout("Videolar", Some(user), "videos", &format!(
-        r##"<h1 class="pagetitle">Videolar</h1>
+    layout(
+        "Videolar",
+        Some(user),
+        "videos",
+        &format!(
+            r##"<h1 class="pagetitle">Videolar</h1>
 <p class="muted">Ders videoları. Bir videoyu %90'ına kadar izlediğinde tamamlanmış sayılır.</p>
-<div class="chips">{chips}</div>{body}"##))
+<div class="chips">{chips}</div>{body}"##
+        ),
+    )
 }
 
 pub fn watch(user: &User, video: &Video, playlist: &[VideoWithProgress], resume_at: f64) -> String {
-    let list: String = playlist.iter().map(|v| {
-        let pct = if v.duration > 0.0 { (v.max_position / v.duration * 100.0).min(100.0) } else { 0.0 };
-        let cur = if v.id == video.id { "current" } else { "" };
-        format!(
-            r##"<a class="plitem {cur}" href="/watch/{id}">
+    let list: String = playlist
+        .iter()
+        .map(|v| {
+            let pct = if v.duration > 0.0 {
+                (v.max_position / v.duration * 100.0).min(100.0)
+            } else {
+                0.0
+            };
+            let cur = if v.id == video.id { "current" } else { "" };
+            format!(
+                r##"<a class="plitem {cur}" href="/watch/{id}">
   <div class="plthumb"><img src="https://i.ytimg.com/vi/{yt}/mqdefault.jpg" alt="">
     <div class="progress"><i style="width:{pct:.0}%"></i></div>
   </div>
   <span>{title}</span>
 </a>"##,
-            id = v.id, yt = esc(&v.youtube_id), title = esc(&v.title),
-        )
-    }).collect();
+                id = v.id,
+                yt = esc(&v.youtube_id),
+                title = esc(&v.title),
+            )
+        })
+        .collect();
     let content = format!(
         r##"<div class="watchwrap">
   <div class="playercol">
@@ -848,7 +1937,10 @@ const VIDEO_ID = "{id}", YT_ID = "{yt}", RESUME_AT = {resume_at};
 </script>
 <script src="/static/tracker.js"></script>
 <script src="https://www.youtube.com/iframe_api"></script>"##,
-        title = esc(&video.title), level = VIDEO_LEVEL_LABEL, id = video.id, yt = esc(&video.youtube_id),
+        title = esc(&video.title),
+        level = VIDEO_LEVEL_LABEL,
+        id = video.id,
+        yt = esc(&video.youtube_id),
     );
     layout(&video.title, Some(user), &video.level, &content)
 }
@@ -859,7 +1951,10 @@ pub fn dense_ranks(rows: &[LeaderRow]) -> Vec<i64> {
     let mut place = 0i64;
     let mut prev: Option<i64> = None;
     for r in rows {
-        if prev != Some(r.points()) { place += 1; prev = Some(r.points()); }
+        if prev != Some(r.points()) {
+            place += 1;
+            prev = Some(r.points());
+        }
         ranks.push(place);
     }
     ranks
@@ -885,10 +1980,18 @@ pub fn leaderboard(user: &User, rows: &[LeaderRow]) -> String {
   </div>
 </section>"##,
                 rank = ranks[i],
-                initial = esc(&name.chars().next().unwrap_or('?').to_uppercase().to_string()),
-                name = esc(&name), nick = esc(&r.nickname),
-                videos = r.videos, vpts = r.videos * PTS_VIDEO,
-                projects = r.projects, ppts = r.project_points,
+                initial = esc(&name
+                    .chars()
+                    .next()
+                    .unwrap_or('?')
+                    .to_uppercase()
+                    .to_string()),
+                name = esc(&name),
+                nick = esc(&r.nickname),
+                videos = r.videos,
+                vpts = r.videos * PTS_VIDEO,
+                projects = r.projects,
+                ppts = r.project_points,
                 total = r.points(),
             )
         }
@@ -898,37 +2001,88 @@ pub fn leaderboard(user: &User, rows: &[LeaderRow]) -> String {
     let list: String = if rows.is_empty() {
         "<p class='muted'>Henüz kimse puan toplamadı — ilk sen ol.</p>".into()
     } else {
-        rows.iter().zip(&ranks).map(|(r, rank)| {
-            let name = r.display_name.clone();
-            format!(
-                r##"<div class="lbrow {mine} {medal}">
+        rows.iter()
+            .zip(&ranks)
+            .map(|(r, rank)| {
+                let name = r.display_name.clone();
+                format!(
+                    r##"<div class="lbrow {mine} {medal}">
   <span class="lbrank">{rank}</span>
   <span class="avatar-fb">{initial}</span>
   <span class="lbname">{name} <small class="nick">({nick})</small></span>
   <span class="lbmeta">{videos} video · {projects} proje</span>
   <span class="lbpts">{total}<small>p</small></span>
 </div>"##,
-                mine = if r.id == user.id { "mine" } else { "" },
-                medal = match rank { 1 => "m1", 2 => "m2", 3 => "m3", _ => "" },
-                initial = esc(&name.chars().next().unwrap_or('?').to_uppercase().to_string()),
-                name = esc(&name), nick = esc(&r.nickname),
-                videos = r.videos, projects = r.projects, total = r.points(),
-            )
-        }).collect()
+                    mine = if r.id == user.id { "mine" } else { "" },
+                    medal = match rank {
+                        1 => "m1",
+                        2 => "m2",
+                        3 => "m3",
+                        _ => "",
+                    },
+                    initial = esc(&name
+                        .chars()
+                        .next()
+                        .unwrap_or('?')
+                        .to_uppercase()
+                        .to_string()),
+                    name = esc(&name),
+                    nick = esc(&r.nickname),
+                    videos = r.videos,
+                    projects = r.projects,
+                    total = r.points(),
+                )
+            })
+            .collect()
     };
 
-    layout("Puan Tablosu", Some(user), "leaderboard", &format!(
-        r##"<h1 class="pagetitle">Puan Tablosu</h1>
+    layout(
+        "Puan Tablosu",
+        Some(user),
+        "leaderboard",
+        &format!(
+            r##"<h1 class="pagetitle">Puan Tablosu</h1>
 <p class="muted">Her görev ve videodan puan kazanın! Video <b>{PTS_VIDEO}</b>; proje Beginner <b>{PTS_PROJECT_L1}</b>,
 Intermediate <b>{PTS_PROJECT_L2}</b>, Advanced <b>{PTS_PROJECT_L3}</b>.
 </p>
 {my_card}
 <div class="lb">{list}</div>
 <p class="lbnote">Bir video, %90'ını izlediğinde tamamlanmış sayılır. Proje puanı, gönderimin durumu
-<b>Geçti</b> olduğunda eklenir — aynı görev birden fazla kez puan getirmez.</p>"##))
+<b>Geçti</b> olduğunda eklenir — aynı görev birden fazla kez puan getirmez.</p>"##
+        ),
+    )
 }
 
-pub fn board(user: &User, tasks: &[Task], subs: &[SubmissionView], interests: &[InterestRow]) -> String {
+/// The scaled thumbnail shared by the task cards and the site gallery: a live iframe when
+/// the site allows framing, otherwise the cached screenshot at `img_src`. The preview
+/// itself is the link — the iframe/img is pointer-events:none in CSS, so the click falls
+/// through to the <a> and the site opens in a new tab.
+///
+/// Callers must scheme-gate `url` first: esc() alone doesn't stop a `javascript:` href.
+fn preview_link(url: &str, embeddable: bool, img_src: &str, alt: &str) -> String {
+    let inner = if embeddable {
+        // sandbox without allow-same-origin would break most sites' own scripts; these are
+        // cross-origin frames, so the framed page gets its own origin either way and never ours
+        format!(
+            r##"<iframe src="{url}" loading="lazy" sandbox="allow-scripts allow-same-origin" tabindex="-1" title="{alt}"></iframe>"##,
+            url = esc(url)
+        )
+    } else {
+        format!(r##"<img src="{img_src}" loading="lazy" alt="{alt}">"##)
+    };
+    format!(
+        r##"<a class="example-preview" href="{url}" target="_blank" rel="noopener" title="{alt}">{inner}</a>"##,
+        url = esc(url),
+    )
+}
+
+pub fn board(
+    user: &User,
+    tasks: &[Task],
+    subs: &[SubmissionView],
+    interests: &[InterestRow],
+    site_counts: &[(Uuid, i64)],
+) -> String {
     let status_tr = |s: &str| match s {
         "pending" => ("İnceleme bekleniyor", "st-pending"),
         "reviewing" => ("İnceleniyor", "st-reviewing"),
@@ -945,16 +2099,14 @@ pub fn board(user: &User, tasks: &[Task], subs: &[SubmissionView], interests: &[
             // embedding get a live preview; the rest get a cached hero screenshot served
             // from /preview/{id} (many sites send X-Frame-Options and can't be embedded).
             let example = t.example_url.as_deref().filter(|u| !u.is_empty()).map(|u| {
-                let inner = if t.example_embeddable == Some(true) {
-                    format!(r##"<iframe src="{url}" loading="lazy" sandbox="allow-scripts allow-same-origin" tabindex="-1" title="Örnek proje önizlemesi"></iframe>"##, url = esc(u))
-                } else {
-                    format!(r##"<img src="/preview/{id}" loading="lazy" alt="Örnek proje önizlemesi">"##, id = t.id)
-                };
-                format!(
-                    r##"<a class="example-preview" href="{url}" target="_blank" rel="noopener" title="Örnek projeyi yeni sekmede aç">{inner}</a>"##,
-                    url = esc(u),
-                )
+                preview_link(u, t.example_embeddable == Some(true),
+                    &format!("/preview/{}", t.id), "Örnek projeyi yeni sekmede aç")
             }).unwrap_or_default();
+            // Only tasks that actually collected deployed sites get the gallery button —
+            // nothing here names the personal-website task, it's just where the sites are.
+            let sites = site_counts.iter().find(|(tid, _)| *tid == t.id).map(|(_, n)| format!(
+                r##"<div class="cardactions"><a class="btn-outline small" href="/board/sites/{id}">Arkadaşlarının siteleri ({n}) →</a></div>"##,
+                id = t.id)).unwrap_or_default();
             let sub_html = match my_sub {
                 Some(s) => {
                     let (label, class) = status_tr(&s.status);
@@ -992,6 +2144,7 @@ pub fn board(user: &User, tasks: &[Task], subs: &[SubmissionView], interests: &[
   <form method="post" action="/board/submit" enctype="multipart/form-data" class="subform">
     <input type="hidden" name="task_id" value="{id}">
     <input name="repo_url" type="url" placeholder="https://github.com/..." required>
+    <input name="live_url" type="url" placeholder="Canlı site adresi (varsa) — https://...">
     <label class="dropzone">
       <input name="plan" type="file" accept=".md,.markdown,text/markdown" required
         onchange="var z=this.closest('.dropzone');z.classList.toggle('has-file',this.files.length>0);z.querySelector('b').textContent=this.files.length?this.files[0].name:'plan.md dosyanızı sürükleyin veya seçin'"
@@ -1020,6 +2173,7 @@ pub fn board(user: &User, tasks: &[Task], subs: &[SubmissionView], interests: &[
   <div class="taskhead"><h3>{title}</h3><span class="badge {badge_cls}" lang="en">{level}</span></div>
   <p class="desc">{desc}</p>
   {example}
+  {sites}
   {sub_html}
   {action_area}
 </div>"##,
@@ -1028,17 +2182,80 @@ pub fn board(user: &User, tasks: &[Task], subs: &[SubmissionView], interests: &[
             )
         }).collect()
     };
-    layout("Görev Panosu", Some(user), "board", &format!(
-        r##"<div id="board-root"><h1 class="pagetitle">Görev Panosu</h1><p class="muted">Projenizi yükleyin.</p><div class="tasks">{task_cards}</div></div>
-<script src="/static/board.js?v=1" defer></script>"##))
+    layout(
+        "Görev Panosu",
+        Some(user),
+        "board",
+        &format!(
+            r##"<div id="board-root"><h1 class="pagetitle">Görev Panosu</h1><p class="muted">Projenizi yükleyin.</p><div class="tasks">{task_cards}</div></div>
+<script src="/static/board.js?v=1" defer></script>"##
+        ),
+    )
+}
+
+/// Every student's deployed site for one task, as live previews. Same card grid and the
+/// same preview thumbnail as the board, so the two pages read as one thing.
+pub fn board_sites(user: &User, task: &Task, cards: &[SiteCard]) -> String {
+    let grid: String = if cards.is_empty() {
+        "<p class='muted'>Bu görevde henüz yayınlanmış site yok.</p>".into()
+    } else {
+        cards
+            .iter()
+            .map(|c| {
+                format!(
+                    r##"<div class="taskcard">
+  {preview}
+  <div class="taskhead"><h3>{nick}</h3></div>
+  <div class="cardactions">
+    <a class="btn-dark small" href="{live}" target="_blank" rel="noopener">Siteyi aç ↗</a>
+    <a class="btn-outline small" href="{repo}" target="_blank" rel="noopener">Repo ↗</a>
+  </div>
+</div>"##,
+                    // live_url is written only through resolve_live_url / the admin override, both
+                    // of which scheme-check it, so it's safe in an href here
+                    preview = preview_link(
+                        &c.live_url,
+                        c.live_embeddable == Some(true),
+                        &format!("/preview/sub/{}", c.id),
+                        &format!("{} sitesini yeni sekmede aç", esc(&c.nickname))
+                    ),
+                    nick = esc(&c.nickname),
+                    live = esc(&c.live_url),
+                    repo = esc(&c.repo_url),
+                )
+            })
+            .collect()
+    };
+    layout(
+        &format!("{} — Siteler", task.title),
+        Some(user),
+        "board",
+        &format!(
+            r##"<p class="backlink"><a href="/board">← Görev Panosu</a></p>
+<div class="taskhead"><h1 class="pagetitle">{title}</h1><span class="badge {badge}" lang="en">{level}</span></div>
+<p class="muted">Arkadaşlarının yayına aldığı siteler. Önizlemeye tıklayınca site yeni sekmede açılır.</p>
+<div class="tasks">{grid}</div>"##,
+            title = esc(&task.title),
+            level = level_name(&task.level),
+            badge = level_badge_class(&task.level),
+        ),
+    )
 }
 
 /// The board gate. Shown instead of the tasks when the student is missing either public
 /// profile. Unlike onboarding there is no skip — both fields are required to continue.
 /// `github`/`linkedin` pre-fill whatever they already have (e.g. added one, not the other).
-pub fn board_locked(user: &User, github: Option<&str>, linkedin: Option<&str>, error: Option<&str>) -> String {
-    let err = error.map(|e| format!(r#"<p class="error">{}</p>"#, esc(e))).unwrap_or_default();
-    let content = format!(r##"<h1 class="pagetitle">Görev Panosu kilitli</h1>
+pub fn board_locked(
+    user: &User,
+    github: Option<&str>,
+    linkedin: Option<&str>,
+    error: Option<&str>,
+) -> String {
+    let err = error
+        .map(|e| format!(r#"<p class="error">{}</p>"#, esc(e)))
+        .unwrap_or_default();
+    let content = format!(
+        r##"<h1 class="pagetitle">Görev Panosu kilitli</h1>
 <p class="muted">Panoya erişmeden önce GitHub ve LinkedIn profillerini eklemen gerekiyor.</p>
 <div class="profilewrap">
 <section class="panel gate-panel">
@@ -1063,17 +2280,38 @@ pub fn board_locked(user: &User, github: Option<&str>, linkedin: Option<&str>, e
     layout("Görev Panosu", Some(user), "board", &content)
 }
 
-pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[Video], tasks: &[Task], members: &[MemberRow], invite_code: &str, base_url: &str, harness: &HarnessAdmin) -> String {
+pub fn admin(
+    user: &User,
+    stats: &[StatRow],
+    subs: &[SubmissionView],
+    videos: &[Video],
+    tasks: &[Task],
+    members: &[MemberRow],
+    invite_code: &str,
+    base_url: &str,
+    harness: &HarnessAdmin,
+    monopoly: &MonopolyAdmin,
+) -> String {
     let invite_link = format!("{}/join/{}", base_url.trim_end_matches('/'), invite_code);
     let level_opts = level_options("");
-    let stat_rows: String = stats.iter().map(|s| {
-        let pct = if s.duration > 0.0 { (s.max_position / s.duration * 100.0).min(100.0) } else { 0.0 };
-        format!(
-            "<tr><td>{}</td><td>{}</td><td>%{:.0}</td><td>{:.0} dk</td><td>{}</td></tr>",
-            esc(&s.display_name), esc(&s.video_title), pct, s.seconds_watched / 60.0,
-            s.updated_at.format("%d.%m.%Y %H:%M"),
-        )
-    }).collect();
+    let stat_rows: String = stats
+        .iter()
+        .map(|s| {
+            let pct = if s.duration > 0.0 {
+                (s.max_position / s.duration * 100.0).min(100.0)
+            } else {
+                0.0
+            };
+            format!(
+                "<tr><td>{}</td><td>{}</td><td>%{:.0}</td><td>{:.0} dk</td><td>{}</td></tr>",
+                esc(&s.display_name),
+                esc(&s.video_title),
+                pct,
+                s.seconds_watched / 60.0,
+                s.updated_at.format("%d.%m.%Y %H:%M"),
+            )
+        })
+        .collect();
     let sub_rows: String = subs.iter().map(|s| {
         // preselect the submission's actual status so saving without touching the
         // dropdown doesn't silently reset it to "pending"
@@ -1099,7 +2337,12 @@ pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[
         // Blank shows the level default as placeholder: that is what it will score.
         let form_id = format!("rev-{}", s.id);
         format!(
-            r##"<tr><td>{student}</td><td>{email}</td><td>{task}</td><td><a href="{url}" target="_blank" rel="noopener">repo</a><button type="button" class="btn-copy" data-prompt="{prompt}">⧉ Prompt</button></td><td>{plan}</td><td>{date}</td>
+            r##"<tr><td>{student}</td><td>{email}</td><td>{task}</td><td><a href="{url}" target="_blank" rel="noopener">repo</a><button type="button" class="btn-copy" data-prompt="{prompt}">⧉ Prompt</button></td>
+<td><form method="post" action="/admin/submission/live" class="inline">
+  <input type="hidden" name="id" value="{id}">
+  <input name="live_url" type="url" value="{live}" placeholder="https://... (boş = yok)" title="Canlı site adresi — boş bırakıp kaydetmek adresi siler">
+  <button class="btn-dark small">Kaydet</button>
+</form>{live_open}</td><td>{plan}</td><td>{date}</td>
 <td><input class="pts-input" form="{form_id}" type="number" min="0" step="1" name="points" value="{pts}"
      placeholder="{pts_default}" title="Boş bırakırsan {level} varsayılanı olan {pts_default} puan verilir"></td>
 <td><form method="post" action="/admin/review" class="inline" id="{form_id}">
@@ -1111,6 +2354,10 @@ pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[
             student = esc(&s.display_name), email = esc(&s.email), task = esc(&s.task_title),
             url = esc(&s.repo_url), prompt = esc(&review_prompt(&s.repo_url, goal)),
             date = s.created_at.format("%d.%m.%Y %H:%M"),
+            live = esc(s.live_url.as_deref().unwrap_or("")),
+            live_open = s.live_url.as_deref().filter(|u| u.starts_with("http"))
+                .map(|u| format!(r#" <a href="{}" target="_blank" rel="noopener">↗</a>"#, esc(u)))
+                .unwrap_or_default(),
             id = s.id, fb = esc(s.feedback.as_deref().unwrap_or("")),
             pts = s.points_override.map(|p| p.to_string()).unwrap_or_default(),
             pts_default = level_points(&s.task_level), level = level_name(&s.task_level),
@@ -1216,10 +2463,22 @@ pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[
         }).collect()
     };
     // Interim harness-team management (until real team onboarding lands).
-    let harness_team_opts: String = harness.teams.iter().map(|t| format!(
-        r#"<option value="{}">{}</option>"#, t.id, esc(&t.name))).collect();
-    let harness_student_opts: String = members.iter().filter(|m| !m.is_admin).map(|m| format!(
-        r#"<option value="{}">{}</option>"#, m.id, esc(&m.display_name))).collect();
+    let harness_team_opts: String = harness
+        .teams
+        .iter()
+        .map(|t| format!(r#"<option value="{}">{}</option>"#, t.id, esc(&t.name)))
+        .collect();
+    let harness_student_opts: String = members
+        .iter()
+        .filter(|m| !m.is_admin)
+        .map(|m| {
+            format!(
+                r#"<option value="{}">{}</option>"#,
+                m.id,
+                esc(&m.display_name)
+            )
+        })
+        .collect();
     let harness_team_rows: String = if harness.teams.is_empty() {
         "<p class='muted'>Henüz takım yok</p>".into()
     } else {
@@ -1263,8 +2522,109 @@ pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[
                 team = esc(&r.team_name), date = r.created_at.format("%d.%m.%Y %H:%M"), id = r.id)
         }).collect()
     };
-    layout("Yönetici paneli", Some(user), "admin", &format!(
-        r##"<div id="admin-root">
+    // AI Monopoly mirrors the harness block above: same interim team management, plus
+    // the start button and the running tournament's stop hatch.
+    let monopoly_team_opts: String = monopoly
+        .teams
+        .iter()
+        .map(|t| format!(r#"<option value="{}">{}</option>"#, t.id, esc(&t.name)))
+        .collect();
+    let monopoly_team_rows: String = if monopoly.teams.is_empty() {
+        "<p class='muted'>Henüz takım yok</p>".into()
+    } else {
+        monopoly.teams.iter().map(|t| {
+            let kid_buttons: String = monopoly.members.iter().filter(|m| m.team_id == t.id).map(|m| format!(
+                r#"<form method="post" action="/admin/monopoly/member/remove" class="inline">
+      <input type="hidden" name="id" value="{uid}">
+      <button class="btn-outline small" title="Takımdan çıkar">{name} ✕</button>
+    </form>"#,
+                uid = m.user_id, name = esc(&m.display_name))).collect();
+            // the entry, if they've submitted one — this is what the start button freezes
+            let entry = monopoly.entries.iter().find(|e| e.team_id == t.id);
+            let entry_line = match entry {
+                Some(e) => format!(
+                    r#"<span class="item-meta">{char} · {product} · {price}₺ · <span lang="en">{repo}</span></span>"#,
+                    char = esc(&e.char_name), product = esc(&e.product_name),
+                    price = e.list_price, repo = esc(&e.hf_repo)),
+                None => r#"<span class="item-meta">gönderim yok</span>"#.to_string(),
+            };
+            format!(
+                r##"<div class="itemrow">
+  <div class="item-title"><span>{name}</span>{entry_line}</div>
+  <div class="item-controls">{kid_buttons}
+    <form method="post" action="/admin/monopoly/team/delete" class="inline" onsubmit="return confirm('Bu takımı silersen gönderimi, konuşmaları ve turnuva geçmişi de silinir. Emin misin?')">
+      <input type="hidden" name="id" value="{id}">
+      <button class="btn-dark small">Sil</button>
+    </form>
+  </div>
+</div>"##,
+                name = esc(&t.name), id = t.id)
+        }).collect()
+    };
+    // Three states: no tournament yet (start button), one running (progress + stop),
+    // one finished (result + start a new one).
+    let monopoly_tournament_block = match &monopoly.tournament {
+        Some(t) if t.status != "done" && t.status != "failed" => {
+            let (label, class) = monopoly_status_tr(&t.status);
+            format!(
+                r##"<div class="itemrow">
+  <div class="item-title"><span>Tur {round}/{total}</span><span class="substatus {class}">{label}</span>
+    <span class="item-meta">{progress}</span></div>
+  <div class="item-controls">
+    <a class="btn-outline small" href="/ai-monopoly?tab=live">Canlı izle</a>
+    <form method="post" action="/admin/monopoly/fail" class="inline" onsubmit="return confirm('Turnuva başarısız olarak işaretlenecek ve yeni bir turnuva başlatılabilecek. Emin misin?')">
+      <input type="hidden" name="id" value="{id}">
+      <button class="btn-dark small">Durdur</button>
+    </form>
+  </div>
+</div>"##,
+                round = t.round,
+                total = t.rounds_total,
+                class = class,
+                label = label,
+                progress = esc(t.progress.as_deref().unwrap_or("")),
+                id = t.id
+            )
+        }
+        other => {
+            let last = match other {
+                Some(t) => {
+                    let (label, class) = monopoly_status_tr(&t.status);
+                    format!(
+                        r#"<p class="fieldnote">Son turnuva: <span class="substatus {class}">{label}</span> · {date}{err}</p>"#,
+                        class = class,
+                        label = label,
+                        date = t.created_at.format("%d.%m.%Y %H:%M"),
+                        err = match &t.error_log {
+                            Some(e) if !e.is_empty() => format!(" · {}", esc(e)),
+                            _ => String::new(),
+                        }
+                    )
+                }
+                None => String::new(),
+            };
+            format!(
+                r##"{last}
+  <form method="post" action="/admin/monopoly/start" onsubmit="return confirm('Turnuva başlayacak ve gönderimler bu haliyle dondurulacak. Emin misin?')">
+    <button class="btn-dark"{disabled}>Turnuvayı başlat ({n} takım hazır)</button>
+  </form>"##,
+                last = last,
+                n = monopoly.entries.len(),
+                // needs two entries to have a game at all; the handler enforces it too
+                disabled = if monopoly.entries.len() < 2 {
+                    " disabled"
+                } else {
+                    ""
+                }
+            )
+        }
+    };
+    layout(
+        "Yönetici paneli",
+        Some(user),
+        "admin",
+        &format!(
+            r##"<div id="admin-root">
 <h1 class="pagetitle">Yönetici paneli</h1>
 
 <div class="admingrid stack">
@@ -1333,6 +2693,26 @@ pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[
   <p class="muted">Aktif çalıştırmalar</p>
   <div class="minilist">{harness_run_rows}</div>
 </section>
+
+<section class="panel">
+  <h2 lang="en">AI Monopoly — <span lang="tr">Takımlar</span></h2>
+  <p class="fieldnote">Bu bölümün takımları <span lang="en">Agentic Harness</span> takımlarından
+  ayrıdır. Bir öğrenci aynı anda tek Monopoly takımında olabilir.</p>
+  <form method="post" action="/admin/monopoly/team">
+    <label>Takım adı<input name="name" required></label>
+    <button class="btn-dark">Takım oluştur</button>
+  </form>
+  <form method="post" action="/admin/monopoly/member">
+    <label>Öğrenci<select name="user_id">{harness_student_opts}</select></label>
+    <label>Takım<select name="team_id">{monopoly_team_opts}</select></label>
+    <button class="btn-dark">Takıma ata</button>
+  </form>
+  <div class="minilist">{monopoly_team_rows}</div>
+  <p class="muted">Turnuva</p>
+  <p class="fieldnote">Başlatınca her takımın o anki gönderimi dondurulur; sonradan yapılan
+  değişiklikler bu turnuvayı ve geçmişini etkilemez.</p>
+  {monopoly_tournament_block}
+</section>
 </div>
 
 <section class="panel wide">
@@ -1347,8 +2727,90 @@ pub fn admin(user: &User, stats: &[StatRow], subs: &[SubmissionView], videos: &[
   </div>
   <p class="muted">Puan kutusu boşsa görevin seviye varsayılanı geçerlidir (Beginner {PTS_PROJECT_L1},
   Intermediate {PTS_PROJECT_L2}, Advanced {PTS_PROJECT_L3}). Puan yalnızca durum "Geçti" ise sayılır.</p>
-  <table><tr><th>Öğrenci</th><th>E-posta</th><th>Görev</th><th>Repo</th><th>Plan</th><th>Gönderim</th><th>Puan</th><th></th></tr>{sub_rows}</table>
+  <p class="muted">Canlı site adresleri arka planda otomatik bulunur (repo'nun <code>homepage</code> alanı,
+  yoksa GitHub Pages adresi); öğrenci projesini yayına aldıktan sonra en geç birkaç dakika içinde görünür.
+  Hiç bulunamayanı Site kutusuna elle yazabilirsin — elle girilen adres barındırma listesine takılmaz.</p>
+  <table><tr><th>Öğrenci</th><th>E-posta</th><th>Görev</th><th>Repo</th><th>Site</th><th>Plan</th><th>Gönderim</th><th>Puan</th><th></th></tr>{sub_rows}</table>
 </section>
 </div>
-<script src="/static/admin.js?v=5" defer></script>"##))
+<script src="/static/admin.js?v=5" defer></script>"##
+        ),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn card(nick: &str, live: &str, embeddable: Option<bool>) -> SiteCard {
+        SiteCard {
+            id: Uuid::nil(),
+            nickname: nick.into(),
+            repo_url: "https://github.com/a/b".into(),
+            live_url: live.into(),
+            live_embeddable: embeddable,
+        }
+    }
+
+    /// The gallery's one real branch: an embeddable site is framed live, anything else
+    /// falls back to the cached screenshot. Getting this backwards renders a blank box.
+    #[test]
+    fn gallery_frames_embeddable_and_screenshots_the_rest() {
+        let user = User {
+            id: Uuid::nil(),
+            display_name: "A".into(),
+            nickname: Some("a".into()),
+            is_admin: false,
+        };
+        let task = Task {
+            id: Uuid::nil(),
+            title: "Kişisel Website".into(),
+            description: "d".into(),
+            level: "PRESEED".into(),
+            example_url: None,
+            example_embeddable: None,
+        };
+        let html = board_sites(
+            &user,
+            &task,
+            &[
+                card("canli", "https://canli.vercel.app", Some(true)),
+                card("bloke", "https://bloke.vercel.app", Some(false)),
+            ],
+        );
+        assert!(
+            html.contains(r#"<iframe src="https://canli.vercel.app""#),
+            "embeddable site should be framed"
+        );
+        assert!(
+            !html.contains("https://bloke.vercel.app\" loading"),
+            "blocked site must not be framed"
+        );
+        assert!(
+            html.contains(&format!("/preview/sub/{}", Uuid::nil())),
+            "blocked site should fall back to the screenshot"
+        );
+        // both are still reachable as links, and the nicknames are shown
+        assert!(html.contains(r#"href="https://bloke.vercel.app""#));
+        assert!(html.contains("<h3>canli</h3>") && html.contains("<h3>bloke</h3>"));
+    }
+
+    #[test]
+    fn gallery_empty_state() {
+        let user = User {
+            id: Uuid::nil(),
+            display_name: "A".into(),
+            nickname: Some("a".into()),
+            is_admin: false,
+        };
+        let task = Task {
+            id: Uuid::nil(),
+            title: "T".into(),
+            description: "d".into(),
+            level: "PRESEED".into(),
+            example_url: None,
+            example_embeddable: None,
+        };
+        assert!(board_sites(&user, &task, &[]).contains("henüz yayınlanmış site yok"));
+    }
 }

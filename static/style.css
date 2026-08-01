@@ -292,6 +292,11 @@ body:not(.portal) .btn-dark.big { padding:14px 32px; }
   padding:8px 16px; font-size:var(--fs-xs); font-weight:600; transition:all 150ms;
 }
 .portal .btn-outline:hover { background:var(--bg-raised-hover); color:#fff; }
+.portal .btn-outline.small { padding:6px 14px; font-size:var(--fs-xs); }
+/* "← Görev Panosu" — back out of a drill-down page (site galerisi) */
+.backlink { margin-bottom:8px; }
+.backlink a { font-size:var(--fs-xs); font-weight:600; color:var(--text-subtle); }
+.backlink a:hover { color:var(--text); }
 /* Görev Panosu — "Göreve Başla!" (opt in, then teammates + upload appear) */
 .portal .btn-start {
   display:inline-flex; align-items:center; gap:6px;
@@ -844,3 +849,217 @@ form.inline input, form.inline select { margin-top:0; width:auto; }
 /* the 340px panel is too narrow for the row layout .subform defaults to */
 .harness-left .subform { flex-direction:column; align-items:stretch; }
 .harness-left .subform .btn-dark { width:100%; }
+.harness-live { display:grid; gap:12px; margin-top:14px; }
+.harness-live-head, .harness-benchmark-head {
+  display:flex; align-items:center; justify-content:space-between; gap:10px;
+}
+.harness-countdown {
+  color:var(--text-subtle); font-size:var(--fs-mini); font-variant-numeric:tabular-nums;
+}
+.harness-run-meta { margin:-10px 0 0; color:var(--text-subtle); font-size:var(--fs-mini); }
+.harness-benchmark-grid { display:grid; gap:10px; }
+.harness-benchmark {
+  padding:12px; border:1px solid var(--border-subtle); border-radius:var(--r-xl);
+  background:var(--bg-raised);
+}
+.harness-benchmark h3 { font-size:var(--fs-body); }
+.benchmark-rule, .benchmark-progress {
+  margin-top:6px; color:var(--text-subtle); font-size:var(--fs-mini); line-height:1.45;
+}
+.benchmark-progress { color:var(--text-body); overflow-wrap:anywhere; }
+.harness-benchmark[data-status="running"] { border-color:var(--blue-text); }
+.harness-benchmark[data-status="done"] { border-color:var(--ok); }
+.harness-benchmark[data-status="failed"],
+.harness-benchmark[data-status="infra_failed"] { border-color:var(--err); }
+.harness-official { margin:16px 0; }
+.harness-official > p { margin-bottom:12px; color:var(--text-body); }
+.kaggle-credentials { margin-top:12px; }
+.official-state { display:grid; gap:5px; min-width:150px; }
+.official-state small { color:var(--text-subtle); overflow-wrap:anywhere; }
+.official-state .btn-outline { margin-top:4px; }
+
+/* This override must follow the desktop harness rules above. */
+@media (max-width:760px) {
+  .harnesswrap { flex-direction:column; align-items:stretch; }
+  .harness-left { width:auto; }
+  .kaggle-credentials { flex-direction:column; align-items:stretch; }
+}
+
+/* ============================================================================
+   AI MONOPOLY — the arena. Two merchants face each other across the viewport,
+   the conversation runs down the middle, the judge's ruling lands underneath.
+   Everything inside #arena is drawn by monopoly.js from the poll payload.
+   ============================================================================ */
+.arenawrap { display:flex; gap:24px; align-items:flex-start; margin-top:16px; }
+.arena { flex:1; min-width:0; }
+.arena-side { width:300px; flex-shrink:0; }
+
+.arena-idle {
+  background:var(--bg-card); border:1px solid var(--border-card);
+  border-radius:var(--r-2xl); padding:40px 24px; text-align:center;
+}
+.arena-idle h2 { font-size:var(--fs-title); margin-bottom:8px; }
+.arena-idle .btn-outline { margin-top:16px; }
+.arena-winner { font-size:var(--fs-title); font-weight:800; color:var(--blue-soft); margin:10px 0; }
+
+/* round strip — every conversation in the round, clickable */
+.arena-strip { display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-bottom:14px; }
+.striplabel {
+  font-size:var(--fs-label); font-weight:900; text-transform:uppercase;
+  letter-spacing:0.06em; color:var(--text-subtle); margin-right:6px;
+}
+.ms {
+  font:inherit; font-size:var(--fs-mini); padding:5px 10px; cursor:pointer;
+  border-radius:var(--r-pill); border:1px solid var(--border-subtle);
+  background:var(--bg-card); color:var(--text-subtle); transition:all 150ms;
+}
+.ms:hover { border-color:var(--border-strong); color:var(--text-body); }
+.ms.done { color:var(--text-body); }
+.ms.live { border-color:var(--blue-text); color:var(--blue-text); font-weight:700; }
+.ms.live::before {
+  content:''; display:inline-block; width:6px; height:6px; border-radius:50%;
+  background:var(--blue-text); margin-right:6px; vertical-align:middle;
+  animation:steppulse 1.2s ease-in-out infinite;
+}
+.ms.on { background:var(--blue); border-color:var(--blue); color:#fff; font-weight:700; }
+
+/* the two merchants */
+.arena-head {
+  display:grid; grid-template-columns:1fr auto 1fr; gap:16px; align-items:center;
+  background:var(--bg-card); border:1px solid var(--border-card);
+  border-radius:var(--r-2xl); padding:18px 20px;
+}
+.fighter { display:flex; flex-direction:column; gap:2px; min-width:0; }
+.fighter.right { align-items:flex-end; text-align:right; }
+.ava {
+  width:44px; height:44px; border-radius:50%; display:grid; place-items:center;
+  background:var(--blue-20); border:1px solid var(--blue-40);
+  color:var(--blue-soft); font-weight:900; font-size:1.125rem; margin-bottom:4px;
+}
+.fname { font-size:var(--fs-h3); font-weight:800; color:var(--text); }
+.fprod { font-size:var(--fs-xs); color:var(--text-muted); }
+.fcash { font-size:var(--fs-body); font-weight:800; color:var(--text-body); margin-top:6px; }
+/* the counter flashes on the tick that follows a verdict, so money moving is visible */
+.fcash.up { color:var(--ok-text); animation:cashpop 900ms ease-out; }
+.fcash.down { color:var(--err-text); animation:cashpop 900ms ease-out; }
+@keyframes cashpop { 0% { transform:scale(1.25); } 100% { transform:scale(1); } }
+.fgoods { font-size:var(--fs-mini); color:var(--text-subtle); }
+.vs { text-align:center; color:var(--text-subtle); }
+.vsround { font-size:var(--fs-label); font-weight:900; text-transform:uppercase; letter-spacing:0.06em; }
+.vsturns { font-size:var(--fs-title); font-weight:800; color:var(--text-body); }
+
+/* the conversation */
+.arena-chat {
+  margin-top:14px; max-height:60vh; overflow-y:auto; scroll-behavior:smooth;
+  display:flex; flex-direction:column; gap:10px; padding:4px;
+}
+.bub { max-width:76%; display:flex; flex-direction:column; gap:3px; }
+.bub.l { align-self:flex-start; }
+.bub.r { align-self:flex-end; align-items:flex-end; }
+.bub .who {
+  font-size:var(--fs-label); font-weight:900; text-transform:uppercase;
+  letter-spacing:0.06em; color:var(--text-subtle); padding:0 4px;
+}
+.bub .say {
+  background:var(--bg-card); border:1px solid var(--border-card);
+  border-radius:var(--r-xl); padding:10px 14px;
+  font-size:var(--fs-body); color:var(--text-body); white-space:pre-wrap;
+}
+.bub.r .say { background:var(--blue-15); border-color:var(--blue-30); color:var(--text); }
+/* caret only while the typewriter is running on this bubble */
+.bub.typing .say::after {
+  content:'▍'; color:var(--blue-text); animation:caret 900ms step-end infinite;
+}
+@keyframes caret { 50% { opacity:0; } }
+.ended {
+  align-self:center; font-size:var(--fs-mini); color:var(--text-subtle);
+  text-transform:uppercase; letter-spacing:0.08em; padding:6px 0;
+  border-top:1px solid var(--border-subtle); width:100%; text-align:center; margin-top:6px;
+}
+
+/* the judge's ruling */
+.arena-verdict {
+  margin-top:16px; background:var(--bg-card); border:1px solid var(--border-card);
+  border-radius:var(--r-2xl); padding:16px 20px;
+}
+.arena-verdict h3 { font-size:var(--fs-h3); font-weight:800; margin-bottom:10px; }
+.vrow {
+  display:flex; gap:12px; align-items:baseline; flex-wrap:wrap;
+  padding:8px 0; border-top:1px solid var(--border-subtle);
+}
+.vrow:first-of-type { border-top:none; }
+.vflow { font-size:var(--fs-sm); font-weight:700; color:var(--text); }
+.vitem { flex:1; min-width:0; font-size:var(--fs-xs); color:var(--text-muted); }
+.vprice { font-size:var(--fs-body); font-weight:800; color:var(--text-body); }
+.vsurp { font-size:var(--fs-sm); font-weight:800; }
+.vsurp.ok { color:var(--ok-text); }
+.vsurp.bad { color:var(--err-text); }
+.vwhy { font-size:var(--fs-xs); color:var(--text-subtle); padding-bottom:6px; }
+
+@media (max-width:768px) {
+  /* the side-by-side arena has nowhere to go on a phone: standings drop below,
+     and the two merchants compress into a header strip over a single-column chat */
+  .arenawrap { flex-direction:column; }
+  .arena-side { width:100%; }
+  .arena-head { padding:12px 14px; gap:8px; }
+  .ava { width:34px; height:34px; font-size:var(--fs-body); }
+  .fname { font-size:var(--fs-body); }
+  .fprod, .fgoods { display:none; }
+  .vsturns { font-size:var(--fs-h3); }
+  .bub { max-width:88%; }
+  .arena-chat { max-height:none; }
+}
+
+/* the sidebar is 300px, far narrower than the leaderboard rows were built for:
+   stack the meta lines instead of letting them collide on one row */
+.arena-side .lbrow { align-items:flex-start; padding:9px 12px; gap:9px; }
+.arena-side .lbrank { width:18px; }
+.arena-side .lbname { white-space:normal; display:flex; flex-direction:column; gap:1px; }
+.arena-side .lbpts { display:flex; flex-direction:column; align-items:flex-end; gap:1px; font-size:var(--fs-body); }
+.arena-side .lbmeta { white-space:normal; }
+/* a self-chosen conversation is a different kind of event from a scheduled one */
+.ms.k-chosen { border-style:dashed; }
+.arena-invites {
+  font-size:var(--fs-mini); color:var(--text-subtle); margin:-6px 0 12px; letter-spacing:0.02em;
+}
+
+/* history: one conversation replayed, both languages in the markup */
+.matchhead { margin:16px 0 12px; }
+.matchhead h2 { font-size:var(--fs-title); font-weight:800; }
+.langtoggle { display:flex; gap:6px; margin-top:10px; }
+.langtoggle .chip { cursor:pointer; font:inherit; font-size:var(--fs-mini); }
+/* no translation available: the toggle would swap the text for nothing, so hide it */
+.matchhead:has(+ .matchbody.untranslated) .langtoggle { display:none; }
+.replay { max-height:none; }
+/* both languages ship in the markup; the toggle picks one. Two rules because the turn
+   bodies are block-level divs while the reasoning and note text are inline spans. */
+.matchbody .say.tr, .matchbody span.tr { display:none; }
+.matchbody.show-tr .say.en { display:none; }
+.matchbody.show-tr span.en { display:none; }
+.matchbody.show-tr .say.tr { display:block; }
+.matchbody.show-tr span.tr { display:inline; }
+.matchbody.untranslated .say.en, .matchbody.untranslated span.en { display:block; }
+.noterow { padding:10px 0; border-top:1px solid var(--border-subtle); }
+.noterow:first-of-type { border-top:none; }
+.notewho {
+  font-size:var(--fs-label); font-weight:900; text-transform:uppercase;
+  letter-spacing:0.06em; color:var(--text-subtle);
+}
+.notetext { font-size:var(--fs-body); color:var(--text-body); margin-top:4px; }
+/* instructions: a single readable column, not the full page width */
+.rulewrap { display:grid; gap:16px; margin-top:16px; max-width:760px; }
+.rulewrap .panel h2 { margin-bottom:8px; }
+.rulewrap .panel p { color:var(--text-body); margin-bottom:10px; }
+.rulewrap .panel p:last-child { margin-bottom:0; }
+.rulewrap .harness-rules { margin-top:10px; }
+/* monopoly rows nest the meta line inside the name/points cell — it needs breathing room */
+.lbname .lbmeta, .lbpts .lbmeta { margin-left:8px; }
+.roundhead {
+  font-size:var(--fs-label); font-weight:900; text-transform:uppercase;
+  letter-spacing:0.06em; color:var(--text-subtle); margin:18px 0 6px;
+}
+.roundhead:first-child { margin-top:0; }
+/* practice list sits under the submit form in the narrow left column */
+.harness-left .panel + .panel { margin-top:16px; }
+.practicelist { margin-top:12px; }
+.practicelist .lbrow { padding:8px 12px; }
