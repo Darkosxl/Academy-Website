@@ -5,15 +5,17 @@ implementing any deviation.
 
 ## Product contract
 
-- One public GitHub submission produces independent ARC-AGI-3, Frontier Sprint,
-  and RAM-bench results. A failure in one benchmark does not erase completed
-  results from another.
+- One public GitHub submission, or an admin-selected bundled agent, produces
+  independent ARC-AGI-3, Frontier Sprint, and RAM-bench results. A failure in
+  one benchmark does not erase completed results from another.
 - Local evaluation has a hard 600-second wall-clock deadline from queue claim.
   The official Kaggle workflow is explicit, asynchronous, and never changes the
   local leaderboard.
-- Leaderboards are versioned. `harness-2026-sprint-v2` pins the model profile
-  fingerprint, dataset revisions, task/game lists, limits, and scoring rules.
-  Configuration changes require a new version rather than mixing scores.
+- Leaderboards are versioned. `harness-2026-sprint-v2` pins dataset revisions,
+  task/game lists, limits, and scoring rules. The selected Bedrock model is an
+  explicit, visible part of each submission configuration; a team's best
+  agent-and-model result competes in the same v2 table. Other configuration
+  changes require a new version rather than mixing scores.
 - v2 supersedes `harness-2026-sprint-v1` because the scored ARC set grew from
   ten games to thirteen. An ARC score is an aggregate over the pinned set, so a
   v1 total and a v2 total measure different things and ranking them together
@@ -24,22 +26,22 @@ implementing any deviation.
 
 ## AWS Bedrock
 
-- AWS Bedrock is the only LLM backend. The harness uses xAI Grok 4.3 through
-  Bedrock Mantle's OpenAI-compatible API at
-  `https://bedrock-mantle.us-east-1.api.aws/openai/v1`, with model ID
-  `xai.grok-4.3`. Grok 4.3 supports Mantle Responses and Chat Completions, but
-  not Bedrock Runtime Converse/Invoke or cross-Region inference. The harness
-  uses native Chat Completions for `xai.*`; `openai.*` models continue through
-  the Responses adapter.
+- AWS Bedrock is the only LLM backend. The harness uses Bedrock Mantle's
+  OpenAI-compatible Chat Completions API at
+  `https://bedrock-mantle.us-east-1.api.aws/openai/v1`; `xai.grok-4.3` is the
+  default and the shared allowlist contains the account's selectable models.
+  Built-in visual agents are restricted to the allowlisted models whose Bedrock
+  model cards support image input.
 - `BEDROCK_API_KEY` is passed to the trusted Mantle client as its bearer API
-  key. It never reaches a submission container. Explicit `AWS_REGION`,
-  `BEDROCK_MODEL_ID`, and `BEDROCK_PROFILE_NAME` override the defaults;
-  concurrency defaults to 32.
-- Grok reasoning defaults to `none` through `BEDROCK_REASONING_EFFORT`; accepted
+  key. It never reaches a submission container. Students select an allowed model
+  per run; Academy stores it and the trusted controller enforces the same allowlist.
+  Explicit `AWS_REGION` selects the endpoint region; concurrency defaults to 32.
+- Model reasoning defaults to `none` through `BEDROCK_REASONING_EFFORT`; accepted
   values are `none`, `low`, `medium`, and `high`. Both default and `low` spent
   an entire 128-token smoke budget on hidden reasoning without visible output,
   while `none` returned the requested text in six output tokens. `none` is
   therefore selected for reliable actions and the 100-turns-per-30-seconds target.
+  The gateway sends the reasoning field only to model families that support it.
   Requests do not set sampling parameters. The gateway records counts, token usage,
   latency, stop reason, and errors; it never records prompts, responses, AWS
   credentials, or displays the API key.

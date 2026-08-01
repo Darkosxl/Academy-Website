@@ -55,6 +55,10 @@ TERMINAL = {"done", "partial", "failed", "infra_failed"}
 MAX_REPO_BYTES = 100 * 1024 * 1024
 MAX_FILE_BYTES = 10 * 1024 * 1024
 MAX_REQUIREMENTS_BYTES = 32 * 1024
+BUILTIN_SUBMISSIONS = {
+    "builtin://forge": ROOT / "builtin_submissions" / "forge",
+    "builtin://reki": ROOT / "builtin_submissions" / "reki",
+}
 
 
 def env_file() -> dict[str, str]:
@@ -457,22 +461,54 @@ def valid_repo_url(repo_url: str) -> bool:
     return owner not in (".", "..") and repo not in (".", "..")
 
 
+def builtin_submission(repo_url: str) -> Path | None:
+    return BUILTIN_SUBMISSIONS.get(repo_url)
+
+
+def submission_digest(repo: Path) -> str:
+    digest = hashlib.sha256()
+    for path in sorted(
+        candidate
+        for candidate in repo.rglob("*")
+        if candidate.is_file()
+        and candidate.suffix != ".pyc"
+        and "__pycache__" not in candidate.parts
+    ):
+        digest.update(path.relative_to(repo).as_posix().encode())
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+    return digest.hexdigest()[:40]
+
+
 def clone_submission(repo_url: str, work: Path, deadline: float) -> tuple[Path, str, Path]:
-    if not valid_repo_url(repo_url):
-        raise RunFailed("claim contained an invalid GitHub repository URL")
-    command = podman_base(work, network="slirp4netns") + [
-        "git", "-c", "protocol.file.allow=never", "clone", "--depth=1", "--filter=blob:none",
-        "--no-tags", repo_url, "/work/repo",
-    ]
-    run_checked(command, timeout=bounded_timeout(deadline, 30))
-    repo = work / "repo"
-    result = run_checked(["git", "-c", f"safe.directory={repo}", "-C", str(repo), "rev-parse", "HEAD"], timeout=5)
-    sha = result.stdout.strip().lower()
-    if not re.fullmatch(r"[0-9a-f]{40}", sha):
-        raise RunFailed("git did not resolve a valid commit SHA")
+    bundled = builtin_submission(repo_url)
+    if bundled is not None:
+        if not bundled.is_dir():
+            raise InfrastructureFailed(f"built-in harness artifact is missing: {repo_url}")
+        repo = shutil.copytree(
+            bundled,
+            work / "repo",
+            ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+        )
+        sha = submission_digest(repo)
+        build_network = "none"
+    else:
+        if not valid_repo_url(repo_url):
+            raise RunFailed("claim contained an invalid submission source")
+        command = podman_base(work, network="slirp4netns") + [
+            "git", "-c", "protocol.file.allow=never", "clone", "--depth=1", "--filter=blob:none",
+            "--no-tags", repo_url, "/work/repo",
+        ]
+        run_checked(command, timeout=bounded_timeout(deadline, 30))
+        repo = work / "repo"
+        result = run_checked(["git", "-c", f"safe.directory={repo}", "-C", str(repo), "rev-parse", "HEAD"], timeout=5)
+        sha = result.stdout.strip().lower()
+        if not re.fullmatch(r"[0-9a-f]{40}", sha):
+            raise RunFailed("git did not resolve a valid commit SHA")
+        build_network = "slirp4netns"
     validate_submission(repo)
     venv = work / "venv"
-    build = podman_base(work, network="slirp4netns", memory="4g", cpus="2") + [
+    build = podman_base(work, network=build_network, memory="4g", cpus="2") + [
         "sh", "-lc",
         "python -m venv --system-site-packages /work/venv && "
         "/work/venv/bin/python -m pip install --disable-pip-version-check --no-input "

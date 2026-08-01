@@ -23,8 +23,6 @@ pub struct ControllerConfig {
     pub worker_token: String,
     pub bedrock_api_key: String,
     pub aws_region: String,
-    pub model_id: String,
-    pub profile_name: String,
     pub reasoning_effort: String,
     pub maximum_model_concurrency: usize,
     pub executor_socket: PathBuf,
@@ -100,8 +98,6 @@ impl ControllerConfig {
             worker_token: secrets.worker_token,
             bedrock_api_key: secrets.bedrock_api_key,
             aws_region,
-            model_id: value("BEDROCK_MODEL_ID", "xai.grok-4.3"),
-            profile_name: value("BEDROCK_PROFILE_NAME", "grok-4.3"),
             reasoning_effort,
             maximum_model_concurrency,
             executor_socket: value(

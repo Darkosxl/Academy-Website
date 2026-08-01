@@ -184,8 +184,6 @@ Resources:
                   BENCHMARK_ASG_NAME=${AWS::StackName}-workers
                   BENCHMARK_TERMINATION_HOOK=${AWS::StackName}-termination-drain
                   BENCHMARK_METRIC_NAMESPACE=Exposure/Benchmark
-                  BEDROCK_MODEL_ID=xai.grok-4.3
-                  BEDROCK_PROFILE_NAME=grok-4.3
                   BEDROCK_REASONING_EFFORT=none
                   BEDROCK_MAX_CONCURRENCY=32
                   ENVIRONMENT=PROD

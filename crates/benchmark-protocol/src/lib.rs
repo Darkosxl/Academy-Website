@@ -4,6 +4,99 @@ use serde_json::Value;
 use uuid::Uuid;
 
 pub const BENCHMARK_VERSION: &str = "harness-2026-sprint-v2";
+pub const DEFAULT_BEDROCK_MODEL: &str = "xai.grok-4.3";
+pub const BEDROCK_MODEL_IDS: &[&str] = &[
+    "deepseek.v3.1",
+    "deepseek.v3.2",
+    "google.gemma-3-12b-it",
+    "google.gemma-3-27b-it",
+    "google.gemma-3-4b-it",
+    "google.gemma-4-26b-a4b",
+    "google.gemma-4-31b",
+    "google.gemma-4-e2b",
+    "minimax.minimax-m2",
+    "minimax.minimax-m2.1",
+    "minimax.minimax-m2.5",
+    "mistral.devstral-2-123b",
+    "mistral.magistral-small-2509",
+    "mistral.ministral-3-14b-instruct",
+    "mistral.ministral-3-3b-instruct",
+    "mistral.ministral-3-8b-instruct",
+    "mistral.mistral-large-3-675b-instruct",
+    "mistral.voxtral-mini-3b-2507",
+    "mistral.voxtral-small-24b-2507",
+    "moonshotai.kimi-k2-thinking",
+    "moonshotai.kimi-k2.5",
+    "nvidia.nemotron-nano-12b-v2",
+    "nvidia.nemotron-nano-3-30b",
+    "nvidia.nemotron-nano-9b-v2",
+    "nvidia.nemotron-super-3-120b",
+    "openai.gpt-oss-120b",
+    "openai.gpt-oss-20b",
+    "openai.gpt-oss-safeguard-120b",
+    "openai.gpt-oss-safeguard-20b",
+    "qwen.qwen3-235b-a22b-2507",
+    "qwen.qwen3-32b",
+    "qwen.qwen3-coder-30b-a3b-instruct",
+    "qwen.qwen3-coder-480b-a35b-instruct",
+    "qwen.qwen3-coder-next",
+    "qwen.qwen3-next-80b-a3b-instruct",
+    "qwen.qwen3-vl-235b-a22b-instruct",
+    "writer.palmyra-vision-7b",
+    "xai.grok-4.3",
+    "zai.glm-4.6",
+    "zai.glm-4.7",
+    "zai.glm-4.7-flash",
+    "zai.glm-5",
+];
+
+pub fn is_bedrock_model(model_id: &str) -> bool {
+    BEDROCK_MODEL_IDS.binary_search(&model_id).is_ok()
+}
+
+pub const BEDROCK_IMAGE_MODEL_IDS: &[&str] = &[
+    "google.gemma-3-12b-it",
+    "google.gemma-3-27b-it",
+    "google.gemma-3-4b-it",
+    "google.gemma-4-26b-a4b",
+    "google.gemma-4-31b",
+    "google.gemma-4-e2b",
+    "qwen.qwen3-vl-235b-a22b-instruct",
+    "writer.palmyra-vision-7b",
+    "xai.grok-4.3",
+];
+
+pub fn bedrock_model_supports_images(model_id: &str) -> bool {
+    BEDROCK_IMAGE_MODEL_IDS.binary_search(&model_id).is_ok()
+}
+
+pub const BUILTIN_HARNESSES: [(&str, &str, &str); 2] = [
+    ("forge", "builtin://forge", "Forge"),
+    ("reki", "builtin://reki", "Reki"),
+];
+
+pub fn builtin_harness_uri(id: &str) -> Option<&'static str> {
+    BUILTIN_HARNESSES
+        .iter()
+        .find(|(candidate, _, _)| *candidate == id)
+        .map(|(_, uri, _)| *uri)
+}
+
+pub fn builtin_harness_label(uri: &str) -> Option<&'static str> {
+    BUILTIN_HARNESSES
+        .iter()
+        .find(|(_, candidate, _)| *candidate == uri)
+        .map(|(_, _, label)| *label)
+}
+
+pub fn is_builtin_harness(uri: &str) -> bool {
+    builtin_harness_label(uri).is_some()
+}
+
+fn default_bedrock_model() -> String {
+    DEFAULT_BEDROCK_MODEL.into()
+}
+
 pub const ARC_GAMES: [&str; 13] = [
     "ls20", "vc33", "ar25", "cn04", "s5i5", "sp80", "bp35", "ft09", "m0r0", "re86", "cd82", "sb26",
     "r11l",
@@ -20,6 +113,8 @@ pub const FRONTIER_TASKS: [&str; 5] = [
 pub struct HarnessClaim {
     pub id: Uuid,
     pub repo_url: String,
+    #[serde(default = "default_bedrock_model")]
+    pub model_id: String,
     pub lease_token: Uuid,
     pub deadline_at: DateTime<Utc>,
     pub benchmark_version: String,
@@ -232,6 +327,7 @@ mod tests {
         let claim = HarnessClaim {
             id,
             repo_url: "https://github.com/example/agent".into(),
+            model_id: DEFAULT_BEDROCK_MODEL.into(),
             lease_token,
             deadline_at: "2026-08-01T12:00:00Z".parse().unwrap(),
             benchmark_version: BENCHMARK_VERSION.into(),
@@ -241,11 +337,59 @@ mod tests {
             serde_json::json!({
                 "id": id,
                 "repo_url": "https://github.com/example/agent",
+                "model_id": "xai.grok-4.3",
                 "lease_token": lease_token,
                 "deadline_at": "2026-08-01T12:00:00Z",
                 "benchmark_version": "harness-2026-sprint-v2"
             })
         );
+    }
+
+    #[test]
+    fn model_allowlist_is_safe_and_stable() {
+        assert!(is_bedrock_model(DEFAULT_BEDROCK_MODEL));
+        assert!(BEDROCK_MODEL_IDS.windows(2).all(|pair| pair[0] < pair[1]));
+        assert!(BEDROCK_MODEL_IDS.iter().all(|model| {
+            model.len() <= 120
+                && model
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+        }));
+        assert!(
+            BEDROCK_IMAGE_MODEL_IDS
+                .windows(2)
+                .all(|pair| pair[0] < pair[1])
+        );
+        assert!(
+            BEDROCK_IMAGE_MODEL_IDS
+                .iter()
+                .all(|model| is_bedrock_model(model))
+        );
+        assert!(bedrock_model_supports_images("google.gemma-4-31b"));
+        assert!(!bedrock_model_supports_images("openai.gpt-oss-120b"));
+    }
+
+    #[test]
+    fn builtin_harness_ids_and_uris_are_exact() {
+        assert_eq!(builtin_harness_uri("forge"), Some("builtin://forge"));
+        assert_eq!(builtin_harness_uri("reki"), Some("builtin://reki"));
+        assert_eq!(builtin_harness_uri("unknown"), None);
+        assert!(is_builtin_harness("builtin://forge"));
+        assert!(!is_builtin_harness("builtin://unknown"));
+    }
+
+    #[test]
+    fn old_claims_default_to_the_selected_model() {
+        let (id, lease_token) = ids();
+        let claim: HarnessClaim = serde_json::from_value(serde_json::json!({
+            "id": id,
+            "repo_url": "https://github.com/example/agent",
+            "lease_token": lease_token,
+            "deadline_at": "2026-08-01T12:00:00Z",
+            "benchmark_version": "harness-2026-sprint-v2"
+        }))
+        .unwrap();
+        assert_eq!(claim.model_id, DEFAULT_BEDROCK_MODEL);
     }
 
     #[test]

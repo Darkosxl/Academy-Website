@@ -17,7 +17,8 @@ use benchmark_node::{
 use benchmark_protocol::{
     ArcFramesRequest, BENCHMARK_VERSION, ExecutorEvent, ExecutorRequest, HarnessClaim,
     HarnessLeaseRequest, HarnessProgressRequest, HarnessResultRequest, HarnessStageRequest,
-    KaggleClaim, KaggleResultRequest,
+    KaggleClaim, KaggleResultRequest, bedrock_model_supports_images, is_bedrock_model,
+    is_builtin_harness,
 };
 use chrono::Utc;
 use serde_json::json;
@@ -329,12 +330,33 @@ async fn process_run(
         .await;
         return;
     }
+    if !is_bedrock_model(&claim.model_id) {
+        post_run_result(
+            academy,
+            metrics,
+            failure_result(&claim, "claim selected an unavailable model"),
+        )
+        .await;
+        return;
+    }
+    if is_builtin_harness(&claim.repo_url) && !bedrock_model_supports_images(&claim.model_id) {
+        post_run_result(
+            academy,
+            metrics,
+            failure_result(
+                &claim,
+                "built-in visual agent requires an image-capable model",
+            ),
+        )
+        .await;
+        return;
+    }
     let gateway = match GatewayHandle::start(
         &config.gateway_directory,
         claim.id,
         &config.aws_region,
-        &config.model_id,
-        &config.profile_name,
+        &claim.model_id,
+        &claim.model_id,
         &config.reasoning_effort,
         &config.bedrock_api_key,
         config.maximum_model_concurrency,
@@ -386,7 +408,7 @@ async fn execute_run(
         deadline_at: claim.deadline_at,
         gateway_socket: gateway.socket_path.to_string_lossy().into_owned(),
         gateway_token: gateway.token.clone(),
-        model_profile: config.profile_name.clone(),
+        model_profile: claim.model_id.clone(),
     };
     if let Err(error) = ndjson::write(&mut write, &request, MAX_NDJSON_BYTES).await {
         metrics.executor_errors.fetch_add(1, Ordering::Relaxed);
@@ -426,13 +448,13 @@ async fn execute_run(
                         if stage_reported || !valid_sha(&commit_sha) {
                             break RunEnd::Result(failure_result(claim, "executor returned an invalid commit SHA"));
                         }
-                        let fingerprint = format!("{:x}", Sha256::digest(config.model_id.as_bytes()));
+                        let fingerprint = format!("{:x}", Sha256::digest(claim.model_id.as_bytes()));
                         let request = HarnessStageRequest {
                             id: claim.id,
                             lease_token: claim.lease_token,
                             status: "running".into(),
                             commit_sha,
-                            bedrock_profile: config.profile_name.clone(),
+                            bedrock_profile: claim.model_id.clone(),
                             bedrock_profile_fingerprint: fingerprint,
                         };
                         match academy.stage(&request).await {

@@ -25,6 +25,8 @@ const MAX_BODY_BYTES: usize = 1024 * 1024;
 const MAX_MESSAGES: usize = 12;
 const MAX_TOOL_RESULT_BYTES: usize = 8 * 1024;
 const MAX_TEXT_BYTES: usize = 64 * 1024;
+const MAX_IMAGE_DATA_CHARS: usize = 384 * 1024;
+const MAX_IMAGE_PARTS: usize = 16;
 const MAX_OUTPUT_TOKENS: u64 = 2048;
 
 #[derive(Clone)]
@@ -190,6 +192,7 @@ impl GatewayHandle {
         let router = Router::new()
             .route("/health", get(health))
             .route("/metrics", get(metrics_handler))
+            .route("/v1/models", get(models))
             .route("/v1/chat/completions", post(chat_completions))
             .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
             .with_state(state);
@@ -254,6 +257,22 @@ async fn metrics_handler(State(state): State<GatewayState>, headers: HeaderMap) 
         "output_tokens": snapshot.output_tokens,
         "latency_ms": snapshot.latency_ms,
         "completed_last_30s": snapshot.completed_last_30_seconds,
+    }))
+    .into_response()
+}
+
+async fn models(State(state): State<GatewayState>, headers: HeaderMap) -> Response {
+    if !authorized(&state, &headers) {
+        return error_response(StatusCode::UNAUTHORIZED, "invalid gateway capability");
+    }
+    Json(json!({
+        "object": "list",
+        "data": [{
+            "id": state.profile_name.as_ref(),
+            "object": "model",
+            "created": 0,
+            "owned_by": "amazon-bedrock"
+        }]
     }))
     .into_response()
 }
@@ -341,6 +360,67 @@ fn error_response(status: StatusCode, message: &str) -> Response {
         .unwrap()
 }
 
+fn sanitize_message_content(content: &Value, role: &str) -> Result<Value> {
+    if let Some(text) = content.as_str() {
+        return Ok(Value::String(clip(
+            text,
+            if role == "tool" {
+                MAX_TOOL_RESULT_BYTES
+            } else {
+                MAX_TEXT_BYTES
+            },
+        )));
+    }
+    let parts = content
+        .as_array()
+        .filter(|_| role == "user")
+        .context("message content must be text or user image parts")?;
+    if parts.is_empty() || parts.len() > MAX_IMAGE_PARTS + 1 {
+        bail!("multimodal messages contain too many parts");
+    }
+    let mut images = 0usize;
+    let mut clean = Vec::with_capacity(parts.len());
+    for part in parts {
+        let part = part.as_object().context("message parts must be objects")?;
+        match part.get("type").and_then(Value::as_str) {
+            Some("text") => {
+                let text = part
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .context("text parts require text")?;
+                clean.push(json!({"type":"text","text":clip(text, MAX_TEXT_BYTES)}));
+            }
+            Some("image_url") => {
+                images += 1;
+                if images > MAX_IMAGE_PARTS {
+                    bail!("multimodal messages contain too many images");
+                }
+                let url = part
+                    .get("image_url")
+                    .and_then(Value::as_object)
+                    .and_then(|image| image.get("url"))
+                    .and_then(Value::as_str)
+                    .context("image parts require a URL")?;
+                let encoded = ["data:image/png;base64,", "data:image/jpeg;base64,"]
+                    .iter()
+                    .find_map(|prefix| url.strip_prefix(prefix))
+                    .context("only inline PNG or JPEG images are allowed")?;
+                if encoded.is_empty()
+                    || encoded.len() > MAX_IMAGE_DATA_CHARS
+                    || !encoded.bytes().all(|byte| {
+                        byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'/' | b'=')
+                    })
+                {
+                    bail!("image data is invalid or too large");
+                }
+                clean.push(json!({"type":"image_url","image_url":{"url":url}}));
+            }
+            _ => bail!("unsupported message part"),
+        }
+    }
+    Ok(Value::Array(clean))
+}
+
 fn sanitize_chat(body: Value, model_id: &str, reasoning_effort: &str) -> Result<Value> {
     let object = body.as_object().context("request body must be an object")?;
     if object.get("stream").and_then(Value::as_bool) == Some(true) {
@@ -372,23 +452,13 @@ fn sanitize_chat(body: Value, model_id: &str, reasoning_effort: &str) -> Result<
         let mut clean = Map::new();
         clean.insert("role".into(), Value::String(role.into()));
         match source.get("content") {
-            Some(Value::String(text)) => {
-                clean.insert(
-                    "content".into(),
-                    Value::String(clip(
-                        text,
-                        if role == "tool" {
-                            MAX_TOOL_RESULT_BYTES
-                        } else {
-                            MAX_TEXT_BYTES
-                        },
-                    )),
-                );
-            }
             Some(Value::Null) | None if role == "assistant" => {
                 clean.insert("content".into(), Value::Null);
             }
-            _ => bail!("message content must be text"),
+            Some(content) => {
+                clean.insert("content".into(), sanitize_message_content(content, role)?);
+            }
+            _ => bail!("message content is required"),
         }
         if role == "tool" {
             let call_id = source
@@ -437,10 +507,12 @@ fn sanitize_chat(body: Value, model_id: &str, reasoning_effort: &str) -> Result<
         .unwrap_or(MAX_OUTPUT_TOKENS)
         .clamp(1, MAX_OUTPUT_TOKENS);
     result.insert("max_completion_tokens".into(), Value::from(requested));
-    result.insert(
-        "reasoning_effort".into(),
-        Value::String(reasoning_effort.into()),
-    );
+    if model_supports_reasoning_effort(model_id) {
+        result.insert(
+            "reasoning_effort".into(),
+            Value::String(reasoning_effort.into()),
+        );
+    }
     if let Some(tools) = object.get("tools") {
         let tools = tools.as_array().context("tools must be an array")?;
         if tools.len() > 64 {
@@ -470,6 +542,12 @@ fn sanitize_chat(body: Value, model_id: &str, reasoning_effort: &str) -> Result<
         }
     }
     Ok(Value::Object(result))
+}
+
+fn model_supports_reasoning_effort(model_id: &str) -> bool {
+    model_id.starts_with("xai.")
+        || model_id.starts_with("openai.")
+        || model_id.starts_with("google.gemma-4-")
 }
 
 fn clip(value: &str, maximum: usize) -> String {
@@ -507,6 +585,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(result["model"], "xai.grok-4.3");
+        assert_eq!(result["reasoning_effort"], "none");
         assert_eq!(result["max_completion_tokens"], MAX_OUTPUT_TOKENS);
         assert!(result.get("temperature").is_none());
         assert!(result["messages"].as_array().unwrap().len() <= MAX_MESSAGES + 1);
@@ -539,5 +618,39 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn sanitization_keeps_bounded_inline_images_only() {
+        let result = sanitize_chat(
+            json!({"messages":[{"role":"user","content":[
+                {"type":"image_url","image_url":{"url":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="}},
+                {"type":"text","text":"choose an action"}
+            ]}]}),
+            "google.gemma-4-31b",
+            "none",
+        )
+        .unwrap();
+        assert_eq!(
+            result["messages"][0]["content"][0]["image_url"]["url"],
+            "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+        );
+        assert!(
+            sanitize_chat(
+                json!({"messages":[{"role":"user","content":[
+                    {"type":"image_url","image_url":{"url":"https://example.com/board.png"}}
+                ]}]}),
+                "google.gemma-4-31b",
+                "none",
+            )
+            .is_err()
+        );
+        let mistral = sanitize_chat(
+            json!({"messages":[{"role":"user","content":"go"}]}),
+            "mistral.mistral-large-3-675b-instruct",
+            "none",
+        )
+        .unwrap();
+        assert!(mistral.get("reasoning_effort").is_none());
     }
 }

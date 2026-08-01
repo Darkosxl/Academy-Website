@@ -8,6 +8,8 @@ token. Request/response bodies are deliberately never logged.
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 import collections
 import contextlib
 import hmac
@@ -25,6 +27,12 @@ MAX_BODY_BYTES = 2 * 1024 * 1024
 MAX_OUTPUT_TOKENS = 512
 MAX_MESSAGES = 12
 MAX_TOOL_RESULT_BYTES = 8 * 1024
+MAX_IMAGE_DATA_CHARS = 384 * 1024
+MAX_IMAGE_PARTS = 16
+
+
+def model_supports_reasoning_effort(model_id: str) -> bool:
+    return model_id.startswith(("xai.", "openai.", "google.gemma-4-"))
 
 
 class GatewayError(Exception):
@@ -48,6 +56,51 @@ def _text(content: Any, limit: int = 256 * 1024) -> str:
         raise GatewayError(400, "message content must be text")
     raw = value.encode("utf-8")
     return raw[:limit].decode("utf-8", "ignore")
+
+
+def _inline_image(part: Any) -> tuple[str, str, bytes]:
+    image = part.get("image_url") if isinstance(part, dict) else None
+    url = image.get("url") if isinstance(image, dict) else None
+    if not isinstance(url, str):
+        raise GatewayError(400, "image parts require a URL")
+    prefixes = {
+        "data:image/png;base64,": "png",
+        "data:image/jpeg;base64,": "jpeg",
+    }
+    match = next(((prefix, kind) for prefix, kind in prefixes.items() if url.startswith(prefix)), None)
+    if match is None:
+        raise GatewayError(400, "only inline PNG or JPEG images are allowed")
+    prefix, kind = match
+    encoded = url.removeprefix(prefix)
+    if not encoded or len(encoded) > MAX_IMAGE_DATA_CHARS:
+        raise GatewayError(400, "image data is empty or too large")
+    try:
+        raw = base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise GatewayError(400, "image data is invalid") from exc
+    return kind, url, raw
+
+
+def _user_parts(content: Any) -> list[dict[str, Any]]:
+    if isinstance(content, str):
+        return [{"type": "text", "text": _text(content)}]
+    if not isinstance(content, list) or not content or len(content) > MAX_IMAGE_PARTS + 1:
+        raise GatewayError(400, "user content must be text or bounded image parts")
+    clean: list[dict[str, Any]] = []
+    images = 0
+    for part in content:
+        kind = part.get("type") if isinstance(part, dict) else None
+        if kind == "text":
+            clean.append({"type": "text", "text": _text(part.get("text"))})
+        elif kind == "image_url":
+            images += 1
+            if images > MAX_IMAGE_PARTS:
+                raise GatewayError(400, "too many image parts")
+            image_format, url, raw = _inline_image(part)
+            clean.append({"type": "image_url", "url": url, "format": image_format, "bytes": raw})
+        else:
+            raise GatewayError(400, "unsupported message part")
+    return clean
 
 
 def _merge_message(messages: list[dict[str, Any]], role: str, blocks: list[dict[str, Any]]) -> None:
@@ -97,9 +150,21 @@ def openai_to_bedrock(body: dict[str, Any]) -> tuple[list[dict[str, str]], list[
         if role not in ("user", "assistant"):
             raise GatewayError(400, f"unsupported message role: {role}")
         blocks: list[dict[str, Any]] = []
-        text = _text(message.get("content"))
-        if text:
-            blocks.append({"text": text})
+        if role == "user":
+            for part in _user_parts(message.get("content")):
+                if part["type"] == "text" and part["text"]:
+                    blocks.append({"text": part["text"]})
+                elif part["type"] == "image_url":
+                    blocks.append({
+                        "image": {
+                            "format": part["format"],
+                            "source": {"bytes": part["bytes"]},
+                        }
+                    })
+        else:
+            text = _text(message.get("content"))
+            if text:
+                blocks.append({"text": text})
         if role == "assistant":
             calls = message.get("tool_calls") or []
             if not isinstance(calls, list):
@@ -230,7 +295,14 @@ def openai_to_responses(
             continue
         if role not in ("user", "assistant"):
             raise GatewayError(400, f"unsupported message role: {role}")
-        value = _text(message.get("content"))
+        value: Any = _text(message.get("content"))
+        if role == "user" and isinstance(message.get("content"), list):
+            value = []
+            for part in _user_parts(message["content"]):
+                if part["type"] == "text":
+                    value.append({"type": "input_text", "text": part["text"]})
+                else:
+                    value.append({"type": "input_image", "image_url": part["url"]})
         if value:
             inputs.append({"type": "message", "role": role, "content": value})
         if role == "assistant":
@@ -339,7 +411,15 @@ def responses_input_to_chat(
     for item in inputs:
         kind = item.get("type")
         if kind == "message":
-            messages.append({"role": item["role"], "content": item["content"]})
+            content = item["content"]
+            if isinstance(content, list):
+                content = [
+                    {"type": "text", "text": part["text"]}
+                    if part.get("type") == "input_text"
+                    else {"type": "image_url", "image_url": {"url": part["image_url"]}}
+                    for part in content
+                ]
+            messages.append({"role": item["role"], "content": content})
         elif kind == "function_call":
             call = {
                 "id": item["call_id"],
@@ -448,6 +528,16 @@ class GatewayHandler(BaseHTTPRequestHandler):
             self._json(200, {"ok": True})
         elif self.path == "/metrics" and self._authorized():
             self._json(200, self.server.stats.snapshot())
+        elif self.path.rstrip("/") == "/v1/models" and self._authorized():
+            self._json(200, {
+                "object": "list",
+                "data": [{
+                    "id": self.server.profile_name,
+                    "object": "model",
+                    "created": 0,
+                    "owned_by": "amazon-bedrock",
+                }],
+            })
         else:
             self._json(404 if self._authorized() else 401, {"error": {"message": "not found"}})
 
@@ -494,8 +584,9 @@ class GatewayHandler(BaseHTTPRequestHandler):
                         "model": self.server.model_id,
                         "messages": responses_input_to_chat(instructions, inputs),
                         "max_completion_tokens": max_tokens,
-                        "reasoning_effort": self.server.reasoning_effort,
                     }
+                    if model_supports_reasoning_effort(self.server.model_id):
+                        request["reasoning_effort"] = self.server.reasoning_effort
                     if tools:
                         request["tools"] = responses_tools_to_chat(tools)
                         request["tool_choice"] = responses_tool_choice_to_chat(tool_choice)
@@ -573,21 +664,21 @@ def run(socket_path: Path) -> None:
     if not model_id or not token or not region:
         raise SystemExit("AWS_REGION, BEDROCK_MODEL_ID and BEDROCK_GATEWAY_TOKEN are required")
     max_concurrency = max(1, min(128, int(os.environ.get("BEDROCK_MAX_CONCURRENCY", "32"))))
-    if model_id.startswith(("openai.", "xai.")):
+    api_key = os.environ.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
+    if api_key:
         try:
             from openai import OpenAI
         except ImportError as exc:
             raise SystemExit("Install worker/requirements.txt before starting the gateway") from exc
-        api_key = os.environ.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
-        if not api_key:
-            raise SystemExit("AWS_BEARER_TOKEN_BEDROCK is required for Bedrock Mantle")
         client = OpenAI(
             api_key=api_key,
             base_url=f"https://bedrock-mantle.{region}.api.aws/openai/v1",
             timeout=15,
             max_retries=1,
         )
-        api_style = "chat" if model_id.startswith("xai.") else "responses"
+        api_style = "responses" if model_id.startswith("openai.") else "chat"
+    elif model_id.startswith(("openai.", "xai.")):
+        raise SystemExit("AWS_BEARER_TOKEN_BEDROCK is required for Bedrock Mantle")
     else:
         try:
             import boto3

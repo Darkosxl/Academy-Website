@@ -1,6 +1,9 @@
 use anyhow::{Context, Result, bail};
 use benchmark_node::{MAX_NDJSON_BYTES, config::ExecutorConfig, ndjson, random_token};
-use benchmark_protocol::{ExecutorEvent, ExecutorRequest, KaggleResultRequest};
+use benchmark_protocol::{
+    ExecutorEvent, ExecutorRequest, KaggleResultRequest, bedrock_model_supports_images,
+    is_bedrock_model, is_builtin_harness,
+};
 use chrono::Utc;
 use serde_json::json;
 use std::{os::unix::fs::PermissionsExt, path::Path, process::Stdio, sync::Arc, time::Duration};
@@ -217,11 +220,10 @@ fn validate_request(request: &ExecutorRequest) -> Result<()> {
             model_profile,
             ..
         } => {
-            valid_repo_url(repo_url)?;
+            valid_submission_source(repo_url)?;
             if *deadline_at <= Utc::now()
                 || gateway_token.len() != 64
-                || model_profile.is_empty()
-                || model_profile.len() > 120
+                || !valid_submission_model(repo_url, model_profile)
             {
                 bail!("invalid local-run capability or deadline");
             }
@@ -263,6 +265,18 @@ fn valid_repo_url(raw: &str) -> Result<()> {
         bail!("repository must be an uncredentialed https://github.com/owner/repo URL");
     }
     Ok(())
+}
+
+fn valid_submission_source(raw: &str) -> Result<()> {
+    if is_builtin_harness(raw) {
+        return Ok(());
+    }
+    valid_repo_url(raw)
+}
+
+fn valid_submission_model(source: &str, model_id: &str) -> bool {
+    is_bedrock_model(model_id)
+        && (!is_builtin_harness(source) || bedrock_model_supports_images(model_id))
 }
 
 fn request_timeout(request: &ExecutorRequest) -> Duration {
@@ -382,4 +396,30 @@ async fn verify_host(config: &ExecutorConfig) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn run_sources_allow_only_github_or_pinned_builtins() {
+        assert!(valid_submission_source("https://github.com/example/agent").is_ok());
+        assert!(valid_submission_source("builtin://forge").is_ok());
+        assert!(valid_submission_source("builtin://reki").is_ok());
+        assert!(valid_submission_source("builtin://unknown").is_err());
+        assert!(valid_submission_source("file:///etc/passwd").is_err());
+        assert!(valid_submission_model(
+            "builtin://forge",
+            "google.gemma-4-31b"
+        ));
+        assert!(!valid_submission_model(
+            "builtin://forge",
+            "openai.gpt-oss-120b"
+        ));
+        assert!(valid_submission_model(
+            "https://github.com/example/agent",
+            "openai.gpt-oss-120b"
+        ));
+    }
 }

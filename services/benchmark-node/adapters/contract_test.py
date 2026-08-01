@@ -6,8 +6,11 @@ import contextlib
 import io
 import json
 import os
+import tempfile
 import time
+from pathlib import Path
 
+import bedrock_gateway
 import runner
 
 
@@ -53,6 +56,39 @@ def main() -> None:
         "frontier": {"status": "failed"},
         "ram": {"status": "failed"},
     }) == "partial"
+    for source in ("builtin://forge", "builtin://reki"):
+        path = runner.builtin_submission(source)
+        assert path is not None and path.is_dir()
+        assert all((path / required).is_file() for required in runner.REQUIRED_FILES)
+        assert len(runner.submission_digest(path)) == 40
+    assert runner.builtin_submission("builtin://unknown") is None
+    with tempfile.TemporaryDirectory() as raw:
+        repo = Path(raw)
+        (repo / "main.py").write_text("pass\n")
+        digest = runner.submission_digest(repo)
+        cache = repo / "__pycache__"
+        cache.mkdir()
+        (cache / "main.cpython-312.pyc").write_bytes(b"generated")
+        assert runner.submission_digest(repo) == digest
+    multimodal = {
+        "messages": [{
+            "role": "user",
+            "content": [
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="}},
+                {"type": "text", "text": "choose an action"},
+            ],
+        }],
+    }
+    _, bedrock_messages, _ = bedrock_gateway.openai_to_bedrock(multimodal)
+    assert bedrock_messages[0]["content"][0]["image"]["source"]["bytes"].startswith(
+        b"\x89PNG\r\n\x1a\n"
+    )
+    _, inputs, _, _ = bedrock_gateway.openai_to_responses(multimodal)
+    assert inputs[0]["content"][0]["type"] == "input_image"
+    assert bedrock_gateway.model_supports_reasoning_effort("google.gemma-4-31b")
+    assert not bedrock_gateway.model_supports_reasoning_effort(
+        "mistral.mistral-large-3-675b-instruct"
+    )
     print("python adapter contract ok")
 
 
