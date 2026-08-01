@@ -39,6 +39,12 @@ Resources:
                 Action:
                   - ec2:Describe*
                 Resource: '*'
+              - Sid: ReadUbuntuAmiParameter
+                Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:GetParameters
+                Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}::parameter/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id
               - Sid: ManageWorkerLaunchTemplate
                 Effect: Allow
                 Action:
