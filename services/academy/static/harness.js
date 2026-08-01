@@ -6,13 +6,14 @@
   var live = document.getElementById('harness-live');
   if (!live || live.dataset.active !== 'true') return;
 
-  var TERMINAL = ['done', 'partial', 'failed', 'infra_failed'];
+  var TERMINAL = ['done', 'partial', 'failed', 'infra_failed', 'cancelled'];
   var STATUS = {
     pending: ['Bekliyor', 'st-pending'],
     running: ['Çalışıyor', 'st-reviewing'],
     done: ['Tamamlandı', 'st-passed'],
     failed: ['Başarısız', 'st-failed'],
-    infra_failed: ['Altyapı hatası', 'st-failed']
+    infra_failed: ['Altyapı hatası', 'st-failed'],
+    cancelled: ['Durduruldu', 'st-failed']
   };
   var RUN_STATUS = {
     queued: ['Sırada', 'st-pending'],

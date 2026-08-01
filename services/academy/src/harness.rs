@@ -12,12 +12,12 @@ use axum::{
     response::{Html, IntoResponse, Redirect, Response},
 };
 use benchmark_protocol::{
-    ArcFrame as HarnessArcFrame, ArcFramesRequest as HarnessArcFramesReq, DEFAULT_BEDROCK_MODEL,
-    HarnessCapacity, HarnessClaim, HarnessLeaseRequest as HarnessLeaseReq,
+    ARC_GAMES, ArcFrame as HarnessArcFrame, ArcFramesRequest as HarnessArcFramesReq,
+    DEFAULT_BEDROCK_MODEL, HarnessCapacity, HarnessClaim, HarnessLeaseRequest as HarnessLeaseReq,
     HarnessProgressRequest as HarnessProgressReq, HarnessResultRequest as HarnessResultReq,
     HarnessStageRequest as HarnessStageReq, KaggleClaim,
-    KaggleResultRequest as HarnessKaggleResultReq, bedrock_model_supports_images,
-    builtin_harness_uri, is_bedrock_model, is_builtin_harness,
+    KaggleResultRequest as HarnessKaggleResultReq, RUN_DEADLINE_SECONDS,
+    bedrock_model_supports_images, builtin_harness_uri, is_bedrock_model, is_builtin_harness,
 };
 use chacha20poly1305::{
     XChaCha20Poly1305, XNonce,
@@ -163,7 +163,7 @@ pub async fn agentic_harness(
                     score_frontier, ram_1session_mb, ram_10session_mb,
                     error_log, created_at
              from harness_runs_exposure_academy
-             where team_id = $1 and stage not in ('done','partial','failed','infra_failed')",
+             where team_id = $1 and stage not in ('done','partial','failed','infra_failed','cancelled')",
         )
         .bind(t.id)
         .fetch_optional(&app.pool)
@@ -318,7 +318,7 @@ pub async fn harness_submit(
     let in_flight = "Takımının devam eden bir çalıştırması var — bitmesini bekleyin.";
     let active: Option<Uuid> = sqlx::query_scalar(
         "select id from harness_runs_exposure_academy where team_id = $1
-         and stage not in ('done','partial','failed','infra_failed')",
+         and stage not in ('done','partial','failed','infra_failed','cancelled')",
     )
     .bind(team.id)
     .fetch_optional(&app.pool)
@@ -343,6 +343,36 @@ pub async fn harness_submit(
     .execute(&app.pool)
     .await
     .map_err(|_| bad(in_flight))?;
+    Ok(Redirect::to("/agentic-harness"))
+}
+
+/// Team-scoped cancellation. Clearing the lease makes the controller's next frame,
+/// progress, or heartbeat receive 409; it then sends Cancel to the restricted executor.
+pub async fn harness_stop(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Form(f): Form<IdForm>,
+) -> Result<Redirect, Response> {
+    let user = require_onboarded(current_user(&app, &headers).await)?;
+    let result = sqlx::query(
+        "update harness_runs_exposure_academy r
+         set stage = 'cancelled', error_log = 'Takım üyesi tarafından durduruldu.',
+             lease_token = null, lease_expires_at = null, updated_at = now()
+         where r.id = $1
+           and r.stage not in ('done','partial','failed','infra_failed','cancelled')
+           and exists (
+             select 1 from harness_team_members_exposure_academy tm
+             where tm.team_id = r.team_id and tm.user_id = $2
+           )",
+    )
+    .bind(f.id)
+    .bind(user.id)
+    .execute(&app.pool)
+    .await
+    .map_err(worker_db_unavailable)?;
+    if result.rows_affected() == 0 {
+        return Err(StatusCode::CONFLICT.into_response());
+    }
     Ok(Redirect::to("/agentic-harness"))
 }
 
@@ -401,8 +431,9 @@ pub async fn harness_arc_live(
     Query(q): Query<ArcLiveQ>,
 ) -> Result<Json<Value>, Response> {
     let user = require(current_user(&app, &headers).await)?;
-    let run: Option<(Uuid, String, Option<DateTime<Utc>>)> = sqlx::query_as(
-        "select r.id, r.stage, r.deadline_at from harness_runs_exposure_academy r
+    let run: Option<(Uuid, String, Option<DateTime<Utc>>, String)> = sqlx::query_as(
+        "select r.id, r.stage, r.deadline_at, r.benchmark_version
+         from harness_runs_exposure_academy r
          join harness_team_members_exposure_academy tm on tm.team_id = r.team_id
          where tm.user_id = $1 and ($2::uuid is null or r.id = $2)
          order by r.created_at desc limit 1",
@@ -412,7 +443,7 @@ pub async fn harness_arc_live(
     .fetch_optional(&app.pool)
     .await
     .map_err(worker_db_unavailable)?;
-    let Some((run_id, stage, deadline_at)) = run else {
+    let Some((run_id, stage, deadline_at, benchmark_version)) = run else {
         return Ok(Json(serde_json::json!({
             "run": null, "stage": null, "deadline_at": null, "games": [], "focus": null,
         })));
@@ -463,18 +494,42 @@ pub async fn harness_arc_live(
             })
         }
     };
+    let games: Vec<Value> = if benchmark_version == HARNESS_VERSION {
+        ARC_GAMES
+            .iter()
+            .map(
+                |game| match boards.iter().find(|board| board.game == *game) {
+                    Some(board) => serde_json::json!({
+                        "game": board.game, "seq": board.seq, "total": board.seq,
+                        "state": board.state, "levels_completed": board.levels_completed,
+                        "baseline": board.baseline,
+                        "grid": board.grids.rsplit('\n').next().unwrap_or(""),
+                    }),
+                    None => serde_json::json!({
+                        "game": game, "seq": -1, "total": 0, "state": "NOT_PLAYED",
+                        "levels_completed": 0, "baseline": null, "grid": "",
+                    }),
+                },
+            )
+            .collect()
+    } else {
+        boards
+            .iter()
+            .map(|board| {
+                serde_json::json!({
+                    "game": board.game, "seq": board.seq, "total": board.seq,
+                    "state": board.state, "levels_completed": board.levels_completed,
+                    "baseline": board.baseline,
+                    "grid": board.grids.rsplit('\n').next().unwrap_or(""),
+                })
+            })
+            .collect()
+    };
     Ok(Json(serde_json::json!({
         "run": run_id,
         "stage": stage,
         "deadline_at": deadline_at,
-        // `distinct on` already picked each game's highest seq, so seq and total are the
-        // same number here — the viewer reads one as its cursor and one as the count.
-        "games": boards.iter().map(|b| serde_json::json!({
-            "game": b.game, "seq": b.seq, "total": b.seq, "state": b.state,
-            "levels_completed": b.levels_completed, "baseline": b.baseline,
-            // the resulting board only, not the buffer that led to it
-            "grid": b.grids.rsplit('\n').next().unwrap_or(""),
-        })).collect::<Vec<_>>(),
+        "games": games,
         "focus": focus,
     })))
 }
@@ -773,7 +828,7 @@ pub async fn admin_harness_run_fail(
         "update harness_runs_exposure_academy
          set stage = 'failed', error_log = 'Yönetici tarafından durduruldu.',
              lease_token = null, lease_expires_at = null, updated_at = now()
-         where id = $1 and stage not in ('done','partial','failed','infra_failed')",
+         where id = $1 and stage not in ('done','partial','failed','infra_failed','cancelled')",
     )
     .bind(f.id)
     .execute(&app.pool)
@@ -870,16 +925,17 @@ pub async fn worker_harness_claim(
          )
          update harness_runs_exposure_academy r
          set stage = 'preparing', lease_token = $1,
-             lease_expires_at = least(coalesce(r.deadline_at, now() + interval '600 seconds')
+             lease_expires_at = least(coalesce(r.deadline_at, now() + $2::bigint * interval '1 second')
                                       + interval '30 seconds',
                                       now() + interval '90 seconds'),
              worker_heartbeat_at = now(),
-             deadline_at = coalesce(r.deadline_at, now() + interval '600 seconds'),
+             deadline_at = coalesce(r.deadline_at, now() + $2::bigint * interval '1 second'),
              claim_attempts = claim_attempts + 1, updated_at = now()
          from candidate where r.id = candidate.id
          returning r.id, r.repo_url, r.deadline_at, r.model_id",
     )
     .bind(lease)
+    .bind(RUN_DEADLINE_SECONDS)
     .fetch_optional(&app.pool)
     .await
     .map_err(worker_db_unavailable)?;

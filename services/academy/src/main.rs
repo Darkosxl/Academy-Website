@@ -87,6 +87,10 @@ async fn main() {
         .execute(&pool)
         .await
         .expect("model selection migration failed");
+    sqlx::raw_sql(include_str!("../migrations/006_harness_v3.sql"))
+        .execute(&pool)
+        .await
+        .expect("harness v3 migration failed");
     seed_admin(&pool).await;
     seed_invite_code(&pool).await;
     seed_videos(&pool).await;
@@ -134,6 +138,7 @@ async fn main() {
         .route("/videos", get(video_grid))
         .route("/agentic-harness", get(agentic_harness))
         .route("/agentic-harness/submit", post(harness_submit))
+        .route("/agentic-harness/stop", post(harness_stop))
         .route("/agentic-harness/status", get(harness_status))
         .route("/agentic-harness/arc/live", get(harness_arc_live))
         .route(

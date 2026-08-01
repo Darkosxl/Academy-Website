@@ -856,6 +856,7 @@ form.inline input, form.inline select { margin-top:0; width:auto; }
 .harness-countdown {
   color:var(--text-subtle); font-size:var(--fs-mini); font-variant-numeric:tabular-nums;
 }
+.harness-live-actions { display:flex; align-items:center; gap:8px; }
 .harness-run-meta { margin:-10px 0 0; color:var(--text-subtle); font-size:var(--fs-mini); }
 .harness-benchmark-grid { display:grid; gap:10px; }
 .harness-benchmark {

@@ -1,4 +1,4 @@
-// ARC-AGI-3 viewer: 13 pixel boards polled live, click one to watch it big at ~4fps.
+// ARC-AGI-3 viewer: 25 pixel boards polled live, click one to watch it big at ~4fps.
 // Frames are 4096-char hex grids; canvases stay 64x64 and CSS scales them, so no maths here.
 (function () {
   'use strict';
@@ -12,7 +12,7 @@
   var PAGE = 200;       // the endpoint's focus page size — a shorter page means we caught up
   var SIDE = 64;        // arcengine MAX_DIMENSION: every grid is exactly 64x64
   var CELLS = SIDE * SIDE;
-  var TERMINAL = ['done', 'partial', 'failed', 'infra_failed'];
+  var TERMINAL = ['done', 'partial', 'failed', 'infra_failed', 'cancelled'];
   var STATE_TR = {
     NOT_PLAYED: 'Başlamadı',
     NOT_FINISHED: 'Oynanıyor',
@@ -73,7 +73,7 @@
     ctx.putImageData(shared, 0, 0);
   }
 
-  // ---- the grid of 13 -------------------------------------------------------
+  // ---- the grid of 25 -------------------------------------------------------
   function tileFor(game) {
     if (tiles[game]) return tiles[game];
     var button = el('button', 'arc-tile');

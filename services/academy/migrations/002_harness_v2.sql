@@ -54,11 +54,11 @@ update harness_runs_exposure_academy set stage = case
   when stage in ('failed') then 'failed'
   else 'queued'
 end
-where stage not in ('queued','preparing','running','done','partial','failed','infra_failed');
+where stage not in ('queued','preparing','running','done','partial','failed','infra_failed','cancelled');
 
 alter table harness_runs_exposure_academy
   add constraint harness_runs_exposure_academy_stage_check check
-    (stage in ('queued','preparing','running','done','partial','failed','infra_failed'));
+    (stage in ('queued','preparing','running','done','partial','failed','infra_failed','cancelled'));
 
 alter table harness_runs_exposure_academy
   drop constraint if exists harness_runs_claim_attempts_check;
@@ -69,7 +69,7 @@ alter table harness_runs_exposure_academy
 drop index if exists harness_runs_one_active_per_team;
 create unique index if not exists harness_runs_one_active_per_team
   on harness_runs_exposure_academy (team_id)
-  where stage not in ('done','partial','failed','infra_failed');
+  where stage not in ('done','partial','failed','infra_failed','cancelled');
 
 create index if not exists harness_runs_claim_idx
   on harness_runs_exposure_academy (stage, lease_expires_at, created_at);

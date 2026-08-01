@@ -474,8 +474,19 @@ fn harness_stage_tr(stage: &str) -> (&'static str, &'static str) {
         "done" => ("Tamamlandı", "st-passed"),
         "partial" => ("Kısmen tamamlandı", "st-pending"),
         "infra_failed" => ("Altyapı hatası", "st-failed"),
+        "cancelled" => ("Durduruldu", "st-failed"),
         _ => ("Başarısız", "st-failed"),
     }
+}
+
+fn harness_stop_form(run_id: uuid::Uuid) -> String {
+    format!(
+        r##"<form method="post" action="/agentic-harness/stop" class="inline"
+      onsubmit="return confirm('Bu çalıştırma durdurulsun mu?')">
+  <input type="hidden" name="id" value="{run_id}">
+  <button class="btn-outline small" type="submit">Durdur</button>
+</form>"##
+    )
 }
 
 fn harness_benchmark_status(status: &str) -> (&'static str, &'static str) {
@@ -619,12 +630,7 @@ fn harness_stepper(run: &HarnessRun) -> String {
         .as_deref()
         .map(esc)
         .unwrap_or_else(|| esc(&run.model_id));
-    let arc = harness_benchmark_card(
-        run,
-        "arc",
-        "ARC-AGI-3",
-        "13 public oyun · doğal bitiş koşulları",
-    );
+    let arc = harness_benchmark_card(run, "arc", "ARC-AGI-3", "25 public oyun · aynı anda 5 oyun");
     let frontier = harness_benchmark_card(
         run,
         "frontier",
@@ -641,7 +647,10 @@ fn harness_stepper(run: &HarnessRun) -> String {
         r##"<div class="harness-live" id="harness-live" data-active="true" data-deadline="{deadline}">
   <div class="harness-live-head">
     <span id="harness-run-status" class="substatus {stage_class}">{stage_label}</span>
-    <span class="harness-countdown" id="harness-countdown"></span>
+    <div class="harness-live-actions">
+      <span class="harness-countdown" id="harness-countdown"></span>
+      {stop}
+    </div>
   </div>
   <p class="fieldnote harness-repo">{repo} · <code id="harness-commit">{sha}</code></p>
   <p class="harness-run-meta"><span lang="en">{version}</span> · Bedrock: <span id="harness-profile">{profile}</span></p>
@@ -649,7 +658,8 @@ fn harness_stepper(run: &HarnessRun) -> String {
 </div>"##,
         deadline = esc(&deadline),
         repo = harness_source_label(&run.repo_url),
-        version = esc(&run.benchmark_version)
+        version = esc(&run.benchmark_version),
+        stop = harness_stop_form(run.id),
     )
 }
 
@@ -862,17 +872,17 @@ pub fn agentic_harness_main(
   düşük olan daha iyidir. Kısmi çalıştırmalardaki tamamlanmış puanlar korunur.</p>
 </div>
 </div>
-<script src="/static/harness.js?v=3" defer></script>"##
+<script src="/static/harness.js?v=4" defer></script>"##
     );
     harness_shell(
         user,
         "main",
-        "10 dakikalık sürümlenmiş koşuda üç bağımsız benchmark.",
+        "25 ARC oyunu beşerli çalışır; koşuyu istediğiniz zaman durdurabilirsiniz.",
         &inner,
     )
 }
 
-/// Live tab: the 13 ARC-AGI-3 boards. Everything inside `#arc-live` is drawn by arc.js
+/// Live tab: the 25 ARC-AGI-3 boards. Everything inside `#arc-live` is drawn by arc.js
 /// from the poll payload — the server renders only the frame and the idle state, so there
 /// is exactly one implementation of a board and it lives in the JS.
 /// `replay` pages a finished run's frames instead of following the live one.
@@ -898,9 +908,18 @@ pub fn agentic_harness_live(user: &User, run: Option<&HarnessRun>, replay: bool)
             } else {
                 ""
             };
+            let stop = if !replay
+                && !matches!(
+                    r.stage.as_str(),
+                    "done" | "partial" | "failed" | "infra_failed" | "cancelled"
+                ) {
+                harness_stop_form(r.id)
+            } else {
+                String::new()
+            };
             format!(
-                r##"<p class="arc-run"><span class="substatus {class}">{label}</span>
-  <span class="fieldnote">{repo} · <code>{sha}</code> · {model} · {date}</span>{back}</p>"##,
+                r##"<div class="arc-run"><span class="substatus {class}">{label}</span>
+  <span class="fieldnote">{repo} · <code>{sha}</code> · {model} · {date}</span>{back}{stop}</div>"##,
                 repo = harness_source_label(&r.repo_url),
                 model = esc(&r.model_id),
                 date = r.created_at.format("%d.%m.%Y %H:%M"),
@@ -920,7 +939,7 @@ pub fn agentic_harness_live(user: &User, run: Option<&HarnessRun>, replay: bool)
         }
         (None, false) => {
             r##"<h2>Henüz çalıştırma yok</h2>
-  <p class="muted">Takımın bir ajan gönderdiğinde 13 ARC-AGI-3 oyunu burada canlı akar.</p>
+  <p class="muted">Takımın bir ajan gönderdiğinde 25 ARC-AGI-3 oyunu burada canlı akar.</p>
   <a class="btn-outline" href="/agentic-harness">Gönderim sekmesine git</a>"##
         }
         (Some(_), true) => {
@@ -941,7 +960,7 @@ pub fn agentic_harness_live(user: &User, run: Option<&HarnessRun>, replay: bool)
   <div class="arc-focus" id="arc-focus" hidden></div>
   <div class="arc-grid" id="arc-boards"></div>
 </div>
-<script src="/static/arc.js?v=1" defer></script>"##
+<script src="/static/arc.js?v=2" defer></script>"##
     );
     harness_shell(
         user,
@@ -949,7 +968,7 @@ pub fn agentic_harness_live(user: &User, run: Option<&HarnessRun>, replay: bool)
         if replay {
             "Biten bir çalıştırmanın tekrarı — bir tahtaya tıkla, kareleri ileri geri sar."
         } else {
-            "13 ARC-AGI-3 oyunu canlı — bir tahtaya tıkla, büyüt ve hamleleri izle."
+            "25 ARC-AGI-3 oyunu canlı — beşi oynarken sıradakiler otomatik başlar."
         },
         &inner,
     )
@@ -1139,10 +1158,11 @@ class MyAgent(LLM):
   <p>Sıfırdan yazmak isterseniz <code>agents.agent.Agent</code>'ı devralıp
   <code>choose_action(frames, latest_frame)</code> ve <code>is_done(...)</code> metotlarını
   kendiniz yazın.</p>
-  <p>Yerel puan, sabitlenmiş <code>arc-agi==0.9.9</code> public veri setindeki 13 oyunun
-  paralel çalıştırılan ortalamasıdır. Harness eylem sayısına yapay bir sınır koymaz: oyun
-  kazanıldığında veya ölüm/hamle tükenmesiyle <code>GAME_OVER</code> olduğunda biter. On üç oyunun
-  tamamı, çalıştırmanın ortak 10 dakikalık sınırına tabidir. Her tahtayı
+  <p>Yerel puan, sabitlenmiş <code>arc-agi==0.9.9</code> public veri setindeki 25 oyunun
+  ortalamasıdır. Aynı anda en fazla beş oyun çalışır; biri bitince sıradaki başlar. Oyun
+  <code>WIN</code>, <code>GAME_OVER</code>, ajanınızın <code>is_done</code> kararı veya
+  <code>MAX_ACTIONS</code> sınırıyla biter. Koşu için dokuz saatlik güvenlik sınırı vardır ve
+  istediğiniz zaman <b>Durdur</b> düğmesini kullanabilirsiniz. Her tahtayı
   <a href="/agentic-harness?tab=live">Canlı</a> sekmesinden izleyebilirsiniz.</p>
   <p>Uç nokta size <code lang="en">OPENAI_BASE_URL</code> ve <code lang="en">OPENAI_API_KEY</code>
   ile verilir; <span lang="en">OpenAI SDK</span> bunları kendi kendine okur.
@@ -1152,9 +1172,8 @@ class MyAgent(LLM):
   <span lang="en">Python</span> listesi olarak yazdırır ve bu, çağrı başına yaklaşık 52 bin
   token'a mal olur. <code>pretty_print_3d</code>'yi hücre başına bir karakter yazacak şekilde
   geçersiz kılmak, hiçbir bilgi kaybı olmadan bunu kabaca beş kat azaltır.</p>
-  <p><b>Hız hedefi:</b> Tüm aktif oyunlar birlikte 30 saniyede 100 tamamlanmış ajan turunu
-  hedefler; oyunlar bittikçe hedef aktif oyun sayısıyla orantılı azalır. İki ardışık düşük
-  pencere gönderimi cezalandırmaz, çalıştırmayı altyapı hatası olarak işaretler.</p>
+  <p><b>Eşzamanlılık:</b> Beş ARC oyunu model geçidini sürekli kullanır. Yavaş bir model
+  çalıştırmayı iptal etmez; oyunlar bitene, ajan durana veya siz koşuyu durdurana kadar devam eder.</p>
 </section>
 <section class="panel">
   <h2 lang="en">agent/harbor_agent.py — Frontier Sprint</h2>
@@ -1214,7 +1233,7 @@ class HarborAgent(Terminus2):
     <li><span lang="en">Frontier Sprint</span>, sürümlenmiş 5 görevi paralel ve görev başına
     tek denemeyle çalıştırır. Puan, doğrulayıcı ödüllerinin 0–100 ortalamasıdır.</li>
     <li>RAM, ARC ve Frontier bağımsız sonuç verir. Biri başarısız olsa bile biten benchmark'ın
-    puanı korunur. Tüm yerel çalıştırma hazırlık dahil en fazla 10 dakikadır.</li>
+    puanı korunur. Tüm yerel çalıştırma hazırlık dahil en fazla 9 saattir ve elle durdurulabilir.</li>
     <li><code>requirements.txt</code> doğrudan URL, git, yerel dosya veya pip seçeneği içeremez;
     repo 100 MiB, tek dosya 10 MiB ile sınırlıdır.</li>
   </ul>
@@ -3022,5 +3041,14 @@ mod tests {
         assert!(html.contains(r#"value="google.gemma-4-31b" data-image="true""#));
         assert!(!html.contains(r#"value="openai.gpt-oss-120b" data-image="true""#));
         assert!(!html.contains(r#"placeholder="https://github.com/..." required"#));
+    }
+
+    #[test]
+    fn harness_stop_form_targets_the_active_run() {
+        let run_id = Uuid::parse_str("018f0f65-9abc-7def-8123-456789abcdef").unwrap();
+        let html = harness_stop_form(run_id);
+        assert!(html.contains(r#"action="/agentic-harness/stop""#));
+        assert!(html.contains(&format!(r#"name="id" value="{run_id}""#)));
+        assert!(html.contains("Durdur"));
     }
 }

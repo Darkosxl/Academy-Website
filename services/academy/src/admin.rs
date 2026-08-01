@@ -65,7 +65,8 @@ pub async fn admin_page(
             "select r.id, t.name as team_name, r.stage, r.created_at
              from harness_runs_exposure_academy r
              join harness_teams_exposure_academy t on t.id = r.team_id
-             where r.stage not in ('done','failed') order by r.created_at",
+             where r.stage not in ('done','partial','failed','infra_failed','cancelled')
+             order by r.created_at",
         )
         .fetch_all(&app.pool)
         .await
