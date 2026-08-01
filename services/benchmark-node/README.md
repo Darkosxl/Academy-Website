@@ -111,8 +111,8 @@ never blocks the scoring event loop.
 
 Run `/opt`-independent `artifacts/infra/verify-isolation.sh` during a canary while student
 containers are active.
-Run `scripts/frame_load_test.py` against a dedicated test run to verify 13 concurrent
-producers, the 100-turns-per-30-seconds traffic shape, browser polling, and the 2.5-second
+Run `scripts/frame_load_test.py` against a dedicated test run to verify all 25 boards,
+the five-active-game traffic shape, browser polling, and the 2.5-second
 p95 visibility gate. The script requires test-only worker/session credentials through
 environment variables and never terminally updates the run.
 

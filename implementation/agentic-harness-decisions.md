@@ -1,6 +1,6 @@
 # Agentic Harness implementation decisions
 
-Status: accepted for implementation on 2026-07-31. Update this file before
+Status: accepted for implementation on 2026-08-01. Update this file before
 implementing any deviation.
 
 ## Product contract
@@ -8,19 +8,23 @@ implementing any deviation.
 - One public GitHub submission, or an admin-selected bundled agent, produces
   independent ARC-AGI-3, Frontier Sprint, and RAM-bench results. A failure in
   one benchmark does not erase completed results from another.
-- Local evaluation has a hard 600-second wall-clock deadline from queue claim.
+- Local evaluation has a nine-hour safety deadline from queue claim and may be
+  stopped manually by any member of the submitting team.
   The official Kaggle workflow is explicit, asynchronous, and never changes the
   local leaderboard.
-- Leaderboards are versioned. `harness-2026-sprint-v2` pins dataset revisions,
+- Leaderboards are versioned. `harness-2026-sprint-v3` pins dataset revisions,
   task/game lists, limits, and scoring rules. The selected Bedrock model is an
   explicit, visible part of each submission configuration; a team's best
-  agent-and-model result competes in the same v2 table. Other configuration
+  agent-and-model result competes in the same v3 table. Other configuration
   changes require a new version rather than mixing scores.
 - v2 supersedes `harness-2026-sprint-v1` because the scored ARC set grew from
   ten games to thirteen. An ARC score is an aggregate over the pinned set, so a
   v1 total and a v2 total measure different things and ranking them together
   would be wrong. The resulting leaderboard reset is deliberate: v1 rows stay
   readable under their own version instead of being rescored or migrated.
+- v3 supersedes v2 because the scored ARC set grows from thirteen to all 25
+  public games and execution changes to a five-slot queue. v2 rows remain
+  historical and never mix with the v3 leaderboard.
 - The existing left-side submission, right-side switchable leaderboards,
   history, team administration, and instructions remain the product shape.
 
@@ -55,13 +59,10 @@ implementing any deviation.
 
 ## Throughput and deadlines
 
-- ARC and Frontier each enforce 100 aggregate completed turns per rolling
-  30-second window. A turn completes when a Bedrock response has been converted
-  and its game action or tool command has been dispatched.
-- The target is prorated by model-eligible active time. Terminal sessions and
-  sessions waiting for an already-dispatched command are excluded. Sampling
-  begins after the first full window and runs every five seconds; two
-  consecutive misses abort the cohort as an infrastructure throughput failure.
+- ARC keeps five games active and immediately fills an open slot with the next
+  public game. Request-rate telemetry remains visible, but a slow model never
+  aborts the ARC cohort merely for missing a throughput target.
+- Frontier retains its aggregate throughput telemetry and failure gate.
 - Infrastructure/Bedrock failures do not post leaderboard scores. Genuine game
   or task timeouts score zero only for the affected item.
 
@@ -69,14 +70,14 @@ implementing any deviation.
 
 - ARC uses `arc-agi` 0.9.9, starter commit
   `eeb1535404f321d280a8f9194bbc1d7aca5f05fc`, ARC Agents commit
-  `10213de83f01df0ef4f0149ee9f8408dcc3772fb`, and these thirteen pinned public
-  games in parallel: `ls20`, `vc33`, `ar25`, `cn04`, `s5i5`, `sp80`, `bp35`,
-  `ft09`, `m0r0`, `re86`, `cd82`, `sb26`, `r11l`. The original ten keep their
-  order and `cd82`, `sb26`, and `r11l` are appended, so a game's position is
-  stable across versions.
-- ARC has no harness action cap. The trusted controller ends a game on its first
-  `WIN` or `GAME_OVER`; it does not reset after death. A game still active at
-  the global deadline scores zero.
+  `10213de83f01df0ef4f0149ee9f8408dcc3772fb`, and all 25 pinned public games:
+  `bp35`, `m0r0`, `ft09`, `ar25`, `s5i5`, `sp80`, `g50t`, `lp85`, `r11l`,
+  `sc25`, `tn36`, `sk48`, `re86`, `wa30`, `cn04`, `tu93`, `tr87`, `sb26`,
+  `su15`, `ls20`, `ka59`, `cd82`, `dc22`, `vc33`, `lf52`.
+- The trusted controller runs at most five ARC games concurrently and refills
+  slots until all 25 finish. A game ends on `WIN`, `GAME_OVER`, the agent's
+  `is_done` decision, or its declared `MAX_ACTIONS`; the nine-hour deadline is
+  only a final safety bound.
 - Frontier uses Harbor 0.20.0 and dataset commit
   `3d694e919871dbf21ea5ff618782c99a3cb3663f`. Frontier Sprint v1 runs
   `html-js-filter`, `vllm-deepseek-streaming`, `session-window-debug`,
@@ -118,8 +119,8 @@ implementing any deviation.
   separate recording step and no expiry: a finished run replays from the same
   rows the live grid polled, so replay correctness follows from the live path
   being correct.
-- Recording frames introduces no harness action cap. ARC still ends a game on
-  its first `WIN` or `GAME_OVER`, and per-game frame volume stays unbounded.
+- Recording frames introduces no additional action cap; the agent contract's
+  normal `is_done` and `MAX_ACTIONS` limits still apply.
 
 ## Isolation and trust boundaries
 
@@ -153,18 +154,20 @@ implementing any deviation.
 ## Queue, storage, and API
 
 - Claiming moves to `POST /api/worker/harness/claim` using `FOR UPDATE SKIP
-  LOCKED`. A claim carries a 90-second lease, renewed every 30 seconds. Every
+  LOCKED`. A claim carries a 90-second lease, renewed every five seconds. Every
   worker mutation supplies the lease token; stale updates return HTTP 409.
 - Expired claims are retried at most three times, then become infrastructure
   failures. The worker polls every two seconds.
 - Run states are `queued`, `preparing`, `running`, `done`, `partial`, `failed`,
-  and `infra_failed`. Per-benchmark status/progress/error data is JSON; existing
+  `infra_failed`, and `cancelled`. A team-scoped Stop action clears the active
+  lease; the controller then cancels the executor process group and removes its
+  run-labelled containers. Per-benchmark status/progress/error data is JSON; existing
   score columns remain for simple leaderboard queries.
 - Successfully completed benchmark scores appear even when the overall run is
   partial. The status endpoint returns independent benchmark cards plus the run
   deadline, version, commit, and safe telemetry.
 - Terminal results are idempotent for the same lease. The benchmark execution
-  deadline remains 600 seconds; the active lease has a 30-second result-only
+  deadline is nine hours; the active lease has a 30-second result-only
   grace so controller cancellation and the final Academy round trip can finish.
   Progress and frame mutations stop at the hard deadline.
 
@@ -218,7 +221,7 @@ implementing any deviation.
   before starting a scored cohort. The diagnostic uses the production ARC game
   controller, rootless submission container, run-scoped gateway, and required
   action tool calls. Its short wall-clock deadline is diagnostic only: it never
-  posts a score, changes the thirteen-game rules, or imposes an action cap.
+  posts a score or changes the 25-game scored-suite rules.
 - The first `ls20` live probe used the official ARC `FastLLM` template. It made
   six valid Grok requests with zero errors, but sent 127,578 input tokens and
   completed only four actions in the final 30 seconds. The operator fixture now
@@ -247,8 +250,8 @@ implementing any deviation.
   Chat action calls in 45 seconds with zero gateway errors, 14,192 input tokens,
   and 37.84 seconds of aggregate model latency. Its terminal rolling window was
   9 completions versus the prorated 10-per-30-second target. This is enough to
-  validate the route and isolation path, but not enough to authorize the full
-  thirteen-game cohort; concurrency must first pass a smaller aggregate probe.
+  validate the route and isolation path. v3 consequently uses a bounded
+  five-game queue and telemetry instead of aborting an entire cohort on rate.
 - The 2026-07-31 Sonnet 5 smoke reached Bedrock through the real gateway but
   returned `AccessDeniedException`. A direct in-Region request confirmed
   `anthropic.claude-sonnet-5` is not available to this AWS account. No ARC,

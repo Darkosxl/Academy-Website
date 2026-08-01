@@ -111,7 +111,8 @@ expired or reclaimed lease returns `409`; transient Supabase failures return `50
 - `/api/worker/harness/claim` — atomically claims one run with `FOR UPDATE SKIP LOCKED`.
 - `/api/worker/harness/capacity` — returns global queued/active slot demand for the
   private Auto Scaling controllers; it contains no team or submission details.
-- `/api/worker/harness/heartbeat` — renews the 90-second lease every 30 seconds.
+- `/api/worker/harness/heartbeat` — renews the 90-second lease every five seconds and
+  makes a team cancellation visible to the controller within one polling interval.
 - `/api/worker/harness/stage` — records the checked-out commit and enters `running`.
 - `/api/worker/harness/progress` — updates one of `arc`, `frontier`, or `ram`.
 - `/api/worker/harness/result` — stores `done`, `partial`, `failed`, or `infra_failed`;
@@ -133,6 +134,8 @@ team's UUID returns no run. The same rows serve live viewing and finished-run re
 The student page polls `/agentic-harness/status` every 2s (`static/harness.js`) and moves
 a stepper through the stages, so report each transition as it happens rather than batching
 at the end.
+A team member can `POST /agentic-harness/stop`; Academy marks the run `cancelled` and
+revokes its lease, so the controller tears down the executor without exposing worker access.
 A run stuck non-terminal (runner died after claiming) blocks the team's resubmits;
 the admin panel's "Başarısız say" button is the escape hatch.
 

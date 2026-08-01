@@ -136,8 +136,9 @@ timeouts. Its 128 GiB leaves ample memory headroom for the configured workload l
 
 Five controllers can expose up to 160 simultaneous model calls with the default
 `BEDROCK_MAX_CONCURRENCY=32`. Confirm the provider account's request/token limits before
-raising the fleet maximum. Also run the frame load test at 65 games (five workers x 13 ARC
-games) and require p95 frame-to-screen latency below 2.5 seconds.
+raising the fleet maximum. Also run the frame load test at 25 active games (five workers x
+five ARC slots), while polling all 125 board summaries, and require p95 frame-to-screen
+latency below 2.5 seconds.
 
 The generic `cloud-init.yaml` remains the host bootstrap for launches outside
 CloudFormation. Production runs `benchmark-controller` and `benchmark-executor`

@@ -16,9 +16,10 @@
 - [x] Run one pinned ARC public game through the real sandbox and Grok gateway.
   Native Chat completed 16 valid calls with zero errors in 45 seconds, but the
   terminal rolling window was 9/10, so throughput is not yet accepted.
-- [ ] Pass a small concurrent ARC probe before starting all thirteen public games.
+- [x] Bound ARC execution to five concurrent games and refill slots until all games finish.
 - [x] Expand the scored ARC set to thirteen pinned public games and move the
   leaderboard pin to `harness-2026-sprint-v2`.
+- [x] Expand v3 to all 25 public games, add manual cancellation, and keep v2 scores historical.
 - [x] Capture ARC frames in the trusted controller and post them fire-and-forget
   to `POST /api/worker/harness/arc/frames`.
 - [x] Store frames as 64x64 hex grids and serve the team's own run from
@@ -48,11 +49,10 @@
   Runtime control plane reports them authorized and agreement-available.
 - [x] Add Bedrock token/latency/error telemetry and the rolling-rate watchdog.
 - [x] Replace host execution and shared venv mutation with rootless isolation.
-- [ ] Run thirteen pinned ARC public games concurrently with natural
-  termination. No run has yet played the thirteen-game set at all.
-- [ ] Watch the Bedrock throughput gate with thirteen games in flight. The
-  prorated 100-turns-per-30-second target has only been sampled with a single
-  game running, and two consecutive misses abort the whole cohort.
+- [x] Replace the thirteen-game all-at-once cohort with all 25 public games and
+  a five-slot refill queue that does not abort on a throughput miss.
+- [ ] Run one complete paid 25-game v3 canary and exercise manual cancellation
+  on a separate development run.
 - [ ] Run the five pinned Frontier Sprint tasks with 120-second deadlines.
 - [x] Replace RAM probing with cgroup-wide descendant PSS measurement.
 - [x] Add encrypted team Kaggle credentials and explicit official submission.
