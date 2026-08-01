@@ -11,12 +11,14 @@ import contextlib
 import datetime as dt
 import hashlib
 import http.client
+import ipaddress
 import json
 import math
 import os
 import pwd
 import re
 import secrets
+import shlex
 import shutil
 import signal
 import socket
@@ -181,6 +183,28 @@ def bounded_timeout(deadline: float, cap: float) -> float:
     if remaining <= 0:
         raise InfrastructureFailed("the benchmark deadline expired")
     return max(0.1, min(cap, remaining))
+
+
+def buildkit_nameservers(paths: tuple[Path, ...] = (
+    Path("/run/systemd/resolve/resolv.conf"),
+    Path("/etc/resolv.conf"),
+)) -> list[str]:
+    nameservers: list[str] = []
+    for path in paths:
+        with contextlib.suppress(OSError):
+            for line in path.read_text().splitlines():
+                parts = line.split()
+                if len(parts) != 2 or parts[0] != "nameserver":
+                    continue
+                with contextlib.suppress(ValueError):
+                    address = ipaddress.ip_address(parts[1].split("%", 1)[0])
+                    if not address.is_loopback and not address.is_unspecified:
+                        value = str(address)
+                        if value not in nameservers:
+                            nameservers.append(value)
+        if nameservers:
+            return nameservers
+    raise InfrastructureFailed("no non-loopback DNS resolver is available for BuildKit")
 
 
 def parse_deadline(value: str) -> float:
@@ -1000,28 +1024,59 @@ def scan_frontier(jobs: Path) -> tuple[dict[str, dict[str, Any]], int]:
     return results, active
 
 
-def bubblewrap_harbor(repo: Path, dataset: Path, jobs: Path, gateway: Gateway, podman_socket: Path) -> list[str]:
+def bubblewrap_harbor(
+    repo: Path,
+    dataset: Path,
+    jobs: Path,
+    gateway: Gateway,
+    podman_socket: Path,
+    docker_config: Path,
+    builder_name: str,
+) -> list[str]:
     home = Path.home()
-    uid = os.getuid()
+    sandbox_root = jobs.parent.resolve()
+    try:
+        repo.resolve().relative_to(sandbox_root)
+        dataset.resolve().relative_to(sandbox_root)
+        jobs.resolve().relative_to(sandbox_root)
+    except ValueError as exc:
+        raise InfrastructureFailed("Frontier paths must share the run work directory") from exc
+    repo_mount = repo.resolve()
+    dataset_mount = dataset.resolve()
+    jobs_mount = jobs.resolve()
+    try:
+        docker_config.resolve().relative_to(podman_socket.parent.resolve())
+    except ValueError as exc:
+        raise InfrastructureFailed("Buildx config must share the Podman socket directory") from exc
     command = [
         "bwrap", "--die-with-parent", "--new-session", "--unshare-pid", "--unshare-uts",
         "--unshare-ipc", "--unshare-net", "--ro-bind", "/", "/", "--tmpfs", "/home",
         "--dir", str(home), "--dir", str(home / ".local"), "--dir", str(home / ".local/share"),
         "--dir", str(home / ".local/share/uv"), "--dir", str(home / ".local/share/uv/tools"),
-        "--ro-bind", str(HARBOR_ROOT), str(HARBOR_ROOT), "--tmpfs", f"/run/user/{uid}",
-        "--bind", str(podman_socket), "/run/podman.sock",
-        "--ro-bind", str(repo), "/submission", "--ro-bind", str(dataset), "/dataset",
-        "--bind", str(jobs), "/jobs", "--ro-bind", str(gateway.directory), "/run/harness",
-        "--tmpfs", "/tmp", "--proc", "/proc", "--dev", "/dev",
-        "--setenv", "HOME", "/tmp/home", "--setenv", "DOCKER_HOST", "unix:///run/podman.sock",
-        "--setenv", "PYTHONPATH", "/submission", "--setenv", "OPENAI_API_KEY", gateway.token,
+        "--dir", str(home / ".local/share/uv/python"),
+        "--ro-bind", str(home / ".local/share/uv/python"), str(home / ".local/share/uv/python"),
+        "--ro-bind", str(HARBOR_ROOT), str(HARBOR_ROOT), "--tmpfs", "/run",
+        "--dir", "/run/harness", "--ro-bind", str(gateway.directory), "/run/harness",
+        "--tmpfs", "/tmp", "--dir", str(sandbox_root),
+        "--ro-bind", str(repo_mount), str(repo_mount),
+        "--ro-bind", str(dataset_mount), str(dataset_mount),
+        "--bind", str(jobs_mount), str(jobs_mount),
+        "--dir", str(podman_socket.parent),
+        "--bind", str(podman_socket.parent), str(podman_socket.parent),
+        "--proc", "/proc", "--dev", "/dev",
+        "--setenv", "HOME", "/tmp/home", "--setenv", "DOCKER_HOST", f"unix://{podman_socket}",
+        "--setenv", "DOCKER_CONFIG", str(docker_config),
+        "--setenv", "BUILDX_BUILDER", builder_name,
+        "--setenv", "PYTHONPATH", str(repo_mount), "--setenv", "OPENAI_API_KEY", gateway.token,
         "--setenv", "OPENAI_API_BASE", "http://127.0.0.1:8000/v1",
         "--setenv", "OPENAI_BASE_URL", "http://127.0.0.1:8000/v1",
-        "--chdir", "/submission", "sh", "-lc",
+        "--chdir", str(repo_mount), "sh", "-lc",
         "mkdir -p /tmp/home && "
         "socat TCP-LISTEN:8000,bind=127.0.0.1,reuseaddr,fork UNIX-CONNECT:/run/harness/bedrock.sock & "
-        f"exec {HARBOR_CLI} run -p /dataset -a agent.harbor_agent:HarborAgent "
-        f"-m openai/{BEDROCK_PROFILE_NAME} -n 5 -o /jobs -y --no-force-build "
+        f"exec {shlex.quote(str(HARBOR_CLI))} run -p {shlex.quote(str(dataset_mount))} "
+        "-a agent.harbor_agent:HarborAgent "
+        f"-m openai/{BEDROCK_PROFILE_NAME} -n 5 -o {shlex.quote(str(jobs_mount))} "
+        "-y --no-force-build "
         "--ak enable_summarize=false --ak proactive_summarization_threshold=0 "
         "--ak max_turns=1000000 --ak temperature=0 --ak api_base=http://127.0.0.1:8000/v1",
     ]
@@ -1033,6 +1088,46 @@ def frontier_cutoff(global_deadline: float, now: float | None = None) -> float:
     return min(global_deadline, started + FRONTIER_DEADLINE_SECONDS)
 
 
+def run_buildx_command(
+    command: list[str], env: dict[str, str], deadline: float, cap: float, operation: str,
+) -> subprocess.CompletedProcess[str]:
+    try:
+        result = subprocess.run(
+            command, env=env, capture_output=True, text=True,
+            timeout=bounded_timeout(deadline, cap),
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise InfrastructureFailed(f"Buildx builder {operation} timed out") from exc
+    except OSError as exc:
+        raise InfrastructureFailed(f"Buildx builder {operation} could not run: {exc}") from exc
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout)[-2000:]
+        raise InfrastructureFailed(f"Buildx builder {operation} failed: {detail}")
+    return result
+
+
+def cleanup_buildx_builder(builder_name: str, builder_env: dict[str, str]) -> None:
+    builder_container = f"buildx_buildkit_{builder_name}0"
+    cleanup_ok = False
+    with contextlib.suppress(OSError, subprocess.TimeoutExpired):
+        cleanup_ok = subprocess.run(
+            ["docker", "buildx", "rm", "--force", builder_name],
+            env=builder_env, capture_output=True, timeout=15,
+        ).returncode == 0
+    if cleanup_ok:
+        return
+    with contextlib.suppress(OSError, subprocess.TimeoutExpired):
+        subprocess.run(
+            ["podman", "rm", "-f", builder_container],
+            capture_output=True, timeout=15,
+        )
+    with contextlib.suppress(OSError, subprocess.TimeoutExpired):
+        subprocess.run(
+            ["podman", "volume", "rm", "-f", f"{builder_container}_state"],
+            capture_output=True, timeout=15,
+        )
+
+
 def run_frontier(run_id: str, repo: Path, work: Path, gateway: Gateway, reporter: Reporter, deadline: float) -> float:
     dataset = sprint_dataset(work)
     jobs = work / "frontier-jobs"
@@ -1041,6 +1136,14 @@ def run_frontier(run_id: str, repo: Path, work: Path, gateway: Gateway, reporter
     # UUID and can exceed that locally, so keep the private Podman API socket short.
     socket_directory = Path(tempfile.mkdtemp(prefix=f"exposure-hb-{run_id[:8]}-", dir="/tmp"))
     socket_path = socket_directory / "podman.sock"
+    docker_config = socket_directory / "docker"
+    builder_name = f"exposure-harbor-{run_id[:8]}-{secrets.token_hex(3)}"
+    builder_env = os.environ.copy()
+    builder_env.update({
+        "DOCKER_HOST": f"unix://{socket_path}",
+        "DOCKER_CONFIG": str(docker_config),
+        "BUILDX_BUILDER": builder_name,
+    })
     service: subprocess.Popen | None = None
     process: subprocess.Popen | None = None
     stage_timed_out = False
@@ -1070,6 +1173,26 @@ def run_frontier(run_id: str, repo: Path, work: Path, gateway: Gateway, reporter
                 with contextlib.suppress(OSError, BlockingIOError):
                     detail = (service.stderr.read() or "")[-1000:]
             raise InfrastructureFailed(f"rootless Podman API did not start: {detail}")
+        docker_config.mkdir(mode=0o700)
+        buildkit_config = socket_directory / "buildkitd.toml"
+        buildkit_config.write_text(
+            "[dns]\n  nameservers = " + json.dumps(buildkit_nameservers()) + "\n"
+        )
+        run_buildx_command(
+            [
+                "docker", "buildx", "create", "--name", builder_name,
+                "--driver", "docker-container", "--driver-opt", "network=host",
+                "--driver-opt", "memory=2g", "--driver-opt", "memory-swap=2g",
+                "--driver-opt", "cpu-quota=200000",
+                "--buildkitd-config", str(buildkit_config),
+                "--use", builder_env["DOCKER_HOST"],
+            ],
+            builder_env, deadline, 10, "creation",
+        )
+        run_buildx_command(
+            ["docker", "buildx", "inspect", "--bootstrap", builder_name],
+            builder_env, deadline, 60, "startup",
+        )
         reporter.update(
             "frontier", status="running", done=0, total=len(FRONTIER_TASKS),
             tasks={}, rate=0, max_seconds=FRONTIER_DEADLINE_SECONDS,
@@ -1077,7 +1200,9 @@ def run_frontier(run_id: str, repo: Path, work: Path, gateway: Gateway, reporter
         with log_file.open("w") as output:
             frontier_deadline = frontier_cutoff(deadline)
             process = subprocess.Popen(
-                bubblewrap_harbor(repo, dataset, jobs, gateway, socket_path),
+                bubblewrap_harbor(
+                    repo, dataset, jobs, gateway, socket_path, docker_config, builder_name,
+                ),
                 stdout=output, stderr=subprocess.STDOUT, text=True, start_new_session=True,
             )
         next_rate_check = time.monotonic() + 30
@@ -1111,6 +1236,8 @@ def run_frontier(run_id: str, repo: Path, work: Path, gateway: Gateway, reporter
                     os.killpg(process.pid, signal.SIGKILL)
                 with contextlib.suppress(subprocess.TimeoutExpired):
                     process.wait(timeout=2)
+        if docker_config.exists():
+            cleanup_buildx_builder(builder_name, builder_env)
         if service is not None and service.poll() is None:
             service.terminate()
             with contextlib.suppress(subprocess.TimeoutExpired):
