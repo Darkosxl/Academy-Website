@@ -206,6 +206,10 @@ async fn main() {
         .route("/api/worker/result", post(worker_result))
         .route("/api/worker/harness/claim", post(worker_harness_claim))
         .route(
+            "/api/worker/harness/capacity",
+            post(worker_harness_capacity),
+        )
+        .route(
             "/api/worker/harness/heartbeat",
             post(worker_harness_heartbeat),
         )

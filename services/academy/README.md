@@ -109,6 +109,8 @@ also carries that claim's `lease_token`. A missing/incorrect worker token return
 expired or reclaimed lease returns `409`; transient Supabase failures return `503`.
 
 - `/api/worker/harness/claim` — atomically claims one run with `FOR UPDATE SKIP LOCKED`.
+- `/api/worker/harness/capacity` — returns global queued/active slot demand for the
+  private Auto Scaling controllers; it contains no team or submission details.
 - `/api/worker/harness/heartbeat` — renews the 90-second lease every 30 seconds.
 - `/api/worker/harness/stage` — records the checked-out commit and enters `running`.
 - `/api/worker/harness/progress` — updates one of `arc`, `frontier`, or `ram`.

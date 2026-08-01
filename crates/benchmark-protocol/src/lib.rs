@@ -25,6 +25,22 @@ pub struct HarnessClaim {
     pub benchmark_version: String,
 }
 
+/// Global demand for benchmark worker slots. Academy is the source of truth; workers
+/// publish this snapshot to CloudWatch so the private fleet can scale without exposing
+/// either the queue or an EC2 endpoint publicly.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct HarnessCapacity {
+    pub queued: u64,
+    pub active: u64,
+    pub oldest_queued_seconds: u64,
+}
+
+impl HarnessCapacity {
+    pub fn demand(&self) -> u64 {
+        self.queued.saturating_add(self.active)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct HarnessLeaseRequest {
     pub id: Uuid,
@@ -228,6 +244,24 @@ mod tests {
                 "lease_token": lease_token,
                 "deadline_at": "2026-08-01T12:00:00Z",
                 "benchmark_version": "harness-2026-sprint-v2"
+            })
+        );
+    }
+
+    #[test]
+    fn capacity_wire_shape_and_demand_are_stable() {
+        let capacity = HarnessCapacity {
+            queued: 4,
+            active: 1,
+            oldest_queued_seconds: 17,
+        };
+        assert_eq!(capacity.demand(), 5);
+        assert_eq!(
+            serde_json::to_value(capacity).unwrap(),
+            serde_json::json!({
+                "queued": 4,
+                "active": 1,
+                "oldest_queued_seconds": 17
             })
         );
     }

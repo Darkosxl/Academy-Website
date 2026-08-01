@@ -12,9 +12,10 @@ use axum::{
     response::{Html, IntoResponse, Redirect, Response},
 };
 use benchmark_protocol::{
-    ArcFrame as HarnessArcFrame, ArcFramesRequest as HarnessArcFramesReq, HarnessClaim,
-    HarnessLeaseRequest as HarnessLeaseReq, HarnessProgressRequest as HarnessProgressReq,
-    HarnessResultRequest as HarnessResultReq, HarnessStageRequest as HarnessStageReq, KaggleClaim,
+    ArcFrame as HarnessArcFrame, ArcFramesRequest as HarnessArcFramesReq, HarnessCapacity,
+    HarnessClaim, HarnessLeaseRequest as HarnessLeaseReq,
+    HarnessProgressRequest as HarnessProgressReq, HarnessResultRequest as HarnessResultReq,
+    HarnessStageRequest as HarnessStageReq, KaggleClaim,
     KaggleResultRequest as HarnessKaggleResultReq,
 };
 use chacha20poly1305::{
@@ -748,6 +749,50 @@ pub async fn admin_harness_run_fail(
 fn worker_db_unavailable(error: sqlx::Error) -> Response {
     eprintln!("worker database operation failed: {error}");
     StatusCode::SERVICE_UNAVAILABLE.into_response()
+}
+
+/// One slot equals one controller/executor node. Include immediately claimable expired
+/// leases and due Kaggle polls so the fleet follows actual claim demand, while excluding
+/// jobs that are merely waiting for Kaggle's next poll time.
+pub async fn worker_harness_capacity(
+    State(app): State<App>,
+    headers: HeaderMap,
+) -> Result<Json<HarnessCapacity>, Response> {
+    check_worker(&app, &headers)?;
+    let (queued, active, oldest_queued_seconds): (i64, i64, i64) = sqlx::query_as(
+        "with claimable(created_at) as (
+           select created_at from harness_runs_exposure_academy
+           where stage = 'queued'
+              or (stage in ('preparing','running') and lease_expires_at < now()
+                  and deadline_at > now() and claim_attempts < 3)
+           union all
+           select created_at from harness_kaggle_submissions_exposure_academy
+           where status = 'queued'
+              or (status = 'kernel_running' and lease_expires_at < now()
+                  and claim_attempts < 3)
+              or (status = 'submitted' and coalesce(next_poll_at, now()) <= now()
+                  and (lease_expires_at is null or lease_expires_at < now()))
+         ), active_slots as (
+           select id from harness_runs_exposure_academy
+           where stage in ('preparing','running') and lease_expires_at >= now()
+             and deadline_at > now()
+           union all
+           select id from harness_kaggle_submissions_exposure_academy
+           where status in ('kernel_running','submitted') and lease_expires_at >= now()
+         )
+         select (select count(*) from claimable)::bigint,
+                (select count(*) from active_slots)::bigint,
+                greatest(0, coalesce(extract(epoch from now() -
+                    (select min(created_at) from claimable))::bigint, 0))",
+    )
+    .fetch_one(&app.pool)
+    .await
+    .map_err(worker_db_unavailable)?;
+    Ok(Json(HarnessCapacity {
+        queued: queued.max(0) as u64,
+        active: active.max(0) as u64,
+        oldest_queued_seconds: oldest_queued_seconds.max(0) as u64,
+    }))
 }
 
 pub async fn worker_harness_claim(
