@@ -11,15 +11,20 @@ implementing any deviation.
 - Local evaluation has a hard 600-second wall-clock deadline from queue claim.
   The official Kaggle workflow is explicit, asynchronous, and never changes the
   local leaderboard.
-- Leaderboards are versioned. `harness-2026-sprint-v1` pins the model profile
+- Leaderboards are versioned. `harness-2026-sprint-v2` pins the model profile
   fingerprint, dataset revisions, task/game lists, limits, and scoring rules.
   Configuration changes require a new version rather than mixing scores.
+- v2 supersedes `harness-2026-sprint-v1` because the scored ARC set grew from
+  ten games to thirteen. An ARC score is an aggregate over the pinned set, so a
+  v1 total and a v2 total measure different things and ranking them together
+  would be wrong. The resulting leaderboard reset is deliberate: v1 rows stay
+  readable under their own version instead of being rescored or migrated.
 - The existing left-side submission, right-side switchable leaderboards,
   history, team administration, and instructions remain the product shape.
 
 ## AWS Bedrock
 
-- AWS Bedrock is the only LLM backend. Harness v1 uses xAI Grok 4.3 through
+- AWS Bedrock is the only LLM backend. The harness uses xAI Grok 4.3 through
   Bedrock Mantle's OpenAI-compatible API at
   `https://bedrock-mantle.us-east-1.api.aws/openai/v1`, with model ID
   `xai.grok-4.3`. Grok 4.3 supports Mantle Responses and Chat Completions, but
@@ -61,9 +66,11 @@ implementing any deviation.
 ## Benchmark definitions
 
 - ARC uses `arc-agi` 0.9.9, starter commit
-  `eeb1535404f321d280a8f9194bbc1d7aca5f05fc`, and these ten pinned public
+  `eeb1535404f321d280a8f9194bbc1d7aca5f05fc`, and these thirteen pinned public
   games in parallel: `ls20`, `vc33`, `ar25`, `cn04`, `s5i5`, `sp80`, `bp35`,
-  `ft09`, `m0r0`, `re86`.
+  `ft09`, `m0r0`, `re86`, `cd82`, `sb26`, `r11l`. The original ten keep their
+  order and `cd82`, `sb26`, and `r11l` are appended, so a game's position is
+  stable across versions.
 - ARC has no harness action cap. The trusted controller ends a game on its first
   `WIN` or `GAME_OVER`; it does not reset after death. A game still active at
   the global deadline scores zero.
@@ -82,6 +89,34 @@ implementing any deviation.
   `memory.peak` is diagnostic only. `HARNESS_RAM_PROBE` is removed.
 - Fixed RAM prompt: `Reply with exactly three concise bullets explaining how
   you would inspect this repository for a failing test. Do not edit files.`
+
+## Live ARC viewing
+
+- Students watch their team's ARC run as a grid of live boards, one per pinned
+  game, and open one game to follow it closely. Frames are captured in the
+  trusted game controller, never in a submission container, so what the grid
+  shows is engine state a student agent cannot forge.
+- Frame posts to `POST /api/worker/harness/arc/frames` are fire-and-forget: a
+  slow, failed, or rejected post is swallowed and the game continues at full
+  speed. The feed is cosmetic and must never fail or delay a scored run. The
+  site answers HTTP 409 for an unknown or already-terminal run so a zombie
+  controller stops posting instead of retrying forever.
+- A grid is stored as text: one lowercase hex character per cell of the fixed
+  64x64 board, 4096 characters row-major, grids in one frame joined by
+  newlines. Text needs no image pipeline, no blob storage, and no decoder on
+  either side. `FrameData.frame` is an intra-action animation buffer rather
+  than a history, so buffers longer than sixteen grids keep the first fifteen
+  and the last one; the resulting board stays the final element.
+- Visibility is own-team only and is resolved from the session, never from the
+  run ID in the URL. `GET /agentic-harness/arc/live` honours a run parameter
+  only when that run belongs to the caller's team, and falls back to the team's
+  latest run when the parameter is absent. Guessing a UUID reveals nothing.
+- The stored feed is both the live view and the replay archive. There is no
+  separate recording step and no expiry: a finished run replays from the same
+  rows the live grid polled, so replay correctness follows from the live path
+  being correct.
+- Recording frames introduces no harness action cap. ARC still ends a game on
+  its first `WIN` or `GAME_OVER`, and per-game frame volume stays unbounded.
 
 ## Isolation and trust boundaries
 
@@ -125,6 +160,31 @@ implementing any deviation.
 - Successfully completed benchmark scores appear even when the overall run is
   partial. The status endpoint returns independent benchmark cards plus the run
   deadline, version, commit, and safe telemetry.
+- Terminal results are idempotent for the same lease. The benchmark execution
+  deadline remains 600 seconds; the active lease has a 30-second result-only
+  grace so controller cancellation and the final Academy round trip can finish.
+  Progress and frame mutations stop at the hard deadline.
+
+## EC2 split and deployment
+
+- The repository is a Cargo workspace with Academy in `services/academy`, the
+  CPU benchmark service in `services/benchmark-node`, the unchanged GPU worker
+  in `services/monopoly-worker`, and wire DTOs plus the version constant in
+  `crates/benchmark-protocol`.
+- Academy stays on its current instance and Supabase remains the only durable
+  database. The benchmark host exposes no application ingress; its only TCP
+  listener is loopback health/metrics. Browsers continue to use Academy routes.
+- The trusted Rust controller and restricted Rust executor are distinct systemd
+  users. The controller owns Academy/AWS/provider credentials. The executor sees
+  only bounded NDJSON, a run-scoped model capability, and the files needed for
+  rootless Podman/Bubblewrap execution.
+- Production is host-native. A root-context multi-stage Docker build emits
+  checksum-covered binaries, adapters, locked wheels, the sandbox Containerfile,
+  and systemd assets; it is not an outer runtime container.
+- The private Ubuntu 24.04 x86-64 host is `c8i.8xlarge` with a 200 GB encrypted
+  gp3 volume, IMDSv2, SSM management, Secrets Manager read access, no public IP
+  or ingress, and outbound TCP 443 only. Mutable state is rooted at
+  `/var/lib/exposure-benchmark`.
 
 ## Kaggle
 
@@ -146,11 +206,11 @@ implementing any deviation.
   the deployment API key and asks for a live test. Run a single minimal gateway
   request before starting ARC, Frontier, or RAM cohorts so model-access or quota
   failures stop cheaply.
-- Local operators may run `worker/live_arc.py` against one pinned public game
+- Local operators may run `services/benchmark-node/adapters/live_arc.py` against one pinned public game
   before starting a scored cohort. The diagnostic uses the production ARC game
   controller, rootless submission container, run-scoped gateway, and required
   action tool calls. Its short wall-clock deadline is diagnostic only: it never
-  posts a score, changes the ten-game rules, or imposes an action cap.
+  posts a score, changes the thirteen-game rules, or imposes an action cap.
 - The first `ls20` live probe used the official ARC `FastLLM` template. It made
   six valid Grok requests with zero errors, but sent 127,578 input tokens and
   completed only four actions in the final 30 seconds. The operator fixture now
@@ -180,7 +240,7 @@ implementing any deviation.
   and 37.84 seconds of aggregate model latency. Its terminal rolling window was
   9 completions versus the prorated 10-per-30-second target. This is enough to
   validate the route and isolation path, but not enough to authorize the full
-  ten-game cohort; concurrency must first pass a smaller aggregate probe.
+  thirteen-game cohort; concurrency must first pass a smaller aggregate probe.
 - The 2026-07-31 Sonnet 5 smoke reached Bedrock through the real gateway but
   returned `AccessDeniedException`. A direct in-Region request confirmed
   `anthropic.claude-sonnet-5` is not available to this AWS account. No ARC,

@@ -47,7 +47,8 @@ visible for even one page load), or hit *Puan tablosunda gizle* on their row aft
    - `DATABASE_URL` — Supabase connection string
    - `ADMIN_USERNAME` / `ADMIN_PASSWORD` — seeded on first boot
    - `WORKER_TOKEN` — shared secret for the Phase 3 worker API
-3. `cargo run` — schema (`migrations/001_init.sql`) is applied automatically, idempotent.
+3. `cargo run -p academy` from the repository root — schema migrations are applied
+   automatically and idempotently.
 4. Log in as admin → **Yönetici paneli** → add students, videos (paste any YouTube URL or ID), tasks.
 
 ## What's where
@@ -62,6 +63,7 @@ visible for even one page load), or hit *Puan tablosunda gizle* on their row aft
 | `/board` | task board: tasks per level, GitHub repo submission, status + feedback + demo video |
 | `/admin` | add student/video/task, watch statistics, review submissions |
 | `/api/progress` | watch-time heartbeat (student session) |
+| `/agentic-harness/arc/live` | ARC board feed as JSON — the team's own run, live or replayed (see below) |
 | `/api/worker/*` | Phase 3 pipeline API (see below) |
 
 Watch data per (student, video): `seconds_watched` (accumulated, rewatches count),
@@ -96,43 +98,44 @@ network egress except package registries, memory/time limits, throwaway filesyst
 
 ### Agentic Harness runner API
 
-Server side is done; the real runner lives at `worker/runner.py` (see its header for
-one-time host setup: ARC starter checkout + `make setup` and the frontier-bench dataset
-under `worker/cache/`, `uv tool install harbor`, Docker). `SMOKE_MODE=1` caps the run
-to 2 frontier tasks and 2 short ARC games for pipeline checks; `--once` processes a
-single run and exits; `--selftest` checks the trial-result parser. Same auth
-(`X-Worker-Token`), same pull model.
+Production execution lives in `services/benchmark-node`: a credential-owning Rust
+controller and a separate restricted Rust executor. Python is retained only for benchmark
+SDK integration. The old Python polling mode remains in `adapters/runner.py` as the rollback
+path. EC2 recreates pinned caches and virtual environments under
+`/var/lib/exposure-benchmark`; repository-local `.venv` directories are never copied.
 
-The three boards are measured independently. ARC-AGI-3 overlays the student's
-`agent/my_agent.py` onto the cached starter and plays the local engine, reaching the
-provider through `OPENAI_BASE_URL`/`OPENAI_API_KEY`. Frontier-bench runs `harbor run`
-with `agent/harbor_agent.py` and `-m <provider>/<model>` (LiteLLM), GPU tasks excluded.
-RAM-bench is its own benchmark: the student's `main.py`, 1 then 10 concurrent, peak
-summed PSS over a fixed window with `HARNESS_RAM_PROBE=1` — it never touches the game
-engine or Harbor. One team submission = one run = scores for all three boards
-(ARC-AGI-3, Frontier-bench, RAM-bench). Stages are forward-only; every update is
-guarded on the expected current stage — on a `409` drop the run and move on.
+All worker routes are `POST`, require `X-Worker-Token`, and every mutation after a claim
+also carries that claim's `lease_token`. A missing/incorrect worker token returns `401`; an
+expired or reclaimed lease returns `409`; transient Supabase failures return `503`.
 
-- `GET /api/worker/harness/pending` — atomically claims one `queued` run
-  (flips it to `cloning`), returns `[{id, repo_url}]` (0 or 1 element).
-- `POST /api/worker/harness/stage` — `{id, stage, commit_sha?}` reports a transition:
-  `building` → `arc_agi_3` → `frontier_bench` → `ram_bench`. The `building` report
-  **must** carry `commit_sha` (7–40 hex chars, the commit that was checked out) —
-  it's what the student history tab links to. `204` ok, `400` bad stage/sha, `409` stale.
-- `POST /api/worker/harness/result` — terminal:
-  `{id, status: "done"|"failed", score_arc, score_frontier, ram_1session_mb,
-  ram_10session_mb, error_log}`. `done` requires all four scores (RAM values are PSS MB
-  measured during active sessions — 1 and 10 concurrent; lower is better). `failed`
-  stores only `error_log` (shown to the team in the history tab, so keep it readable).
-- `POST /api/worker/harness/progress` — `{id, progress}` repeatable mid-stage report;
-  `progress` is a JSON string `{"done", "total", "score", "detail"}` rendered live
-  under the student's stepper. Cleared automatically on the terminal result.
-  `204` ok, `400` too long (>2000 bytes), `409` run already terminal.
+- `/api/worker/harness/claim` — atomically claims one run with `FOR UPDATE SKIP LOCKED`.
+- `/api/worker/harness/heartbeat` — renews the 90-second lease every 30 seconds.
+- `/api/worker/harness/stage` — records the checked-out commit and enters `running`.
+- `/api/worker/harness/progress` — updates one of `arc`, `frontier`, or `ram`.
+- `/api/worker/harness/result` — stores `done`, `partial`, `failed`, or `infra_failed`;
+  repeating the same terminal write is idempotent.
+- `/api/worker/harness/arc/frames` — appends a batch of at most 64 validated ARC frames.
+- `/api/worker/harness/kaggle/claim` and `/api/worker/harness/kaggle/result` — run the
+  explicit official-submit/poll workflow without changing local scores.
 
-The student page polls `/agentic-harness/status` every 5s and moves a stepper through
-the stages, so report each transition as it happens rather than batching at the end.
+ARC frame writes are best effort. `grids` is one to sixteen newline-separated 4096-character
+hex grids; the Rust controller uses a bounded non-blocking queue and drops visualization
+traffic rather than delaying scoring. Result writes have a 30-second post-deadline grace
+while still requiring the active lease.
+
+Students watch that feed at `GET /agentic-harness/arc/live` (session cookie, all params
+optional: `?run=&game=&seq=`). Focused frames are cursor-paginated in pages of 200. A run
+identifier is always resolved through the caller's team membership, so guessing another
+team's UUID returns no run. The same rows serve live viewing and finished-run replay.
+
+The student page polls `/agentic-harness/status` every 2s (`static/harness.js`) and moves
+a stepper through the stages, so report each transition as it happens rather than batching
+at the end.
 A run stuck non-terminal (runner died after claiming) blocks the team's resubmits;
 the admin panel's "Başarısız say" button is the escape hatch.
+
+See `services/benchmark-node/README.md` for build, EC2 installation, monitoring, canary,
+rollout, and rollback instructions.
 
 ## Notes
 

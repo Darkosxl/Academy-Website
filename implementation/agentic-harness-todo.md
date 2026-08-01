@@ -16,7 +16,23 @@
 - [x] Run one pinned ARC public game through the real sandbox and Grok gateway.
   Native Chat completed 16 valid calls with zero errors in 45 seconds, but the
   terminal rolling window was 9/10, so throughput is not yet accepted.
-- [ ] Pass a small concurrent ARC probe before starting all ten public games.
+- [ ] Pass a small concurrent ARC probe before starting all thirteen public games.
+- [x] Expand the scored ARC set to thirteen pinned public games and move the
+  leaderboard pin to `harness-2026-sprint-v2`.
+- [x] Capture ARC frames in the trusted controller and post them fire-and-forget
+  to `POST /api/worker/harness/arc/frames`.
+- [x] Store frames as 64x64 hex grids and serve the team's own run from
+  `GET /agentic-harness/arc/live`.
+- [x] Render the live board grid, click-to-focus, and finished-run replay on the
+  student page.
+- [x] Split the repository into Academy, benchmark-node, Monopoly, protocol, and
+  EC2 infrastructure directories without discarding the dirty v2 work.
+- [x] Move worker DTOs and the benchmark version into `benchmark-protocol` and
+  add serialization compatibility tests.
+- [x] Add the Rust controller/executor split, bounded NDJSON, run-scoped Unix
+  gateway, Secrets Manager loading, health, and Prometheus metrics.
+- [x] Add the root-context artifact build, hash-locked Python wheelhouse,
+  systemd users/units, Ubuntu 24.04 cloud-init, and private EC2 stack.
 - [ ] Ask AWS Sales/account support to enable `openai.gpt-5.6-terra` for this
   account. The key and `provider_data_share` retention mode are valid, but the
   model-specific `/v1/models/{model}` status and inference both deny account
@@ -28,15 +44,20 @@
   all current Mantle Claude models report detailed status `unavailable`, and
   Fable 5, Sonnet 5, and Opus 5 fail real Runtime invocation even though the
   Runtime control plane reports them authorized and agreement-available.
-- [ ] Add Bedrock token/latency/error telemetry and the rolling-rate watchdog.
-- [ ] Replace host execution and shared venv mutation with rootless isolation.
-- [ ] Run ten pinned ARC public games concurrently with natural termination.
+- [x] Add Bedrock token/latency/error telemetry and the rolling-rate watchdog.
+- [x] Replace host execution and shared venv mutation with rootless isolation.
+- [ ] Run thirteen pinned ARC public games concurrently with natural
+  termination. No run has yet played the thirteen-game set at all.
+- [ ] Watch the Bedrock throughput gate with thirteen games in flight. The
+  prorated 100-turns-per-30-second target has only been sampled with a single
+  game running, and two consecutive misses abort the whole cohort.
 - [ ] Run the five pinned Frontier Sprint tasks with 120-second deadlines.
-- [ ] Replace RAM probing with cgroup-wide descendant PSS measurement.
-- [ ] Add encrypted team Kaggle credentials and explicit official submission.
-- [ ] Update the dashboard, progress UI, history, instructions, and mobile CSS.
-- [ ] Run compile/build-only verification and correct discovered defects.
-- [ ] Audit the final diff, update both implementation documents, and hand off.
+- [x] Replace RAM probing with cgroup-wide descendant PSS measurement.
+- [x] Add encrypted team Kaggle credentials and explicit official submission.
+- [x] Update the dashboard, progress UI, history, instructions, and mobile CSS.
+- [x] Add repeatable canary load and EC2 isolation verification scripts.
+- [x] Run compile/build-only verification and correct discovered defects.
+- [x] Audit the final diff, update both implementation documents, and hand off.
 
 ## Deferred live checks (do not run in this implementation pass)
 
@@ -45,6 +66,9 @@
 - [ ] Hostile repository cannot access host files, credentials, or general egress.
 - [ ] Bedrock throttling and two-window throughput failure behavior.
 - [ ] ARC `WIN`, `GAME_OVER`, and global-deadline scoring.
+- [ ] Thirteen boards stay current in the browser while a run plays, and the
+  same run replays from the stored frames after it finishes.
+- [ ] A failing or slow frame endpoint leaves game pace and scores untouched.
 - [ ] Frontier task timeout, verifier timeout, partial reward, and crash handling.
 - [ ] RAM descendants remain in the cgroup and short-lived peaks are captured.
 - [ ] Partial runs retain every completed leaderboard result.
