@@ -6,7 +6,10 @@ use benchmark_protocol::{
 };
 use chrono::Utc;
 use serde_json::json;
-use std::{os::unix::fs::PermissionsExt, path::Path, process::Stdio, sync::Arc, time::Duration};
+use std::{
+    collections::HashSet, os::unix::fs::PermissionsExt, path::Path, process::Stdio, sync::Arc,
+    time::Duration,
+};
 use tokio::{
     io::{AsyncReadExt, BufReader},
     net::{UnixListener, UnixStream},
@@ -116,6 +119,11 @@ async fn run_adapter(
     tokio::fs::set_permissions(&work, std::fs::Permissions::from_mode(0o700))
         .await
         .context("protect run work directory")?;
+    // Harbor creates detached Compose containers without our run label. The executor is
+    // single-job, so a before/after Compose snapshot removes only this job's environments
+    // while preserving pre-existing containers (notably local development tools).
+    let baseline_containers =
+        list_container_ids(config, Some("label=com.docker.compose.project")).await;
 
     let mode = match &request {
         ExecutorRequest::Run { .. } => "--executor-ndjson",
@@ -163,17 +171,17 @@ async fn run_adapter(
                     Ok(Some(event)) => {
                         let terminal = matches!(event, ExecutorEvent::Result { .. } | ExecutorEvent::KaggleResult { .. });
                         if let Err(error) = ndjson::write(&mut output, &event, MAX_NDJSON_BYTES).await {
-                            stop_child(&mut child, run_id, config).await;
+                            stop_child(&mut child, run_id, config, baseline_containers.as_ref()).await;
                             return Err(error);
                         }
                         if terminal {
-                            finish_child(&mut child, run_id, config).await;
+                            finish_child(&mut child, run_id, config, baseline_containers.as_ref()).await;
                             return Ok(());
                         }
                     }
                     Ok(None) => {
                         let status = child.wait().await.context("wait for adapter")?;
-                        cleanup_run_containers(run_id, config).await;
+                        cleanup_run_containers(run_id, config, baseline_containers.as_ref()).await;
                         let tail = error_task.await.unwrap_or_default();
                         let message = format!(
                             "Python benchmark adapter exited with {status}: {}",
@@ -184,7 +192,7 @@ async fn run_adapter(
                         return Ok(());
                     }
                     Err(error) => {
-                        stop_child(&mut child, run_id, config).await;
+                        stop_child(&mut child, run_id, config, baseline_containers.as_ref()).await;
                         let event = crash_event(&request, &format!("invalid adapter message: {error}"));
                         ndjson::write(&mut output, &event, MAX_NDJSON_BYTES).await?;
                         return Ok(());
@@ -194,17 +202,17 @@ async fn run_adapter(
             control_message = ndjson::read::<ExecutorRequest, _>(&mut control, 1024) => {
                 match control_message {
                     Ok(Some(ExecutorRequest::Cancel)) | Ok(None) => {
-                        stop_child(&mut child, run_id, config).await;
+                        stop_child(&mut child, run_id, config, baseline_containers.as_ref()).await;
                         return Ok(());
                     }
                     _ => {
-                        stop_child(&mut child, run_id, config).await;
+                        stop_child(&mut child, run_id, config, baseline_containers.as_ref()).await;
                         bail!("controller sent an invalid in-flight command");
                     }
                 }
             }
             _ = &mut deadline => {
-                stop_child(&mut child, run_id, config).await;
+                stop_child(&mut child, run_id, config, baseline_containers.as_ref()).await;
                 let event = crash_event(&request, "restricted executor deadline expired");
                 ndjson::write(&mut output, &event, MAX_NDJSON_BYTES).await?;
                 return Ok(());
@@ -356,63 +364,132 @@ fn crash_event(request: &ExecutorRequest, message: &str) -> ExecutorEvent {
     }
 }
 
-async fn finish_child(child: &mut Child, run_id: uuid::Uuid, config: &ExecutorConfig) {
-    if tokio::time::timeout(Duration::from_secs(3), child.wait())
+async fn finish_child(
+    child: &mut Child,
+    run_id: uuid::Uuid,
+    config: &ExecutorConfig,
+    baseline_containers: Option<&HashSet<String>>,
+) {
+    let group = child.id();
+    let leader_finished = tokio::time::timeout(Duration::from_secs(3), child.wait())
         .await
-        .is_err()
+        .is_ok();
+    if let Some(group) = group
+        && process_group_exists(group).await
     {
-        stop_child(child, run_id, config).await;
-    } else {
-        cleanup_run_containers(run_id, config).await;
+        terminate_process_group(group, Duration::from_secs(3)).await;
     }
+    if !leader_finished {
+        wait_for_child(child).await;
+    }
+    cleanup_run_containers(run_id, config, baseline_containers).await;
 }
 
-async fn stop_child(child: &mut Child, run_id: uuid::Uuid, config: &ExecutorConfig) {
-    signal_process_group(child, "-TERM").await;
-    if tokio::time::timeout(Duration::from_secs(3), child.wait())
+async fn stop_child(
+    child: &mut Child,
+    run_id: uuid::Uuid,
+    config: &ExecutorConfig,
+    baseline_containers: Option<&HashSet<String>>,
+) {
+    if let Some(group) = child.id() {
+        terminate_process_group(group, Duration::from_secs(3)).await;
+    }
+    wait_for_child(child).await;
+    cleanup_run_containers(run_id, config, baseline_containers).await;
+}
+
+async fn wait_for_child(child: &mut Child) {
+    if tokio::time::timeout(Duration::from_secs(1), child.wait())
         .await
         .is_err()
     {
-        signal_process_group(child, "-KILL").await;
+        let _ = child.start_kill();
         let _ = child.wait().await;
     }
-    cleanup_run_containers(run_id, config).await;
 }
 
-async fn signal_process_group(child: &Child, signal: &str) {
-    let Some(pid) = child.id() else {
-        return;
-    };
-    let group = pid.to_string();
+async fn terminate_process_group(group: u32, grace: Duration) {
+    signal_process_group(group, "-TERM").await;
+    let deadline = tokio::time::Instant::now() + grace;
+    while process_group_exists(group).await && tokio::time::Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    if process_group_exists(group).await {
+        signal_process_group(group, "-KILL").await;
+    }
+}
+
+async fn process_group_exists(group: u32) -> bool {
+    Command::new("pkill")
+        .args(["-0", "-g", &group.to_string()])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .await
+        .is_ok_and(|status| status.success())
+}
+
+async fn signal_process_group(group: u32, signal: &str) {
     let _ = Command::new("pkill")
-        .args([signal, "-g", &group])
+        .args([signal, "-g", &group.to_string()])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
         .await;
 }
 
-async fn cleanup_run_containers(run_id: uuid::Uuid, config: &ExecutorConfig) {
-    let label = format!("label=academy.harness.run={run_id}");
+async fn list_container_ids(
+    config: &ExecutorConfig,
+    filter: Option<&str>,
+) -> Option<HashSet<String>> {
     let home = config.state_directory.join("executor");
-    let Ok(output) = Command::new("podman")
-        .args(["ps", "-aq", "--filter", &label])
-        .env("HOME", &home)
-        .output()
-        .await
-    else {
-        return;
-    };
-    let ids: Vec<&str> = std::str::from_utf8(&output.stdout)
-        .unwrap_or_default()
-        .lines()
-        .filter(|line| !line.is_empty() && line.bytes().all(|byte| byte.is_ascii_hexdigit()))
-        .collect();
+    let mut command = Command::new("podman");
+    command.args(["ps", "-aq"]).env("HOME", home);
+    if let Some(filter) = filter {
+        command.args(["--filter", filter]);
+    }
+    let output = command.output().await.ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    Some(
+        std::str::from_utf8(&output.stdout)
+            .unwrap_or_default()
+            .lines()
+            .filter(|line| !line.is_empty() && line.bytes().all(|byte| byte.is_ascii_hexdigit()))
+            .map(str::to_owned)
+            .collect(),
+    )
+}
+
+fn containers_to_remove(
+    baseline: Option<&HashSet<String>>,
+    current: Option<HashSet<String>>,
+    labelled: Option<HashSet<String>>,
+) -> Vec<String> {
+    let mut remove = labelled.unwrap_or_default();
+    if let (Some(baseline), Some(current)) = (baseline, current) {
+        remove.extend(current.difference(baseline).cloned());
+    }
+    let mut ids: Vec<String> = remove.into_iter().collect();
+    ids.sort();
+    ids
+}
+
+async fn cleanup_run_containers(
+    run_id: uuid::Uuid,
+    config: &ExecutorConfig,
+    baseline_containers: Option<&HashSet<String>>,
+) {
+    let label = format!("label=academy.harness.run={run_id}");
+    let current = list_container_ids(config, Some("label=com.docker.compose.project")).await;
+    let labelled = list_container_ids(config, Some(&label)).await;
+    let ids = containers_to_remove(baseline_containers, current, labelled);
     if !ids.is_empty() {
         let _ = Command::new("podman")
             .args(["rm", "-f"])
-            .args(ids)
-            .env("HOME", home)
+            .args(&ids)
+            .env("HOME", config.state_directory.join("executor"))
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status()
@@ -481,17 +558,36 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn process_group_signal_stops_the_adapter_group() {
+    async fn process_group_escalation_kills_term_ignoring_descendants() {
         let mut child = Command::new("sh")
-            .args(["-c", "sleep 30 & wait"])
+            .args(["-c", "sh -c 'trap \"\" TERM; sleep 30' & wait"])
             .process_group(0)
             .spawn()
             .unwrap();
-        signal_process_group(&child, "-TERM").await;
+        let group = child.id().unwrap();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        terminate_process_group(group, Duration::from_millis(100)).await;
         let status = tokio::time::timeout(Duration::from_secs(2), child.wait())
             .await
             .expect("process group should stop")
             .unwrap();
         assert!(!status.success());
+        assert!(!process_group_exists(group).await);
+    }
+
+    #[test]
+    fn cleanup_preserves_baseline_and_removes_new_compose_containers() {
+        let baseline = HashSet::from(["existing".to_string(), "old-run".to_string()]);
+        let current = HashSet::from([
+            "existing".to_string(),
+            "old-run".to_string(),
+            "frontier-main".to_string(),
+            "frontier-sidecar".to_string(),
+        ]);
+        let labelled = HashSet::from(["old-run".to_string(), "arc".to_string()]);
+        assert_eq!(
+            containers_to_remove(Some(&baseline), Some(current), Some(labelled)),
+            ["arc", "frontier-main", "frontier-sidecar", "old-run"]
+        );
     }
 }
