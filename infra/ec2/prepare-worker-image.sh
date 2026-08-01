@@ -45,7 +45,7 @@ for unit in benchmark-controller.service benchmark-executor.service; do
   systemctl disable --now "$unit" 2>/dev/null || true
 done
 
-for command in docker git jq podman python3.12 runuser sha256sum; do
+for command in docker git jq pkill podman python3.12 runuser sha256sum; do
   command -v "$command" >/dev/null || { echo "STOP: missing command: $command" >&2; exit 1; }
 done
 docker buildx version >/dev/null || { echo "STOP: Docker Buildx is unavailable" >&2; exit 1; }

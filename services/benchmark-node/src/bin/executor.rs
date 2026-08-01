@@ -383,9 +383,9 @@ async fn signal_process_group(child: &Child, signal: &str) {
     let Some(pid) = child.id() else {
         return;
     };
-    let group = format!("-{pid}");
-    let _ = Command::new("kill")
-        .args([signal, "--", &group])
+    let group = pid.to_string();
+    let _ = Command::new("pkill")
+        .args([signal, "-g", &group])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
@@ -441,7 +441,7 @@ async fn verify_host(config: &ExecutorConfig) -> Result<()> {
     if !output.status.success() || String::from_utf8_lossy(&output.stdout).trim() != "true v2" {
         bail!("executor requires rootless Podman with cgroup v2");
     }
-    for command in ["bwrap", "socat", "docker", "kill"] {
+    for command in ["bwrap", "socat", "docker", "pkill"] {
         let status = Command::new("sh")
             .args(["-c", &format!("command -v {command}")])
             .stdout(Stdio::null())
@@ -478,5 +478,20 @@ mod tests {
             "https://github.com/example/agent",
             "openai.gpt-oss-120b"
         ));
+    }
+
+    #[tokio::test]
+    async fn process_group_signal_stops_the_adapter_group() {
+        let mut child = Command::new("sh")
+            .args(["-c", "sleep 30 & wait"])
+            .process_group(0)
+            .spawn()
+            .unwrap();
+        signal_process_group(&child, "-TERM").await;
+        let status = tokio::time::timeout(Duration::from_secs(2), child.wait())
+            .await
+            .expect("process group should stop")
+            .unwrap();
+        assert!(!status.success());
     }
 }

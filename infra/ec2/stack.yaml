@@ -167,6 +167,7 @@ Resources:
               - git
               - jq
               - podman
+              - procps
               - python3.12-venv
               - slirp4netns
               - socat
