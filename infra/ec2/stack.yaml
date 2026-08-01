@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Private, always-on Exposure benchmark node (Ubuntu 24.04 x86-64)
+Description: Private Exposure benchmark worker fleet (Ubuntu 24.04 x86-64)
 
 Parameters:
   VpcId:
@@ -15,12 +15,42 @@ Parameters:
   UbuntuAmi:
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
     Default: /aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id
+  PreparedWorkerAmi:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^ami-[0-9a-f]+$'
+    Description: Golden AMI containing the verified artifacts, caches, venv, and sandbox image
+  EnableAutoscaling:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Keep false until PreparedWorkerAmi has been built and verified
+  MaxCapacity:
+    Type: Number
+    Default: 5
+    MinValue: 2
+    MaxValue: 5
+  InstanceType:
+    Type: String
+    Default: c8i.8xlarge
+    AllowedValues: [c8i.8xlarge, c8i.12xlarge]
+
+Rules:
+  AutoscalingRequiresPreparedImage:
+    RuleCondition: !Equals [!Ref EnableAutoscaling, 'true']
+    Assertions:
+      - Assert: !Not [!Equals [!Ref PreparedWorkerAmi, '']]
+        AssertDescription: PreparedWorkerAmi is required before autoscaling can be enabled
+
+Conditions:
+  AutoscalingEnabled: !Equals [!Ref EnableAutoscaling, 'true']
+  HasPreparedWorkerAmi: !Not [!Equals [!Ref PreparedWorkerAmi, '']]
 
 Resources:
   SecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: No ingress; benchmark node outbound HTTPS only
+      GroupDescription: No ingress; benchmark workers use outbound HTTPS only
       VpcId: !Ref VpcId
       SecurityGroupIngress: []
       SecurityGroupEgress:
@@ -49,96 +79,283 @@ Resources:
               - Effect: Allow
                 Action: secretsmanager:GetSecretValue
                 Resource: !Ref BenchmarkSecretArn
+        - PolicyName: ManageOwnBenchmarkCapacity
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: autoscaling:DescribeAutoScalingInstances
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - autoscaling:SetInstanceProtection
+                  - autoscaling:CompleteLifecycleAction
+                Resource: !Sub arn:${AWS::Partition}:autoscaling:${AWS::Region}:${AWS::AccountId}:autoScalingGroup:*:autoScalingGroupName/${AWS::StackName}-workers
+              - Effect: Allow
+                Action: cloudwatch:PutMetricData
+                Resource: '*'
+                Condition:
+                  StringEquals:
+                    cloudwatch:namespace: Exposure/Benchmark
 
   InstanceProfile:
     Type: AWS::IAM::InstanceProfile
     Properties:
       Roles: [!Ref InstanceRole]
 
-  Instance:
-    Type: AWS::EC2::Instance
+  WorkerLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
     Properties:
-      ImageId: !Ref UbuntuAmi
-      InstanceType: c8i.8xlarge
-      IamInstanceProfile: !Ref InstanceProfile
-      NetworkInterfaces:
-        - DeviceIndex: '0'
-          AssociatePublicIpAddress: false
-          DeleteOnTermination: true
-          SubnetId: !Ref PrivateSubnetId
-          GroupSet: [!Ref SecurityGroup]
-      MetadataOptions:
-        HttpEndpoint: enabled
-        HttpTokens: required
-        HttpPutResponseHopLimit: 1
-        InstanceMetadataTags: disabled
-      BlockDeviceMappings:
-        - DeviceName: /dev/sda1
-          Ebs:
-            VolumeType: gp3
-            VolumeSize: 200
-            Encrypted: true
+      LaunchTemplateName: !Sub ${AWS::StackName}-worker
+      LaunchTemplateData:
+        ImageId: !If [HasPreparedWorkerAmi, !Ref PreparedWorkerAmi, !Ref UbuntuAmi]
+        InstanceType: !Ref InstanceType
+        IamInstanceProfile:
+          Arn: !GetAtt InstanceProfile.Arn
+        NetworkInterfaces:
+          - DeviceIndex: 0
+            AssociatePublicIpAddress: false
             DeleteOnTermination: true
-      UserData:
-        Fn::Base64: !Sub |
-          #cloud-config
-          package_update: true
-          package_upgrade: false
-          groups: [exposure-benchmark]
-          users:
-            - default
-            - {name: exposure-controller, system: true, shell: /usr/sbin/nologin, home: /var/lib/exposure-benchmark/controller, groups: [exposure-benchmark]}
-            - {name: exposure-executor, system: true, shell: /usr/sbin/nologin, home: /var/lib/exposure-benchmark/executor, groups: [exposure-benchmark]}
-          bootcmd:
-            - sed -i 's|http://|https://|g' /etc/apt/sources.list.d/ubuntu.sources
-          packages:
-            - bubblewrap
-            - ca-certificates
-            - docker-compose-v2
-            - docker.io
-            - fuse-overlayfs
-            - git
-            - jq
-            - podman
-            - python3.12-venv
-            - slirp4netns
-            - socat
-            - uidmap
-            - unzip
-          write_files:
-            - path: /etc/exposure-benchmark/controller.env
-              owner: root:exposure-controller
-              permissions: '0640'
-              content: |
-                ACADEMY_BASE_URL=${AcademyBaseUrl}
-                AWS_REGION=${AWS::Region}
-                BENCHMARK_SECRET_ID=${BenchmarkSecretArn}
-                BEDROCK_MODEL_ID=xai.grok-4.3
-                BEDROCK_PROFILE_NAME=grok-4.3
-                BEDROCK_REASONING_EFFORT=none
-                BEDROCK_MAX_CONCURRENCY=32
-                ENVIRONMENT=PROD
-          runcmd:
-            - systemctl disable --now docker.service docker.socket || true
-            - systemctl enable --now snap.amazon-ssm-agent.amazon-ssm-agent.service || true
-            - sh -c 'grep -q "^exposure-executor:" /etc/subuid || echo "exposure-executor:100000:65536" >> /etc/subuid'
-            - sh -c 'grep -q "^exposure-executor:" /etc/subgid || echo "exposure-executor:100000:65536" >> /etc/subgid'
-            - install -d -m 0750 -o root -g exposure-benchmark /var/lib/exposure-benchmark
-            - install -d -m 0700 -o exposure-controller -g exposure-controller /var/lib/exposure-benchmark/controller
-            - install -d -m 0700 -o exposure-executor -g exposure-executor /var/lib/exposure-benchmark/executor
-            - install -d -m 0700 -o exposure-executor -g exposure-executor /var/lib/exposure-benchmark/cache
-            - install -d -m 0700 -o exposure-executor -g exposure-executor /var/lib/exposure-benchmark/runs
-            - install -d -m 0750 -o root -g exposure-benchmark /etc/exposure-benchmark
-            - sh -c 'printf "BENCHMARK_CONTROLLER_UID=%s\n" "$(id -u exposure-controller)" > /etc/exposure-benchmark/executor.env'
-            - chown root:exposure-executor /etc/exposure-benchmark/executor.env
-            - chmod 0640 /etc/exposure-benchmark/executor.env
-            - sysctl -w kernel.unprivileged_userns_clone=1
+            Groups: [!Ref SecurityGroup]
+        MetadataOptions:
+          HttpEndpoint: enabled
+          HttpTokens: required
+          HttpPutResponseHopLimit: 1
+          InstanceMetadataTags: disabled
+        BlockDeviceMappings:
+          - DeviceName: /dev/sda1
+            Ebs:
+              VolumeType: gp3
+              VolumeSize: 200
+              Encrypted: true
+              DeleteOnTermination: true
+        UserData:
+          Fn::Base64: !Sub |
+            #cloud-config
+            package_update: true
+            package_upgrade: false
+            groups: [exposure-benchmark]
+            users:
+              - default
+              - {name: exposure-controller, system: true, shell: /usr/sbin/nologin, home: /var/lib/exposure-benchmark/controller, groups: [exposure-benchmark]}
+              - {name: exposure-executor, system: true, shell: /usr/sbin/nologin, home: /var/lib/exposure-benchmark/executor, groups: [exposure-benchmark]}
+            bootcmd:
+              - sed -i 's|http://|https://|g' /etc/apt/sources.list.d/ubuntu.sources
+            packages:
+              - bubblewrap
+              - ca-certificates
+              - curl
+              - docker-compose-v2
+              - docker.io
+              - fuse-overlayfs
+              - git
+              - jq
+              - podman
+              - python3.12-venv
+              - slirp4netns
+              - socat
+              - uidmap
+              - unzip
+            write_files:
+              - path: /etc/exposure-benchmark/controller.env
+                owner: root:exposure-controller
+                permissions: '0640'
+                content: |
+                  ACADEMY_BASE_URL=${AcademyBaseUrl}
+                  AWS_REGION=${AWS::Region}
+                  BENCHMARK_SECRET_ID=${BenchmarkSecretArn}
+                  BENCHMARK_ASG_NAME=${AWS::StackName}-workers
+                  BENCHMARK_TERMINATION_HOOK=${AWS::StackName}-termination-drain
+                  BENCHMARK_METRIC_NAMESPACE=Exposure/Benchmark
+                  BEDROCK_MODEL_ID=xai.grok-4.3
+                  BEDROCK_PROFILE_NAME=grok-4.3
+                  BEDROCK_REASONING_EFFORT=none
+                  BEDROCK_MAX_CONCURRENCY=32
+                  ENVIRONMENT=PROD
+            runcmd:
+              - systemctl disable --now docker.service docker.socket || true
+              - systemctl enable --now snap.amazon-ssm-agent.amazon-ssm-agent.service || true
+              - sh -c 'grep -q "^exposure-executor:" /etc/subuid || echo "exposure-executor:100000:65536" >> /etc/subuid'
+              - sh -c 'grep -q "^exposure-executor:" /etc/subgid || echo "exposure-executor:100000:65536" >> /etc/subgid'
+              - install -d -m 0750 -o root -g exposure-benchmark /var/lib/exposure-benchmark
+              - install -d -m 0700 -o exposure-controller -g exposure-controller /var/lib/exposure-benchmark/controller
+              - install -d -m 0700 -o exposure-executor -g exposure-executor /var/lib/exposure-benchmark/executor
+              - install -d -m 0700 -o exposure-executor -g exposure-executor /var/lib/exposure-benchmark/cache
+              - install -d -m 0700 -o exposure-executor -g exposure-executor /var/lib/exposure-benchmark/runs
+              - install -d -m 0750 -o root -g exposure-benchmark /etc/exposure-benchmark
+              - sh -c 'printf "BENCHMARK_CONTROLLER_UID=%s\n" "$(id -u exposure-controller)" > /etc/exposure-benchmark/executor.env'
+              - chown root:exposure-executor /etc/exposure-benchmark/executor.env
+              - chmod 0640 /etc/exposure-benchmark/executor.env
+              - |
+                token=$(curl -fsS -X PUT -H 'X-aws-ec2-metadata-token-ttl-seconds: 60' http://169.254.169.254/latest/api/token)
+                instance_id=$(curl -fsS -H "X-aws-ec2-metadata-token: $token" http://169.254.169.254/latest/meta-data/instance-id)
+                test -n "$instance_id"
+                printf 'BENCHMARK_INSTANCE_ID=%s\n' "$instance_id" >> /etc/exposure-benchmark/controller.env
+                chown root:exposure-controller /etc/exposure-benchmark/controller.env
+                chmod 0640 /etc/exposure-benchmark/controller.env
+              - sysctl -w kernel.unprivileged_userns_clone=1
+              - sh -c 'if [ -x /opt/exposure-benchmark/bin/benchmark-controller ]; then systemctl enable benchmark-executor.service benchmark-controller.service; systemctl restart benchmark-executor.service benchmark-controller.service; fi'
+        TagSpecifications:
+          - ResourceType: volume
+            Tags:
+              - {Key: Service, Value: exposure-benchmark}
+
+  WorkerGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: !Sub ${AWS::StackName}-workers
+      VPCZoneIdentifier: [!Ref PrivateSubnetId]
+      MinSize: '1'
+      DesiredCapacity: '1'
+      MaxSize: !If [AutoscalingEnabled, !Ref MaxCapacity, '1']
+      DefaultInstanceWarmup: 300
+      HealthCheckGracePeriod: 600
+      HealthCheckType: EC2
+      NewInstancesProtectedFromScaleIn: true
+      LaunchTemplate:
+        LaunchTemplateId: !Ref WorkerLaunchTemplate
+        Version: !GetAtt WorkerLaunchTemplate.LatestVersionNumber
+      MetricsCollection:
+        - Granularity: 1Minute
+          Metrics: [GroupInServiceInstances]
       Tags:
-        - {Key: Name, Value: exposure-benchmark-node}
-        - {Key: Service, Value: exposure-benchmark}
+        - {Key: Name, Value: exposure-benchmark-node, PropagateAtLaunch: true}
+        - {Key: Service, Value: exposure-benchmark, PropagateAtLaunch: true}
+    UpdatePolicy:
+      AutoScalingRollingUpdate:
+        MinInstancesInService: 1
+        MaxBatchSize: 1
+        PauseTime: PT10M
+        WaitOnResourceSignals: false
+
+  TerminationLifecycleHook:
+    Type: AWS::AutoScaling::LifecycleHook
+    Properties:
+      LifecycleHookName: !Sub ${AWS::StackName}-termination-drain
+      AutoScalingGroupName: !Ref WorkerGroup
+      LifecycleTransition: autoscaling:EC2_INSTANCE_TERMINATING
+      HeartbeatTimeout: 900
+      DefaultResult: CONTINUE
+
+  ScaleOutPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Condition: AutoscalingEnabled
+    Properties:
+      AutoScalingGroupName: !Ref WorkerGroup
+      PolicyType: StepScaling
+      AdjustmentType: ChangeInCapacity
+      MetricAggregationType: Maximum
+      EstimatedInstanceWarmup: 300
+      StepAdjustments:
+        - MetricIntervalLowerBound: 0
+          MetricIntervalUpperBound: 1
+          ScalingAdjustment: 1
+        - MetricIntervalLowerBound: 1
+          MetricIntervalUpperBound: 2
+          ScalingAdjustment: 2
+        - MetricIntervalLowerBound: 2
+          MetricIntervalUpperBound: 3
+          ScalingAdjustment: 3
+        - MetricIntervalLowerBound: 3
+          ScalingAdjustment: 4
+
+  ScaleInPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Condition: AutoscalingEnabled
+    Properties:
+      AutoScalingGroupName: !Ref WorkerGroup
+      PolicyType: StepScaling
+      AdjustmentType: ChangeInCapacity
+      MetricAggregationType: Maximum
+      EstimatedInstanceWarmup: 300
+      StepAdjustments:
+        - MetricIntervalLowerBound: 0
+          ScalingAdjustment: -1
+
+  CapacityDeficitAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: AutoscalingEnabled
+    Properties:
+      AlarmDescription: Add one worker per missing benchmark slot, up to the fleet maximum
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      EvaluationPeriods: 1
+      DatapointsToAlarm: 1
+      Threshold: 1
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref ScaleOutPolicy]
+      Metrics:
+        - Id: demand
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: Exposure/Benchmark
+              MetricName: Demand
+              Dimensions:
+                - Name: AutoScalingGroupName
+                  Value: !Ref WorkerGroup
+            Period: 60
+            Stat: Maximum
+        - Id: capacity
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: AWS/AutoScaling
+              MetricName: GroupInServiceInstances
+              Dimensions:
+                - Name: AutoScalingGroupName
+                  Value: !Ref WorkerGroup
+            Period: 60
+            Stat: Average
+        - Id: deficit
+          Expression: demand-capacity
+          Label: Missing benchmark worker slots
+          ReturnData: true
+
+  IdleCapacityAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: AutoscalingEnabled
+    Properties:
+      AlarmDescription: Remove one idle worker after fifteen quiet minutes
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      EvaluationPeriods: 15
+      DatapointsToAlarm: 15
+      Threshold: 1
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref ScaleInPolicy]
+      Metrics:
+        - Id: demand
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: Exposure/Benchmark
+              MetricName: Demand
+              Dimensions:
+                - Name: AutoScalingGroupName
+                  Value: !Ref WorkerGroup
+            Period: 60
+            Stat: Maximum
+        - Id: capacity
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: AWS/AutoScaling
+              MetricName: GroupInServiceInstances
+              Dimensions:
+                - Name: AutoScalingGroupName
+                  Value: !Ref WorkerGroup
+            Period: 60
+            Stat: Average
+        - Id: idle
+          Expression: capacity-demand
+          Label: Idle benchmark worker slots
+          ReturnData: true
 
 Outputs:
-  InstanceId:
-    Value: !Ref Instance
+  AutoScalingGroupName:
+    Value: !Ref WorkerGroup
+  LaunchTemplateId:
+    Value: !Ref WorkerLaunchTemplate
   SecurityGroupId:
     Value: !Ref SecurityGroup
+  AutoscalingEnabled:
+    Value: !Ref EnableAutoscaling

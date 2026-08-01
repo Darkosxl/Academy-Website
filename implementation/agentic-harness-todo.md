@@ -33,6 +33,8 @@
   gateway, Secrets Manager loading, health, and Prometheus metrics.
 - [x] Add the root-context artifact build, hash-locked Python wheelhouse,
   systemd users/units, Ubuntu 24.04 cloud-init, and private EC2 stack.
+- [x] Add queue-aware one-to-five-node ASG scaling, per-claim scale-in protection,
+  lifecycle draining, and a prepared-AMI activation gate.
 - [ ] Ask AWS Sales/account support to enable `openai.gpt-5.6-terra` for this
   account. The key and `provider_data_share` retention mode are valid, but the
   model-specific `/v1/models/{model}` status and inference both deny account
@@ -69,6 +71,10 @@
 - [ ] Thirteen boards stay current in the browser while a run plays, and the
   same run replays from the stored frames after it finishes.
 - [ ] A failing or slow frame endpoint leaves game pace and scores untouched.
+- [ ] Five simultaneous team runs scale to five workers, then return to one only
+  after all leases finish and the 15-minute idle window passes.
+- [ ] Five-worker model traffic stays within account quotas and 65 live ARC games
+  retain p95 frame-to-screen latency below 2.5 seconds.
 - [ ] Frontier task timeout, verifier timeout, partial reward, and crash handling.
 - [ ] RAM descendants remain in the cgroup and short-lived peaks are captured.
 - [ ] Partial runs retain every completed leaderboard result.

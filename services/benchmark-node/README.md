@@ -66,21 +66,18 @@ all three processes.
 
 ## Host deployment
 
-Provision `infra/ec2/stack.yaml`, then transfer the artifact directory over SSM or an
-approved private artifact store. On the node:
+Provision `infra/ec2/stack.yaml` with autoscaling disabled, then transfer the artifact
+directory over SSM or an approved private artifact store. On the initial image-builder
+node:
 
 ```bash
 sudo /path/to/artifacts/infra/install-artifacts.sh /path/to/artifacts
-sudo install -m 0640 -o root -g exposure-controller \
-  services/benchmark-node/systemd/controller.env.example \
-  /etc/exposure-benchmark/controller.env
-sudoedit /etc/exposure-benchmark/controller.env
-sudo systemctl restart benchmark-executor benchmark-controller
 ```
 
-The controller env contains only configuration and a Secrets Manager identifier. Store the
-matching `worker_token` and `bedrock_api_key` in the JSON secret described in
-`infra/ec2/README.md`. The executor env contains paths and the controller UID only.
+Cloud-init creates the controller env with the Academy URL, Secrets Manager identifier,
+ASG name, lifecycle hook, and the instance's IMDSv2-derived ID. The executor env contains
+paths and the controller UID only. Store `worker_token` and `bedrock_api_key` in the JSON
+secret described in `infra/ec2/README.md`.
 
 Recreate these pinned caches on EC2 instead of copying local virtual environments:
 
@@ -92,7 +89,10 @@ Recreate these pinned caches on EC2 instead of copying local virtual environment
 
 The installer verifies `SHA256SUMS`, recreates the adapter venv from the hash-locked local
 wheelhouse, installs systemd assets, and builds the sandbox image as the unprivileged
-executor user. It does not start services unless passed `--start`.
+executor user. It does not start services unless passed `--start`. Capture a clean golden
+AMI only after those artifacts and caches are verified, then enable the ASG in stages at
+2, 3, and 5 nodes; the complete image workflow and quota gates are in
+`infra/ec2/README.md`.
 
 ## Operations
 
@@ -118,9 +118,10 @@ environment variables and never terminally updates the run.
 ## Rollout and rollback
 
 1. Deploy the backward-compatible Academy API and migration first.
-2. Provision EC2 and install the artifact bundle with services stopped.
+2. Provision the one-node ASG with autoscaling disabled and build the verified worker AMI.
 3. Start the Rust services for one canary cohort and run the load/isolation checks.
-4. Stop claiming new work in the old Python worker, let its active lease drain, then stop it.
+4. Enable autoscaling with a maximum of 2, then 3, then 5 after the model/frame gates pass.
+5. Stop claiming new work in the old Python worker, let its active lease drain, then stop it.
 
 Rollback is deliberately small: stop `benchmark-controller`, then restart the legacy
 `runner.py` worker with its previous environment. Academy and Supabase need no data move or

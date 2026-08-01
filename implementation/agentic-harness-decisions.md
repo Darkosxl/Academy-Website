@@ -181,10 +181,15 @@ implementing any deviation.
 - Production is host-native. A root-context multi-stage Docker build emits
   checksum-covered binaries, adapters, locked wheels, the sandbox Containerfile,
   and systemd assets; it is not an outer runtime container.
-- The private Ubuntu 24.04 x86-64 host is `c8i.8xlarge` with a 200 GB encrypted
-  gp3 volume, IMDSv2, SSM management, Secrets Manager read access, no public IP
-  or ingress, and outbound TCP 443 only. Mutable state is rooted at
+- Private Ubuntu 24.04 x86-64 workers are `c8i.8xlarge`, each with a 200 GB
+  encrypted gp3 volume, IMDSv2, SSM management, Secrets Manager read access, no
+  public IP or ingress, and outbound TCP 443 only. Mutable state is rooted at
   `/var/lib/exposure-benchmark`.
+- One worker runs one complete benchmark at a time. Academy reports global
+  claimable plus leased demand; controllers publish it to CloudWatch, and an ASG
+  scales from one prepared-AMI worker to at most five. Claimed nodes use EC2
+  scale-in protection and a 15-minute termination hook drains the claim/protection
+  race. Autoscaling remains disabled until the golden AMI and two-node canary pass.
 
 ## Kaggle
 
