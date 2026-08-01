@@ -36,6 +36,7 @@
 
   var replay = root.dataset.replay === 'true';
   var runId = root.dataset.run || '';
+  var currentRun = root.dataset.currentRun || '';
   var tiles = {};        // game id -> {button, canvas, meta}
   var focused = null;    // game the student clicked; null = grid only, no focus= param
   var film = [];         // focused game's animation, flattened to one entry per grid
@@ -230,6 +231,12 @@
 
   function apply(payload) {
     if (!payload) return;
+    var nextRun = payload.run || '';
+    if (!replay && nextRun !== currentRun) {
+      stop();
+      location.reload();
+      return;
+    }
     var over = !!payload.run && TERMINAL.indexOf(payload.stage) !== -1;
     if (!over) {
       wasLive = true;

@@ -384,6 +384,7 @@ pub async fn harness_status(
 ) -> Result<Json<serde_json::Value>, Response> {
     let user = require(current_user(&app, &headers).await)?;
     let row: Option<(
+        Uuid,
         String,
         Option<String>,
         Value,
@@ -391,7 +392,7 @@ pub async fn harness_status(
         String,
         Option<String>,
     )> = sqlx::query_as(
-        "select r.stage, r.commit_sha, r.benchmark_state, r.deadline_at,
+        "select r.id, r.stage, r.commit_sha, r.benchmark_state, r.deadline_at,
                 r.benchmark_version, r.bedrock_profile
          from harness_runs_exposure_academy r
          join harness_team_members_exposure_academy tm on tm.team_id = r.team_id
@@ -402,7 +403,8 @@ pub async fn harness_status(
     .await
     .map_err(worker_db_unavailable)?;
     Ok(Json(match row {
-        Some((stage, sha, benchmarks, deadline, version, profile)) => serde_json::json!({
+        Some((run, stage, sha, benchmarks, deadline, version, profile)) => serde_json::json!({
+            "run": run,
             "stage": stage,
             "commit_sha": sha,
             "benchmarks": benchmarks,
@@ -410,7 +412,7 @@ pub async fn harness_status(
             "benchmark_version": version,
             "bedrock_profile": profile,
         }),
-        None => serde_json::json!({"stage": null}),
+        None => serde_json::json!({"run": null, "stage": null}),
     }))
 }
 
@@ -853,9 +855,11 @@ pub async fn worker_harness_capacity(
     let (queued, active, oldest_queued_seconds): (i64, i64, i64) = sqlx::query_as(
         "with claimable(created_at) as (
            select created_at from harness_runs_exposure_academy
-           where stage = 'queued'
-              or (stage in ('preparing','running') and lease_expires_at < now()
-                  and deadline_at > now() and claim_attempts < 3)
+           where benchmark_version = $1 and (
+             stage = 'queued'
+             or (stage in ('preparing','running') and lease_expires_at < now()
+                 and deadline_at > now() and claim_attempts < 3)
+           )
            union all
            select created_at from harness_kaggle_submissions_exposure_academy
            where status = 'queued'
@@ -865,8 +869,8 @@ pub async fn worker_harness_capacity(
                   and (lease_expires_at is null or lease_expires_at < now()))
          ), active_slots as (
            select id from harness_runs_exposure_academy
-           where stage in ('preparing','running') and lease_expires_at >= now()
-             and deadline_at > now()
+           where benchmark_version = $1 and stage in ('preparing','running')
+             and lease_expires_at >= now() and deadline_at > now()
            union all
            select id from harness_kaggle_submissions_exposure_academy
            where status in ('kernel_running','submitted') and lease_expires_at >= now()
@@ -876,6 +880,7 @@ pub async fn worker_harness_capacity(
                 greatest(0, coalesce(extract(epoch from now() -
                     (select min(created_at) from claimable))::bigint, 0))",
     )
+    .bind(HARNESS_VERSION)
     .fetch_one(&app.pool)
     .await
     .map_err(worker_db_unavailable)?;
@@ -916,9 +921,11 @@ pub async fn worker_harness_claim(
     let row: Option<(Uuid, String, DateTime<Utc>, String)> = sqlx::query_as(
         "with candidate as (
            select id from harness_runs_exposure_academy
-           where stage = 'queued'
-              or (stage in ('preparing','running') and lease_expires_at < now()
-                  and deadline_at > now() and claim_attempts < 3)
+           where benchmark_version = $3 and (
+             stage = 'queued'
+             or (stage in ('preparing','running') and lease_expires_at < now()
+                 and deadline_at > now() and claim_attempts < 3)
+           )
            order by created_at
            for update skip locked
            limit 1
@@ -936,6 +943,7 @@ pub async fn worker_harness_claim(
     )
     .bind(lease)
     .bind(RUN_DEADLINE_SECONDS)
+    .bind(HARNESS_VERSION)
     .fetch_optional(&app.pool)
     .await
     .map_err(worker_db_unavailable)?;

@@ -644,7 +644,7 @@ fn harness_stepper(run: &HarnessRun) -> String {
         "1 ve 10 oturum · 10 sn · cgroup PSS",
     );
     format!(
-        r##"<div class="harness-live" id="harness-live" data-active="true" data-deadline="{deadline}">
+        r##"<div class="harness-live" id="harness-live" data-active="true" data-run="{run_id}" data-deadline="{deadline}">
   <div class="harness-live-head">
     <span id="harness-run-status" class="substatus {stage_class}">{stage_label}</span>
     <div class="harness-live-actions">
@@ -657,6 +657,7 @@ fn harness_stepper(run: &HarnessRun) -> String {
   <div class="harness-benchmark-grid">{arc}{frontier}{ram}</div>
 </div>"##,
         deadline = esc(&deadline),
+        run_id = run.id,
         repo = harness_source_label(&run.repo_url),
         version = esc(&run.benchmark_version),
         stop = harness_stop_form(run.id),
@@ -872,7 +873,7 @@ pub fn agentic_harness_main(
   düşük olan daha iyidir. Kısmi çalıştırmalardaki tamamlanmış puanlar korunur.</p>
 </div>
 </div>
-<script src="/static/harness.js?v=4" defer></script>"##
+<script src="/static/harness.js?v=5" defer></script>"##
     );
     harness_shell(
         user,
@@ -895,6 +896,7 @@ pub fn agentic_harness_live(user: &User, run: Option<&HarnessRun>, replay: bool)
     } else {
         String::new()
     };
+    let current_run = run.map(|r| r.id.to_string()).unwrap_or_default();
     let meta = match run {
         Some(r) => {
             let (label, class) = harness_stage_tr(&r.stage);
@@ -954,13 +956,13 @@ pub fn agentic_harness_live(user: &User, run: Option<&HarnessRun>, replay: bool)
     // The one case the viewer must not run: a replay whose run did not resolve.
     let active = !(replay && run.is_none());
     let inner = format!(
-        r##"<div id="arc-live" class="arc-live" data-active="{active}" data-run="{run_attr}" data-replay="{replay}">
+        r##"<div id="arc-live" class="arc-live" data-active="{active}" data-run="{run_attr}" data-current-run="{current_run}" data-replay="{replay}">
   {meta}
   <div class="arc-idle" id="arc-idle">{idle}</div>
   <div class="arc-focus" id="arc-focus" hidden></div>
   <div class="arc-grid" id="arc-boards"></div>
 </div>
-<script src="/static/arc.js?v=2" defer></script>"##
+<script src="/static/arc.js?v=3" defer></script>"##
     );
     harness_shell(
         user,

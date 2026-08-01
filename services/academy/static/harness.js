@@ -69,6 +69,10 @@
       location.reload();
       return;
     }
+    if (payload.run && payload.run !== live.dataset.run) {
+      location.reload();
+      return;
+    }
     renderRunStatus(payload.stage);
     var states = payload.benchmarks || {};
     ['arc', 'frontier', 'ram'].forEach(function (key) {
