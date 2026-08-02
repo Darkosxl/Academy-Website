@@ -212,18 +212,24 @@ def buildkit_nameservers(paths: tuple[Path, ...] = (
     Path("/etc/resolv.conf"),
 )) -> list[str]:
     nameservers: list[str] = []
+
+    def add(value: str) -> None:
+        with contextlib.suppress(ValueError):
+            address = ipaddress.ip_address(value.split("%", 1)[0])
+            if not address.is_loopback and not address.is_unspecified:
+                value = str(address)
+                if value not in nameservers:
+                    nameservers.append(value)
+
     for path in paths:
         with contextlib.suppress(OSError):
             for line in path.read_text().splitlines():
                 parts = line.split()
-                if len(parts) != 2 or parts[0] != "nameserver":
-                    continue
-                with contextlib.suppress(ValueError):
-                    address = ipaddress.ip_address(parts[1].split("%", 1)[0])
-                    if not address.is_loopback and not address.is_unspecified:
-                        value = str(address)
-                        if value not in nameservers:
-                            nameservers.append(value)
+                if len(parts) == 2 and parts[0] == "nameserver":
+                    add(parts[1])
+                elif line.startswith("# ExtServers: [") and line.endswith("]"):
+                    for server in line.removeprefix("# ExtServers: [").removesuffix("]").replace(",", " ").split():
+                        add(server)
         if nameservers:
             return nameservers
     raise InfrastructureFailed("no non-loopback DNS resolver is available for BuildKit")
