@@ -7,6 +7,7 @@ import io
 import json
 import os
 import tempfile
+import threading
 import time
 from types import SimpleNamespace
 from pathlib import Path
@@ -52,6 +53,44 @@ def main() -> None:
     }
     assert events[1]["type"] == "frames"
     assert len(events[1]["frames"][0]["grids"]) == 4096
+    frontier_reporter = runner.NdjsonReporter(
+        "018f0f65-9abc-7def-8123-456789abcdef", time.monotonic() + 30, "frontier",
+    )
+    assert frontier_reporter.state["arc"] == {"status": "skipped"}
+    frontier_reporter.state["frontier"] = {"status": "done"}
+    frontier_reporter.state["ram"] = {"status": "done"}
+    assert runner.terminal_status(frontier_reporter.snapshot()) == "done"
+
+    with tempfile.TemporaryDirectory() as raw:
+        previous_ram_lock = runner.CONFIG.get("HARNESS_RAM_LOCK")
+        runner.CONFIG["HARNESS_RAM_LOCK"] = str(Path(raw) / "ram.lock")
+        active = 0
+        maximum_active = 0
+        guard = threading.Lock()
+        start = threading.Barrier(2)
+
+        def use_ram_lane() -> None:
+            nonlocal active, maximum_active
+            start.wait()
+            with runner.ram_lane(time.monotonic() + 5):
+                with guard:
+                    active += 1
+                    maximum_active = max(maximum_active, active)
+                time.sleep(0.05)
+                with guard:
+                    active -= 1
+
+        threads = [threading.Thread(target=use_ram_lane) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=2)
+            assert not thread.is_alive()
+        assert maximum_active == 1
+        if previous_ram_lock is None:
+            runner.CONFIG.pop("HARNESS_RAM_LOCK", None)
+        else:
+            runner.CONFIG["HARNESS_RAM_LOCK"] = previous_ram_lock
     assert len(runner.ARC_GAMES) == 25
     assert len(set(runner.ARC_GAMES)) == 25
     assert runner.ARC_CONCURRENCY == 5

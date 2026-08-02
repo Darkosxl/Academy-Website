@@ -826,6 +826,135 @@ fn clip(value: &str, maximum: usize) -> String {
 mod tests {
     use super::*;
 
+    #[tokio::test]
+    async fn concurrent_cerebras_requests_use_four_keys_and_fail_over_after_429() {
+        #[derive(Clone)]
+        struct MockState {
+            keys: Arc<Vec<String>>,
+            attempts: Arc<Mutex<Vec<u64>>>,
+            rate_limited: Arc<std::sync::atomic::AtomicBool>,
+        }
+
+        async fn mock_completion(State(state): State<MockState>, headers: HeaderMap) -> Response {
+            let credential = headers
+                .get(header::AUTHORIZATION)
+                .and_then(|value| value.to_str().ok())
+                .and_then(|value| value.strip_prefix("Bearer "))
+                .unwrap();
+            let index = state.keys.iter().position(|key| key == credential).unwrap();
+            state.attempts.lock().unwrap()[index] += 1;
+            if index == 0 && !state.rate_limited.swap(true, Ordering::Relaxed) {
+                return (
+                    StatusCode::TOO_MANY_REQUESTS,
+                    [(header::RETRY_AFTER, "60")],
+                    Json(json!({"error":"mock limit"})),
+                )
+                    .into_response();
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+            Json(json!({
+                "id":"mock",
+                "choices":[{"message":{"role":"assistant","content":"ok"}}],
+                "usage":{"prompt_tokens":1,"completion_tokens":1}
+            }))
+            .into_response()
+        }
+
+        let keys = Arc::new(
+            (0..CEREBRAS_KEY_COUNT)
+                .map(|index| format!("test-cerebras-api-key-{index:02}"))
+                .collect::<Vec<_>>(),
+        );
+        let attempts = Arc::new(Mutex::new(vec![0; CEREBRAS_KEY_COUNT]));
+        let rate_limited = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let mock = Router::new()
+            .route("/", post(mock_completion))
+            .with_state(MockState {
+                keys: keys.clone(),
+                attempts: attempts.clone(),
+                rate_limited,
+            });
+        let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
+
+        let pool = Arc::new(
+            CerebrasKeyPool::with_url(
+                keys.as_ref().clone(),
+                &format!("http://{address}/"),
+                Duration::from_secs(60),
+            )
+            .unwrap(),
+        );
+        let state = Arc::new(GatewayState {
+            token: "test-gateway-token".into(),
+            model_id: "gemma-4-31b".into(),
+            profile_name: "gemma-4-31b".into(),
+            reasoning_effort: "none".into(),
+            provider: ModelProvider::Cerebras,
+            upstream: GatewayUpstream::Cerebras {
+                pool: pool.clone(),
+                preferred_key: Arc::new(AtomicUsize::new(NO_PREFERRED_KEY)),
+            },
+            http: reqwest::Client::new(),
+            metrics: Arc::new(GatewayMetrics::default()),
+        });
+        let request = Arc::new(json!({
+            "model":"gemma-4-31b",
+            "messages":[{"role":"user","content":"ready"}]
+        }));
+        let mut calls = Vec::new();
+        for _ in 0..8 {
+            let state = state.clone();
+            let request = request.clone();
+            calls.push(tokio::spawn(async move {
+                let GatewayUpstream::Cerebras {
+                    pool,
+                    preferred_key,
+                } = &state.upstream
+                else {
+                    unreachable!()
+                };
+                send_cerebras(&state, pool, preferred_key, &request).await
+            }));
+        }
+        for call in calls {
+            assert!(call.await.unwrap().is_ok());
+        }
+
+        let snapshot = state.metrics.snapshot();
+        assert_eq!(snapshot.rate_limits, 1);
+        assert_eq!(snapshot.upstream_attempts, 9);
+        assert_eq!(snapshot.key_requests.len(), CEREBRAS_KEY_COUNT);
+        assert!(snapshot.key_requests.iter().all(|attempts| *attempts > 0));
+
+        let before = attempts.lock().unwrap().clone();
+        for _ in 0..2 {
+            let GatewayUpstream::Cerebras {
+                pool,
+                preferred_key,
+            } = &state.upstream
+            else {
+                unreachable!()
+            };
+            assert!(
+                send_cerebras(&state, pool, preferred_key, &request)
+                    .await
+                    .is_ok()
+            );
+        }
+        let after = attempts.lock().unwrap().clone();
+        let deltas = after
+            .iter()
+            .zip(before)
+            .map(|(after, before)| after - before)
+            .collect::<Vec<_>>();
+        assert_eq!(deltas.iter().filter(|delta| **delta > 0).count(), 1);
+        assert!(deltas.contains(&2));
+
+        server.abort();
+    }
+
     #[test]
     fn sanitization_pins_model_and_drops_sampling_and_old_turns() {
         let mut messages = vec![json!({"role":"system","content":"rules"})];
