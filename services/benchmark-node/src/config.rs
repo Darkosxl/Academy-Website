@@ -66,9 +66,7 @@ impl ControllerConfig {
             bail!("worker and model credentials are missing or too short");
         }
         validate_cerebras_keys(&secrets.cerebras_api_keys)?;
-        let academy_base_url = required("ACADEMY_BASE_URL")?
-            .trim_end_matches('/')
-            .to_owned();
+        let academy_base_url = academy_base_url(&required("ACADEMY_BASE_URL")?)?;
         let parsed = reqwest::Url::parse(&academy_base_url).context("ACADEMY_BASE_URL")?;
         if parsed.scheme() != "https" && environment != Environment::Dev {
             bail!("ACADEMY_BASE_URL must use HTTPS when ENVIRONMENT=PROD");
@@ -231,6 +229,23 @@ fn required(name: &str) -> Result<String> {
         .with_context(|| format!("{name} is required"))
 }
 
+/// Accept the common `https:host` copy/paste typo, but still reject a URL that
+/// has no authority. `Url::parse` accepts that typo as an opaque HTTPS URL,
+/// which otherwise fails later as an unhelpful TLS/SNI error.
+fn academy_base_url(value: &str) -> Result<String> {
+    let value = value.trim().trim_end_matches('/');
+    let value = value
+        .strip_prefix("https:")
+        .filter(|rest| !rest.starts_with("//"))
+        .map(|rest| format!("https://{rest}"))
+        .unwrap_or_else(|| value.to_owned());
+    let parsed = reqwest::Url::parse(&value).context("ACADEMY_BASE_URL")?;
+    if parsed.host_str().is_none() {
+        bail!("ACADEMY_BASE_URL must include a hostname");
+    }
+    Ok(value)
+}
+
 fn deployment_environment(current: Option<&str>, legacy: Option<&str>) -> Result<Environment> {
     let raw = current.or(legacy).unwrap_or("PROD").trim();
     if raw.eq_ignore_ascii_case("DEV") || raw.eq_ignore_ascii_case("local") {
@@ -299,6 +314,15 @@ mod tests {
             Environment::Prod
         );
         assert!(deployment_environment(Some("staging"), None).is_err());
+    }
+
+    #[test]
+    fn academy_url_recovers_missing_authority_slashes() {
+        assert_eq!(
+            academy_base_url("https:student.exposureai.org").unwrap(),
+            "https://student.exposureai.org"
+        );
+        assert!(academy_base_url("https:").is_err());
     }
 
     #[test]
