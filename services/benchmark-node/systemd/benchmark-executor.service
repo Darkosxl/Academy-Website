@@ -33,7 +33,9 @@ ProtectClock=yes
 ProtectHostname=yes
 ProtectProc=invisible
 ProcSubset=pid
-RestrictSUIDSGID=yes
+# The executor sets the setgid bit on its socket directory so newly-created sockets
+# inherit the controller-visible exposure-benchmark group.
+RestrictSUIDSGID=no
 RestrictRealtime=yes
 LockPersonality=yes
 CapabilityBoundingSet=
