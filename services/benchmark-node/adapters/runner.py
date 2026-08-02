@@ -1064,7 +1064,9 @@ def bubblewrap_harbor(
         raise InfrastructureFailed("Buildx config must share the Podman socket directory") from exc
     command = [
         "bwrap", "--die-with-parent", "--new-session", "--unshare-pid", "--unshare-uts",
-        "--unshare-ipc", "--unshare-net", "--ro-bind", "/", "/", "--tmpfs", "/home",
+        # Harbor's BuildKit session uses the caller network for Docker Hub auth.
+        # Frontier tasks request public networking, so keep it available here too.
+        "--unshare-ipc", "--ro-bind", "/", "/", "--tmpfs", "/home",
         "--dir", str(home), "--dir", str(home / ".local"), "--dir", str(home / ".local/share"),
         "--dir", str(home / ".local/share/uv"), "--dir", str(home / ".local/share/uv/tools"),
         "--ro-bind", str(HARBOR_ROOT), str(HARBOR_ROOT), "--tmpfs", "/run",
