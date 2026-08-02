@@ -12,11 +12,11 @@ use axum::{
     response::{Html, IntoResponse, Redirect, Response},
 };
 use benchmark_protocol::{
-    ARC_GAMES, ArcFrame as HarnessArcFrame, ArcFramesRequest as HarnessArcFramesReq,
+    ARC_GAMES, ArcFrame as HarnessArcFrame, ArcFramesRequest as HarnessArcFramesReq, BenchmarkKind,
     DEFAULT_BEDROCK_MODEL, HarnessCapacity, HarnessClaim, HarnessLeaseRequest as HarnessLeaseReq,
     HarnessProgressRequest as HarnessProgressReq, HarnessResultRequest as HarnessResultReq,
     HarnessStageRequest as HarnessStageReq, KaggleClaim,
-    KaggleResultRequest as HarnessKaggleResultReq, RUN_DEADLINE_SECONDS,
+    KaggleResultRequest as HarnessKaggleResultReq, ModelProvider, RUN_DEADLINE_SECONDS,
     bedrock_model_supports_images, builtin_harness_uri, is_bedrock_model, is_builtin_harness,
 };
 use chacha20poly1305::{
@@ -951,6 +951,8 @@ pub async fn worker_harness_claim(
         HarnessClaim {
             id,
             repo_url,
+            provider: ModelProvider::Bedrock,
+            benchmark_kind: BenchmarkKind::Bundled,
             model_id,
             lease_token: lease,
             deadline_at,

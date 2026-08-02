@@ -405,6 +405,8 @@ async fn execute_run(
     let request = ExecutorRequest::Run {
         run_id: claim.id,
         repo_url: claim.repo_url.clone(),
+        provider: claim.provider,
+        benchmark_kind: claim.benchmark_kind,
         deadline_at: claim.deadline_at,
         gateway_socket: gateway.socket_path.to_string_lossy().into_owned(),
         gateway_token: gateway.token.clone(),

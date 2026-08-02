@@ -1,8 +1,7 @@
 use anyhow::{Context, Result, bail};
 use benchmark_node::{MAX_NDJSON_BYTES, config::ExecutorConfig, ndjson, random_token};
 use benchmark_protocol::{
-    ExecutorEvent, ExecutorRequest, KaggleResultRequest, bedrock_model_supports_images,
-    is_bedrock_model, is_builtin_harness,
+    ExecutorEvent, ExecutorRequest, KaggleResultRequest, ModelProvider, is_builtin_harness,
 };
 use chrono::Utc;
 use serde_json::json;
@@ -229,12 +228,13 @@ fn validate_request(request: &ExecutorRequest) -> Result<()> {
             gateway_socket,
             gateway_token,
             model_profile,
+            provider,
             ..
         } => {
             valid_submission_source(repo_url)?;
             if *deadline_at <= Utc::now()
                 || gateway_token.len() != 64
-                || !valid_submission_model(repo_url, model_profile)
+                || !valid_submission_model(*provider, repo_url, model_profile)
             {
                 bail!("invalid local-run capability or deadline");
             }
@@ -285,9 +285,9 @@ fn valid_submission_source(raw: &str) -> Result<()> {
     valid_repo_url(raw)
 }
 
-fn valid_submission_model(source: &str, model_id: &str) -> bool {
-    is_bedrock_model(model_id)
-        && (!is_builtin_harness(source) || bedrock_model_supports_images(model_id))
+fn valid_submission_model(provider: ModelProvider, source: &str, model_id: &str) -> bool {
+    provider.supports_model(model_id)
+        && (!is_builtin_harness(source) || provider.supports_images(model_id))
 }
 
 fn request_timeout(request: &ExecutorRequest) -> Duration {
@@ -544,16 +544,24 @@ mod tests {
         assert!(valid_submission_source("builtin://unknown").is_err());
         assert!(valid_submission_source("file:///etc/passwd").is_err());
         assert!(valid_submission_model(
+            ModelProvider::Bedrock,
             "builtin://forge",
             "google.gemma-4-31b"
         ));
         assert!(!valid_submission_model(
+            ModelProvider::Bedrock,
             "builtin://forge",
             "openai.gpt-oss-120b"
         ));
         assert!(valid_submission_model(
+            ModelProvider::Bedrock,
             "https://github.com/example/agent",
             "openai.gpt-oss-120b"
+        ));
+        assert!(valid_submission_model(
+            ModelProvider::Cerebras,
+            "builtin://forge",
+            "gemma-4-31b"
         ));
     }
 

@@ -1,12 +1,16 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::{fmt, str::FromStr};
 use uuid::Uuid;
 
 pub const BENCHMARK_VERSION: &str = "harness-2026-sprint-v3";
 pub const ARC_CONCURRENCY: usize = 5;
 pub const RUN_DEADLINE_SECONDS: i64 = 9 * 60 * 60;
 pub const DEFAULT_BEDROCK_MODEL: &str = "xai.grok-4.3";
+pub const DEFAULT_CEREBRAS_MODEL: &str = "gemma-4-31b";
+pub const CEREBRAS_MODEL_IDS: &[&str] = &["gemma-4-31b", "zai-glm-4.7"];
+pub const CEREBRAS_IMAGE_MODEL_IDS: &[&str] = &["gemma-4-31b"];
 pub const BEDROCK_MODEL_IDS: &[&str] = &[
     "deepseek.v3.1",
     "deepseek.v3.2",
@@ -72,6 +76,101 @@ pub fn bedrock_model_supports_images(model_id: &str) -> bool {
     BEDROCK_IMAGE_MODEL_IDS.binary_search(&model_id).is_ok()
 }
 
+pub fn is_cerebras_model(model_id: &str) -> bool {
+    CEREBRAS_MODEL_IDS.binary_search(&model_id).is_ok()
+}
+
+pub fn cerebras_model_supports_images(model_id: &str) -> bool {
+    CEREBRAS_IMAGE_MODEL_IDS.binary_search(&model_id).is_ok()
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ModelProvider {
+    #[default]
+    Bedrock,
+    Cerebras,
+}
+
+impl ModelProvider {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Bedrock => "bedrock",
+            Self::Cerebras => "cerebras",
+        }
+    }
+
+    pub fn supports_model(self, model_id: &str) -> bool {
+        match self {
+            Self::Bedrock => is_bedrock_model(model_id),
+            Self::Cerebras => is_cerebras_model(model_id),
+        }
+    }
+
+    pub fn supports_images(self, model_id: &str) -> bool {
+        match self {
+            Self::Bedrock => bedrock_model_supports_images(model_id),
+            Self::Cerebras => cerebras_model_supports_images(model_id),
+        }
+    }
+}
+
+impl fmt::Display for ModelProvider {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+impl FromStr for ModelProvider {
+    type Err = ();
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "bedrock" => Ok(Self::Bedrock),
+            "cerebras" => Ok(Self::Cerebras),
+            _ => Err(()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum BenchmarkKind {
+    Arc,
+    Frontier,
+    #[default]
+    Bundled,
+}
+
+impl BenchmarkKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Arc => "arc",
+            Self::Frontier => "frontier",
+            Self::Bundled => "bundled",
+        }
+    }
+}
+
+impl fmt::Display for BenchmarkKind {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+impl FromStr for BenchmarkKind {
+    type Err = ();
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "arc" => Ok(Self::Arc),
+            "frontier" => Ok(Self::Frontier),
+            "bundled" => Ok(Self::Bundled),
+            _ => Err(()),
+        }
+    }
+}
+
 pub const BUILTIN_HARNESSES: [(&str, &str, &str); 2] = [
     ("forge", "builtin://forge", "Forge"),
     ("reki", "builtin://reki", "Reki"),
@@ -116,6 +215,10 @@ pub const FRONTIER_TASKS: [&str; 5] = [
 pub struct HarnessClaim {
     pub id: Uuid,
     pub repo_url: String,
+    #[serde(default)]
+    pub provider: ModelProvider,
+    #[serde(default)]
+    pub benchmark_kind: BenchmarkKind,
     #[serde(default = "default_bedrock_model")]
     pub model_id: String,
     pub lease_token: Uuid,
@@ -269,6 +372,10 @@ pub enum ExecutorRequest {
     Run {
         run_id: Uuid,
         repo_url: String,
+        #[serde(default)]
+        provider: ModelProvider,
+        #[serde(default)]
+        benchmark_kind: BenchmarkKind,
         deadline_at: DateTime<Utc>,
         gateway_socket: String,
         gateway_token: String,
@@ -330,7 +437,9 @@ mod tests {
         let claim = HarnessClaim {
             id,
             repo_url: "https://github.com/example/agent".into(),
-            model_id: DEFAULT_BEDROCK_MODEL.into(),
+            provider: ModelProvider::Cerebras,
+            benchmark_kind: BenchmarkKind::Arc,
+            model_id: DEFAULT_CEREBRAS_MODEL.into(),
             lease_token,
             deadline_at: "2026-08-01T12:00:00Z".parse().unwrap(),
             benchmark_version: BENCHMARK_VERSION.into(),
@@ -340,7 +449,9 @@ mod tests {
             serde_json::json!({
                 "id": id,
                 "repo_url": "https://github.com/example/agent",
-                "model_id": "xai.grok-4.3",
+                "provider": "cerebras",
+                "benchmark_kind": "arc",
+                "model_id": "gemma-4-31b",
                 "lease_token": lease_token,
                 "deadline_at": "2026-08-01T12:00:00Z",
                 "benchmark_version": "harness-2026-sprint-v3"
@@ -370,6 +481,10 @@ mod tests {
         );
         assert!(bedrock_model_supports_images("google.gemma-4-31b"));
         assert!(!bedrock_model_supports_images("openai.gpt-oss-120b"));
+        assert_eq!(CEREBRAS_MODEL_IDS, ["gemma-4-31b", "zai-glm-4.7"]);
+        assert!(ModelProvider::Cerebras.supports_model(DEFAULT_CEREBRAS_MODEL));
+        assert!(ModelProvider::Cerebras.supports_images(DEFAULT_CEREBRAS_MODEL));
+        assert!(!ModelProvider::Cerebras.supports_images("zai-glm-4.7"));
     }
 
     #[test]
@@ -405,6 +520,41 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(claim.model_id, DEFAULT_BEDROCK_MODEL);
+        assert_eq!(claim.provider, ModelProvider::Bedrock);
+        assert_eq!(claim.benchmark_kind, BenchmarkKind::Bundled);
+    }
+
+    #[test]
+    fn provider_and_benchmark_kind_parse_exact_wire_values() {
+        assert_eq!("cerebras".parse(), Ok(ModelProvider::Cerebras));
+        assert_eq!("frontier".parse(), Ok(BenchmarkKind::Frontier));
+        assert!("Cerebras".parse::<ModelProvider>().is_err());
+        assert!("all".parse::<BenchmarkKind>().is_err());
+    }
+
+    #[test]
+    fn old_executor_requests_default_to_bundled_bedrock() {
+        let (run_id, _) = ids();
+        let request: ExecutorRequest = serde_json::from_value(serde_json::json!({
+            "type": "run",
+            "run_id": run_id,
+            "repo_url": "https://github.com/example/agent",
+            "deadline_at": "2026-08-01T12:00:00Z",
+            "gateway_socket": "/run/exposure-benchmark/gateways/legacy/bedrock.sock",
+            "gateway_token": "a".repeat(64),
+            "model_profile": "xai.grok-4.3"
+        }))
+        .unwrap();
+        let ExecutorRequest::Run {
+            provider,
+            benchmark_kind,
+            ..
+        } = request
+        else {
+            panic!("expected run request")
+        };
+        assert_eq!(provider, ModelProvider::Bedrock);
+        assert_eq!(benchmark_kind, BenchmarkKind::Bundled);
     }
 
     #[test]
