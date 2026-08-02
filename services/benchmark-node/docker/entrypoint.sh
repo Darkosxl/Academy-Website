@@ -71,6 +71,15 @@ install -d -m 2750 -o "$CONTROLLER_USER" -g "$SHARED_GROUP" "$GATEWAY_DIRECTORY"
 install -d -m 0700 -o "$EXECUTOR_USER" -g "$EXECUTOR_USER" "$EXECUTOR_RUNTIME"
 rm -f "$EXECUTOR_SOCKET"
 
+# Buildx talks to Podman's Docker-compatible API. That daemon does not
+# consistently inherit the executor's per-user config, so set its init path
+# globally as well.
+install -d -m 0755 /etc/containers
+cat >/etc/containers/containers.conf <<'EOF'
+[containers]
+init_path="/usr/bin/catatonit"
+EOF
+
 cat >"$EXECUTOR_HOME/.config/containers/containers.conf" <<'EOF'
 [containers]
 init_path="/usr/bin/catatonit"
