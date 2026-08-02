@@ -688,7 +688,11 @@ def run(socket_path: Path) -> None:
             timeout=15,
             max_retries=1,
         )
-        api_style = "responses" if model_id.startswith("openai.") else "chat"
+        api_style = (
+            "responses"
+            if model_id.startswith(("openai.", "google.gemma-4-"))
+            else "chat"
+        )
     elif model_id.startswith(("openai.", "xai.", "google.gemma-4-")):
         raise SystemExit("AWS_BEARER_TOKEN_BEDROCK is required for Bedrock Mantle")
     else:
