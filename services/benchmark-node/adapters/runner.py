@@ -987,8 +987,6 @@ def rewrite_timeouts(path: Path) -> None:
             section = match.group(1)
         if line.strip().startswith("timeout_sec") and section == "agent":
             line = "timeout_sec = 120.0"
-        elif line.strip().startswith("timeout_sec") and section == "verifier":
-            line = "timeout_sec = 60.0"
         output.append(line)
     path.write_text("\n".join(output) + "\n")
 

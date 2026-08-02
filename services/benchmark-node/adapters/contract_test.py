@@ -179,7 +179,7 @@ def main() -> None:
         runner.rewrite_timeouts(task)
         rewritten = task.read_text()
         assert "timeout_sec = 120.0" in rewritten
-        assert "timeout_sec = 60.0" in rewritten
+        assert "timeout_sec = 300" in rewritten
         assert 'network_mode = "public"' in rewritten
         assert 'network_mode = "no-network"' not in rewritten
 
