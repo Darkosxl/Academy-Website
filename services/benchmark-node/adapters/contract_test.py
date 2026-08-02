@@ -94,6 +94,8 @@ def main() -> None:
     assert len(runner.ARC_GAMES) == 25
     assert len(set(runner.ARC_GAMES)) == 25
     assert runner.ARC_CONCURRENCY == 5
+    assert runner.FRONTIER_CONCURRENCY == 2
+    assert runner.FRONTIER_MAX_TURNS == 50
     assert runner.FRONTIER_DEADLINE_SECONDS == 15 * 60
     assert runner.frontier_cutoff(2000, now=100) == 1000
     assert runner.frontier_cutoff(500, now=100) == 500
@@ -140,6 +142,8 @@ def main() -> None:
         shell = command[-1]
         assert str(runner.HARBOR_ROOT / "bin/python") in shell
         assert str(runner.HARBOR_CLI) in shell
+        assert f"-n {runner.FRONTIER_CONCURRENCY}" in shell
+        assert f"max_turns={runner.FRONTIER_MAX_TURNS}" in shell
         assert str(Path.home() / ".local/share/uv/python") not in command
 
     cleanup_calls = []

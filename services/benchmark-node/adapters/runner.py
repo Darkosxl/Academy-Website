@@ -42,6 +42,15 @@ HARBOR_CLI = HARBOR_ROOT / "bin" / "harbor"
 HARNESS_VERSION = "harness-2026-sprint-v3"
 POLL_SECONDS = 2
 ARC_CONCURRENCY = 5
+# Frontier tasks retain their own benchmark-defined timeouts.  Running two at a
+# time leaves the Docker-compatible runtime enough headroom for agent and
+# verifier commands without stretching the total sprint past its deadline.
+FRONTIER_CONCURRENCY = 2
+# Terminus-2 normally permits an effectively unbounded number of episodes.
+# Gemma can finish the work in prose without emitting its required JSON
+# completion flag, so cap that otherwise idle completion loop before it spends
+# the task's execution budget.
+FRONTIER_MAX_TURNS = 50
 RUN_DEADLINE_SECONDS = 9 * 60 * 60
 FRONTIER_DEADLINE_SECONDS = 15 * 60
 
@@ -1090,10 +1099,11 @@ def bubblewrap_harbor(
         f"exec {shlex.quote(str(HARBOR_ROOT / 'bin/python'))} "
         f"{shlex.quote(str(HARBOR_CLI))} run -p {shlex.quote(str(dataset_mount))} "
         "-a agent.harbor_agent:HarborAgent "
-        f"-m openai/{BEDROCK_PROFILE_NAME} -n 5 -o {shlex.quote(str(jobs_mount))} "
+        f"-m openai/{BEDROCK_PROFILE_NAME} -n {FRONTIER_CONCURRENCY} -o {shlex.quote(str(jobs_mount))} "
         "-y --no-force-build "
         "--ak enable_summarize=false --ak proactive_summarization_threshold=0 "
-        "--ak max_turns=1000000 --ak temperature=0 --ak api_base=http://127.0.0.1:8000/v1",
+        f"--ak max_turns={FRONTIER_MAX_TURNS} --ak temperature=0 "
+        "--ak api_base=http://127.0.0.1:8000/v1",
     ]
     return command
 
