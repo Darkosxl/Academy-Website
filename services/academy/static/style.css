@@ -511,6 +511,14 @@ body:not(.portal) .btn-dark.big { padding:14px 32px; }
 .portal label.checkline input { display:inline-block; width:auto; margin-top:0; accent-color:var(--blue-50); }
 
 /* ---- Admin panels: card + 10px eyebrow section titles ---- */
+/* The admin panel is a dense tool, not reading material: the Gönderimler table has ten
+   columns and 64rem cut the Puan box off the right edge. #admin-root is only on
+   /admin, so :has() keeps every other page at its reading measure. */
+.portal .portal-inner:has(> #admin-root) { max-width:none; }
+/* .portal-main is a flex item, so min-width:auto stops it shrinking below its content's
+   min-content width — that is why a wide table scrolled the whole PAGE sideways instead
+   of scrolling inside its own .panel (which is already overflow-x:auto). */
+.portal-main:has(#admin-root) { min-width:0; }
 .admingrid { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:16px; margin-top:20px; }
 /* grid items default to min-width:auto — wide row-forms would expand the track and
    paint over the neighboring panel; min-width:0 + overflow makes them scroll inside */
