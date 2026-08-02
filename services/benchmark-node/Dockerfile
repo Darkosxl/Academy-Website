@@ -115,8 +115,6 @@ RUN set -eux; \
     apt-get install -y --no-install-recommends \
       bash bubblewrap ca-certificates catatonit curl fuse-overlayfs git gnupg iptables jq \
       passwd podman procps slirp4netns socat tini uidmap; \
-    rm -f /usr/libexec/podman/catatonit; \
-    install -D -m 0755 /usr/bin/catatonit /usr/libexec/podman/catatonit; \
     install -m 0755 -d /etc/apt/keyrings; \
     curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc; \
     chmod a+r /etc/apt/keyrings/docker.asc; \

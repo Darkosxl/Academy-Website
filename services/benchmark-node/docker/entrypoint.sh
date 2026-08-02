@@ -72,10 +72,12 @@ install -d -m 0700 -o "$EXECUTOR_USER" -g "$EXECUTOR_USER" "$EXECUTOR_RUNTIME"
 rm -f "$EXECUTOR_SOCKET"
 
 cat >"$EXECUTOR_HOME/.config/containers/containers.conf" <<'EOF'
+[containers]
+init_path="/usr/bin/catatonit"
+
 [engine]
 cgroup_manager="cgroupfs"
 events_logger="file"
-init_path="/usr/libexec/podman/catatonit"
 EOF
 cat >"$EXECUTOR_HOME/.config/containers/storage.conf" <<EOF
 [storage]
