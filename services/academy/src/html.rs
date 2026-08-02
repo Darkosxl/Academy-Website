@@ -149,12 +149,12 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
   </div>
   <nav class="sb-nav">
     {home}
+    {beginner_track}
+    {advanced_track}
     {schedule}
     {location}
     {documents}
     {online}
-    {beginner_track}
-    {advanced_track}
     {admin_block}
   </nav>
   <div class="sb-footer">
