@@ -2459,15 +2459,89 @@ pub fn advanced_track(user: &User) -> String {
     layout("Advanced Track", Some(user), "advanced-track", &content)
 }
 
-/// Beginner Track — placeholder until its content ships; keeps the same sidebar entry
-/// shape as Online and Advanced Track so nothing has to move again once it's populated.
-pub fn beginner_track(user: &User) -> String {
+// (key, title, one-line summary, pdf filename in static/beginner-projects/). ponytail:
+// hardcoded list, same pattern as DEMOS — these are fixed, code-and-deploy content, not
+// something an admin edits day to day. Add a row here (and the PDF) for a new project.
+pub const BEGINNER_PROJECTS: [(&str, &str, &str, &str); 5] = [
+    (
+        "kisisel-web-sitesi",
+        "Proje 1 — Kişisel Web Sitesi",
+        "İlgi alanlarını ve ürettiklerini anlatan, yayında olan kişisel bir web sitesi kur.",
+        "01-kisisel-web-sitesi.pdf",
+    ),
+    (
+        "kisisel-web-sitesi-chatbotu",
+        "Proje 2 — Kişisel Web Sitesi Chatbotu",
+        "Web siteni, profile.md dosyasından seni tanıtan bir chatbot ile genişlet.",
+        "02-kisisel-web-sitesi-chatbotu.pdf",
+    ),
+    (
+        "ai-bouquet-maker",
+        "Proje 3 — AI Bouquet Maker",
+        "Annen için kişiselleştirilmiş yapay zekâ çiçek buketleri oluşturan bir uygulama geliştir.",
+        "03-ai-bouquet-maker.pdf",
+    ),
+    (
+        "renovate-your-room",
+        "Proje 4 — Renovate Your Room",
+        "Oda fotoğrafını yükleyip yapay zekâ ile farklı dekorasyon stillerinde yeniden tasarla.",
+        "04-renovate-your-room.pdf",
+    ),
+    (
+        "character-voice-studio",
+        "Proje 5 — Character Voice Studio",
+        "Kendi karakterini oluştur, görsel ve sesle hayata geçirip konuştur.",
+        "05-character-voice-studio.pdf",
+    ),
+];
+
+/// Beginner Track — the five fixed projects above, each with a downloadable brief and a
+/// save-your-links form. Self-reported, no grading: the form always shows, pre-filled
+/// with whatever was last saved, and resaving just overwrites it.
+pub fn beginner_track(user: &User, subs: &[BeginnerSubmission]) -> String {
+    let cards: String = BEGINNER_PROJECTS
+        .iter()
+        .map(|(key, title, summary, pdf)| {
+            let saved = subs.iter().find(|s| s.project_key == *key);
+            let (repo_val, vercel_val) = saved
+                .map(|s| (s.repo_url.clone(), s.vercel_url.clone()))
+                .unwrap_or_default();
+            let saved_note = if saved.is_some() {
+                r#"<p class="fieldnote">Kaydedildi ✓</p>"#
+            } else {
+                ""
+            };
+            format!(
+                r##"<div class="taskcard">
+  <div class="taskhead"><h3>{title}</h3></div>
+  <p class="desc">{summary}</p>
+  <div class="cardactions">
+    <a class="btn-outline small" href="/static/beginner-projects/{pdf}" target="_blank" rel="noopener">Brifi indir ⬇</a>
+  </div>
+  {saved_note}
+  <form method="post" action="/beginner-track/submit" class="subform">
+    <input type="hidden" name="project_key" value="{key}">
+    <input name="repo_url" type="url" placeholder="https://github.com/..." value="{repo_val}" required>
+    <input name="vercel_url" type="url" placeholder="https://...vercel.app" value="{vercel_val}" required>
+    <button class="btn-dark">Kaydet →</button>
+  </form>
+</div>"##,
+                title = esc(title),
+                summary = esc(summary),
+                repo_val = esc(&repo_val),
+                vercel_val = esc(&vercel_val),
+            )
+        })
+        .collect();
     layout(
         "Beginner Track",
         Some(user),
         "beginner-track",
-        r##"<h1 class="pagetitle">Beginner Track</h1>
-<p class="muted">Bu bölüm yakında burada olacak.</p>"##,
+        &format!(
+            r##"<h1 class="pagetitle">Beginner Track</h1>
+<p class="muted">Başlangıç seviyesindeki 5 proje. Her biri için brifi indir, projeni yap, sonra GitHub ve Vercel bağlantılarını kaydet.</p>
+<div class="tasks">{cards}</div>"##
+        ),
     )
 }
 

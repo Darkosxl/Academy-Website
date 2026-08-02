@@ -4,10 +4,10 @@ use crate::html;
 use crate::model::*;
 use crate::{App, auth::*};
 use axum::{
-    Json,
+    Form, Json,
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode, header},
-    response::{Html, IntoResponse, Response},
+    response::{Html, IntoResponse, Redirect, Response},
 };
 use serde::Deserialize;
 use uuid::Uuid;
@@ -240,13 +240,70 @@ pub async fn online_hub(
     )))
 }
 
-/// Beginner Track — placeholder hub until its content ships.
+/// Beginner Track — the five fixed projects, each with the student's saved links (if any).
 pub async fn beginner_track_hub(
     State(app): State<App>,
     headers: HeaderMap,
 ) -> Result<Html<String>, Response> {
     let user = require_onboarded(current_user(&app, &headers).await)?;
-    Ok(Html(html::beginner_track(&user)))
+    let subs = sqlx::query_as::<_, BeginnerSubmission>(
+        "select project_key, repo_url, vercel_url
+         from beginner_submissions_exposure_academy where user_id = $1",
+    )
+    .bind(user.id)
+    .fetch_all(&app.pool)
+    .await
+    .unwrap();
+    Ok(Html(html::beginner_track(&user, &subs)))
+}
+
+#[derive(Deserialize)]
+pub struct BeginnerSubmitForm {
+    project_key: String,
+    #[serde(default)]
+    repo_url: String,
+    #[serde(default)]
+    vercel_url: String,
+}
+
+/// Save (or replace) a student's GitHub + Vercel links for one Beginner Track project.
+/// No review pipeline — this just upserts the pair, same shape as `board_submit`'s
+/// validation but without the plan.md requirement.
+pub async fn beginner_track_submit(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Form(f): Form<BeginnerSubmitForm>,
+) -> Result<Redirect, Response> {
+    let user = require_onboarded(current_user(&app, &headers).await)?;
+    let bad = |msg: &str| (StatusCode::BAD_REQUEST, msg.to_string()).into_response();
+    if !html::BEGINNER_PROJECTS
+        .iter()
+        .any(|(k, ..)| *k == f.project_key)
+    {
+        return Err(bad("Proje bulunamadı."));
+    }
+    let repo_url = f.repo_url.trim().to_string();
+    let vercel_url = f.vercel_url.trim().to_string();
+    if !repo_url.starts_with("https://github.com/") {
+        return Err(bad("Repo bağlantısı https://github.com/ ile başlamalı."));
+    }
+    if !vercel_url.starts_with("https://") && !vercel_url.starts_with("http://") {
+        return Err(bad("Vercel bağlantısı https:// ile başlamalı."));
+    }
+    sqlx::query(
+        "insert into beginner_submissions_exposure_academy (user_id, project_key, repo_url, vercel_url, updated_at)
+         values ($1,$2,$3,$4, now())
+         on conflict (user_id, project_key) do update set
+           repo_url = excluded.repo_url, vercel_url = excluded.vercel_url, updated_at = now()",
+    )
+    .bind(user.id)
+    .bind(&f.project_key)
+    .bind(&repo_url)
+    .bind(&vercel_url)
+    .execute(&app.pool)
+    .await
+    .unwrap();
+    Ok(Redirect::to("/beginner-track"))
 }
 
 /// Advanced Track — Agentic Harness and AI Monopoly, grouped behind one sidebar entry.

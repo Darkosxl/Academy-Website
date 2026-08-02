@@ -103,6 +103,10 @@ async fn main() {
         .execute(&pool)
         .await
         .expect("consent/schedule/venue migration failed");
+    sqlx::raw_sql(include_str!("../migrations/009_beginner_projects.sql"))
+        .execute(&pool)
+        .await
+        .expect("beginner projects migration failed");
     seed_admin(&pool).await;
     seed_invite_code(&pool).await;
     seed_videos(&pool).await;
@@ -149,6 +153,7 @@ async fn main() {
         .route("/app", get(home))
         .route("/online", get(online_hub))
         .route("/beginner-track", get(beginner_track_hub))
+        .route("/beginner-track/submit", post(beginner_track_submit))
         .route("/advanced-track", get(advanced_track_hub))
         .route("/schedule", get(schedule))
         .route("/schedule/image/{track}", get(schedule_image))
