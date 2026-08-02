@@ -46,11 +46,9 @@ ARC_CONCURRENCY = 5
 # time leaves the Docker-compatible runtime enough headroom for agent and
 # verifier commands without stretching the total sprint past its deadline.
 FRONTIER_CONCURRENCY = 2
-# Terminus-2 normally permits an effectively unbounded number of episodes.
-# Gemma can finish the work in prose without emitting its required JSON
-# completion flag, so cap that otherwise idle completion loop before it spends
-# the task's execution budget.
-FRONTIER_MAX_TURNS = 50
+# Keep Gemma bounded, while allowing it to use the Frontier task's full
+# 120-second execution budget now that JSON completion is enforced.
+FRONTIER_MAX_TURNS = 120
 RUN_DEADLINE_SECONDS = 9 * 60 * 60
 FRONTIER_DEADLINE_SECONDS = 15 * 60
 
