@@ -35,6 +35,17 @@ def model_supports_reasoning_effort(model_id: str) -> bool:
     return model_id.startswith(("xai.", "openai.", "google.gemma-4-"))
 
 
+def model_uses_native_runtime(model_id: str) -> bool:
+    return model_id.startswith((
+        "anthropic.",
+        "us.anthropic.",
+        "eu.anthropic.",
+        "au.anthropic.",
+        "global.anthropic.",
+        "arn:aws:bedrock:",
+    ))
+
+
 class GatewayError(Exception):
     def __init__(self, status: int, message: str):
         super().__init__(message)
@@ -665,7 +676,8 @@ def run(socket_path: Path) -> None:
         raise SystemExit("AWS_REGION, BEDROCK_MODEL_ID and BEDROCK_GATEWAY_TOKEN are required")
     max_concurrency = max(1, min(128, int(os.environ.get("BEDROCK_MAX_CONCURRENCY", "32"))))
     api_key = os.environ.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
-    if api_key:
+    uses_mantle = bool(api_key) and not model_uses_native_runtime(model_id)
+    if uses_mantle:
         try:
             from openai import OpenAI
         except ImportError as exc:
@@ -677,7 +689,7 @@ def run(socket_path: Path) -> None:
             max_retries=1,
         )
         api_style = "responses" if model_id.startswith("openai.") else "chat"
-    elif model_id.startswith(("openai.", "xai.")):
+    elif model_id.startswith(("openai.", "xai.", "google.gemma-4-")):
         raise SystemExit("AWS_BEARER_TOKEN_BEDROCK is required for Bedrock Mantle")
     else:
         try:

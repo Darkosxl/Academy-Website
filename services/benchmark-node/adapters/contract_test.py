@@ -239,6 +239,16 @@ def main() -> None:
     assert not bedrock_gateway.model_supports_reasoning_effort(
         "mistral.mistral-large-3-675b-instruct"
     )
+    assert not bedrock_gateway.model_uses_native_runtime("xai.grok-4.3")
+    assert not bedrock_gateway.model_uses_native_runtime("google.gemma-4-31b")
+    assert bedrock_gateway.model_uses_native_runtime("anthropic.claude-opus-4-6-v1")
+    assert bedrock_gateway.model_uses_native_runtime("us.anthropic.claude-opus-4-6-v1")
+    assert bedrock_gateway.model_uses_native_runtime(
+        "global.anthropic.claude-opus-4-6-v1"
+    )
+    assert bedrock_gateway.model_uses_native_runtime(
+        "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/example"
+    )
     print("python adapter contract ok")
 
 
