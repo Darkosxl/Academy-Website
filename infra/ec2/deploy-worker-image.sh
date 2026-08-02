@@ -143,7 +143,7 @@ trap rollback EXIT
 
 initial_stack=$(stack_json)
 stack_status=$(jq -er '.Stacks[0].StackStatus' <<<"$initial_stack")
-[[ $stack_status == CREATE_COMPLETE || $stack_status == UPDATE_COMPLETE ]] || {
+[[ $stack_status == CREATE_COMPLETE || $stack_status == UPDATE_COMPLETE || $stack_status == UPDATE_ROLLBACK_COMPLETE ]] || {
   echo "STOP: stack is not stable: $stack_status" >&2
   exit 1
 }
