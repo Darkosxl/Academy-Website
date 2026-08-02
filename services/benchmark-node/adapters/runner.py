@@ -212,18 +212,24 @@ def buildkit_nameservers(paths: tuple[Path, ...] = (
     Path("/etc/resolv.conf"),
 )) -> list[str]:
     nameservers: list[str] = []
+
+    def add(value: str) -> None:
+        with contextlib.suppress(ValueError):
+            address = ipaddress.ip_address(value.split("%", 1)[0])
+            if not address.is_loopback and not address.is_unspecified:
+                value = str(address)
+                if value not in nameservers:
+                    nameservers.append(value)
+
     for path in paths:
         with contextlib.suppress(OSError):
             for line in path.read_text().splitlines():
                 parts = line.split()
-                if len(parts) != 2 or parts[0] != "nameserver":
-                    continue
-                with contextlib.suppress(ValueError):
-                    address = ipaddress.ip_address(parts[1].split("%", 1)[0])
-                    if not address.is_loopback and not address.is_unspecified:
-                        value = str(address)
-                        if value not in nameservers:
-                            nameservers.append(value)
+                if len(parts) == 2 and parts[0] == "nameserver":
+                    add(parts[1])
+                elif line.startswith("# ExtServers: [") and line.endswith("]"):
+                    for server in line.removeprefix("# ExtServers: [").removesuffix("]").replace(",", " ").split():
+                        add(server)
         if nameservers:
             return nameservers
     raise InfrastructureFailed("no non-loopback DNS resolver is available for BuildKit")
@@ -462,8 +468,9 @@ def ensure_arc_host(*, require_worker_token: bool = False) -> None:
         ["podman", "info", "--format", "{{.Host.Security.Rootless}} {{.Host.CgroupsVersion}}"],
         timeout=15,
     )
-    if info.stdout.strip() != "true v2":
-        raise SystemExit("the harness requires rootless Podman with cgroup v2")
+    expected = "false v2" if CONFIG.get("HARNESS_PODMAN_ROOTFUL") == "1" else "true v2"
+    if info.stdout.strip() != expected:
+        raise SystemExit(f"the harness requires Podman {expected}")
 
 
 def ensure_host() -> None:
@@ -673,6 +680,7 @@ def run_ram_scenario(run_id: str, sessions: int, repo: Path, venv: Path, gateway
     cpus = "1" if sessions == 1 else "10"
     command = [
         "podman", "run", "-d", "--name", name, "--network=none", "--cap-drop=all",
+        "--group-add", "keep-groups",
         "--security-opt=no-new-privileges", "--pids-limit", "128" if sessions == 1 else "512",
         "--memory", memory, "--cpus", cpus, "--read-only",
         "--tmpfs", "/tmp:rw,noexec,nosuid,size=256m",
@@ -696,9 +704,9 @@ def run_ram_scenario(run_id: str, sessions: int, repo: Path, venv: Path, gateway
     memory_peak = 0
     try:
         pid = 0
-        start_deadline = time.monotonic() + 2
+        start_deadline = min(deadline, time.monotonic() + 10)
         while pid <= 0 and time.monotonic() < start_deadline:
-            inspected = run_checked(["podman", "inspect", "--format", "{{.State.Pid}}", name], timeout=2)
+            inspected = run_checked(["podman", "inspect", "--format", "{{.State.Pid}}", name], timeout=5)
             pid = int(inspected.stdout.strip())
             if pid <= 0:
                 time.sleep(0.02)
@@ -718,8 +726,8 @@ def run_ram_scenario(run_id: str, sessions: int, repo: Path, venv: Path, gateway
             raise RunFailed(f"RAM {sessions}-session scenario exceeded ten seconds")
         with contextlib.suppress(OSError, ValueError):
             memory_peak = int(group.joinpath("memory.peak").read_text())
-        status = run_checked(["podman", "wait", name], timeout=2).stdout.strip()
-        logs = run_checked(["podman", "logs", name], timeout=2).stdout
+        status = run_checked(["podman", "wait", name], timeout=5).stdout.strip()
+        logs = run_checked(["podman", "logs", name], timeout=5).stdout
         if status != "0":
             raise RunFailed(f"RAM {sessions}-session contract failed:\n{logs[-2000:]}")
         payload = json.loads(logs.strip().splitlines()[-1])

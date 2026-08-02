@@ -106,6 +106,8 @@ def main() -> None:
         assert runner.buildkit_nameservers((stub, upstream)) == [
             "192.0.2.53", "2001:db8::53",
         ]
+        stub.write_text("nameserver 127.0.0.11\n# ExtServers: [192.0.2.53 2001:db8::53]\n")
+        assert runner.buildkit_nameservers((stub,)) == ["192.0.2.53", "2001:db8::53"]
 
     with tempfile.TemporaryDirectory(dir="/tmp") as raw:
         work = Path(raw) / "work"
