@@ -159,6 +159,11 @@ pub async fn ai_monopoly(
     Query(q): Query<MonopolyQ>,
 ) -> Result<Html<String>, Response> {
     let user = require_onboarded(current_user(&app, &headers).await)?;
+    // Not open to students yet. They get the placeholder; every other /ai-monopoly route
+    // takes require_admin instead, so a hand-typed URL can't reach the real section either.
+    if !user.is_admin {
+        return Ok(Html(html::monopoly_coming_soon(&user)));
+    }
     // unknown values fall back to the default tab, same as /demos?lang=
     let tab = match q.tab.as_deref() {
         Some("live") => "live",
@@ -303,7 +308,7 @@ pub async fn monopoly_live_json(
     headers: HeaderMap,
     Query(q): Query<MonopolyLiveQ>,
 ) -> Result<Json<serde_json::Value>, Response> {
-    require_onboarded(current_user(&app, &headers).await)?;
+    require_admin(current_user(&app, &headers).await)?;
     let Some(t) = latest_tournament(&app).await else {
         return Ok(Json(serde_json::json!({"status": null})));
     };
@@ -427,7 +432,7 @@ pub async fn monopoly_practice(
     State(app): State<App>,
     headers: HeaderMap,
 ) -> Result<Redirect, Response> {
-    let user = require_onboarded(current_user(&app, &headers).await)?;
+    let user = require_admin(current_user(&app, &headers).await)?;
     let bad = |msg: &str| (StatusCode::BAD_REQUEST, msg.to_string()).into_response();
     let Some(team) = monopoly_team_of(&app, user.id).await else {
         return Err(bad("Bir takımda değilsin — eğitmenine yaz."));
@@ -574,7 +579,7 @@ pub async fn monopoly_match_page(
     headers: HeaderMap,
     Path(id): Path<Uuid>,
 ) -> Result<Html<String>, Response> {
-    let user = require_onboarded(current_user(&app, &headers).await)?;
+    let user = require_admin(current_user(&app, &headers).await)?;
     let m: MonopolyMatchRow = sqlx::query_as(
         "select m.id, m.round, m.kind, m.status, m.a_player, a.char_name as a_name,
                 m.b_player, b.char_name as b_name, m.created_at
@@ -717,7 +722,7 @@ pub async fn monopoly_submit(
     headers: HeaderMap,
     Form(f): Form<MonopolySubmitForm>,
 ) -> Result<Redirect, Response> {
-    let user = require_onboarded(current_user(&app, &headers).await)?;
+    let user = require_admin(current_user(&app, &headers).await)?;
     let bad = |msg: String| (StatusCode::BAD_REQUEST, msg).into_response();
     let Some(team) = monopoly_team_of(&app, user.id).await else {
         // the form isn't rendered for team-less students; this catches hand-rolled POSTs

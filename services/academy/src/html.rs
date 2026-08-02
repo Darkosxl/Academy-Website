@@ -1480,6 +1480,18 @@ fn monopoly_shell(user: &User, tab: &str, sub: &str, inner: &str) -> String {
     )
 }
 
+/// What students see at /ai-monopoly until the section opens. The nav link stays in the
+/// sidebar on purpose — "coming soon" only reads as a promise if you can find it.
+pub fn monopoly_coming_soon(user: &User) -> String {
+    layout(
+        "AI Monopoly",
+        Some(user),
+        "ai-monopoly",
+        r##"<h1 class="pagetitle" lang="en">COMING SOON!</h1>
+<p class="muted">AI Monopoly yakında burada.</p>"##,
+    )
+}
+
 /// ₺ with Turkish thousands separators (1.234 ₺). Used everywhere money is shown so the
 /// arena, the standings and the history tab can't drift apart on formatting.
 fn money(v: i32) -> String {
@@ -3260,6 +3272,17 @@ mod tests {
             nickname: Some("a".into()),
             is_admin: false,
         }
+    }
+
+    /// The placeholder must not leak the section it is standing in for: no tab strip, no
+    /// submit form. It keeps the sidebar link so students can still see it is coming.
+    #[test]
+    fn monopoly_placeholder_shows_nothing_but_the_promise() {
+        let page = monopoly_coming_soon(&viewer());
+        assert!(page.contains("COMING SOON!"));
+        assert!(!page.contains(r#"class="chips""#), "tab strip leaked");
+        assert!(!page.contains("subform"), "submit form leaked");
+        assert!(page.contains(r#"href="/ai-monopoly""#), "sidebar link dropped");
     }
 
     /// The top three are drawn once, on the podium, and the list under it starts at 4.
