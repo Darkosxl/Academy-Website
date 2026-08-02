@@ -1,27 +1,9 @@
 name: Deploy benchmark worker AMI
 
+# Manual only. A push trigger meant every touch of services/academy/src rolled the
+# production worker fleet, which is not what a website commit should do. Run it from
+# the Actions tab when the image genuinely needs rebuilding.
 on:
-  push:
-    branches: [arc-live-viewer]
-    paths:
-      - Cargo.toml
-      - Cargo.lock
-      - crates/benchmark-protocol/**
-      - services/academy/Cargo.toml
-      - services/academy/src/**
-      - services/academy/migrations/**
-      - services/academy/videos.dat
-      - services/benchmark-node/**
-      - infra/ec2/cloud-init.yaml
-      - infra/ec2/deploy-worker-image.sh
-      - infra/ec2/install-artifacts.sh
-      - infra/ec2/prepare-worker-image.sh
-      - infra/ec2/seal-worker-image.sh
-      - infra/ec2/verify-isolation.sh
-      - infra/ec2/verify-running-worker.sh
-      - infra/ec2/verify-worker-image.sh
-      - infra/ec2/worker.pkr.hcl
-      - .github/workflows/deploy-benchmark-worker.yml
   workflow_dispatch:
 
 permissions:
