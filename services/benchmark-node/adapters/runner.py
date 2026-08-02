@@ -468,8 +468,9 @@ def ensure_arc_host(*, require_worker_token: bool = False) -> None:
         ["podman", "info", "--format", "{{.Host.Security.Rootless}} {{.Host.CgroupsVersion}}"],
         timeout=15,
     )
-    if info.stdout.strip() != "true v2":
-        raise SystemExit("the harness requires rootless Podman with cgroup v2")
+    expected = "false v2" if CONFIG.get("HARNESS_PODMAN_ROOTFUL") == "1" else "true v2"
+    if info.stdout.strip() != expected:
+        raise SystemExit(f"the harness requires Podman {expected}")
 
 
 def ensure_host() -> None:

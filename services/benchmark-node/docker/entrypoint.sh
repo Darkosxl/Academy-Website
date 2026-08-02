@@ -9,6 +9,8 @@ readonly RUNTIME_DIRECTORY=/run/exposure-benchmark
 readonly EXECUTOR_DIRECTORY="$RUNTIME_DIRECTORY/executor"
 readonly GATEWAY_DIRECTORY="${BENCHMARK_GATEWAY_DIRECTORY:-$RUNTIME_DIRECTORY/gateways}"
 readonly EXECUTOR_RUNTIME="$RUNTIME_DIRECTORY/executor-runtime"
+readonly PODMAN_STORAGE="$STATE_DIRECTORY/rootful-podman"
+readonly PODMAN_RUNTIME="$RUNTIME_DIRECTORY/rootful-podman"
 readonly EXECUTOR_SOCKET="${BENCHMARK_EXECUTOR_SOCKET:-$EXECUTOR_DIRECTORY/executor.sock}"
 readonly EXECUTOR_HOME="$STATE_DIRECTORY/executor"
 readonly CONTROLLER_HOME="$STATE_DIRECTORY/controller"
@@ -34,8 +36,6 @@ if [[ -r /proc/sys/kernel/unprivileged_userns_clone ]] \
 fi
 
 controller_uid=$(id -u "$CONTROLLER_USER")
-executor_uid=$(id -u "$EXECUTOR_USER")
-executor_gid=$(id -g "$EXECUTOR_USER")
 
 seed_if_missing() {
   local relative=$1
@@ -58,6 +58,7 @@ install -d -m 0700 -o "$EXECUTOR_USER" -g "$EXECUTOR_USER" \
   "$EXECUTOR_HOME/.local/share" \
   "$EXECUTOR_HOME/.local/share/containers" \
   "$STATE_DIRECTORY/runs"
+install -d -m 0700 -o root -g root "$PODMAN_STORAGE" "$PODMAN_RUNTIME"
 install -d -m 0700 -o "$CONTROLLER_USER" -g "$CONTROLLER_USER" "$CONTROLLER_HOME"
 install -d -m 0751 -o root -g "$SHARED_GROUP" "$RUNTIME_DIRECTORY"
 install -d -m 2750 -o "$EXECUTOR_USER" -g "$SHARED_GROUP" "$EXECUTOR_DIRECTORY"
@@ -73,8 +74,8 @@ EOF
 cat >"$EXECUTOR_HOME/.config/containers/storage.conf" <<EOF
 [storage]
 driver="overlay"
-runroot="$EXECUTOR_RUNTIME/containers"
-graphroot="$EXECUTOR_HOME/.local/share/containers/storage"
+runroot="$PODMAN_RUNTIME/containers"
+graphroot="$PODMAN_STORAGE/storage"
 
 [storage.options.overlay]
 mount_program="/usr/bin/fuse-overlayfs"
@@ -84,18 +85,19 @@ chmod 0700 "$EXECUTOR_HOME" "$EXECUTOR_HOME/.config" "$EXECUTOR_HOME/.config/con
 chmod 0600 "$EXECUTOR_HOME/.config/containers/containers.conf" "$EXECUTOR_HOME/.config/containers/storage.conf"
 
 as_executor() {
-  setpriv --reuid="$executor_uid" --regid="$executor_gid" --init-groups -- \
-    env -i \
+  env -i \
       PATH=/usr/local/bin:/usr/bin:/bin \
       HOME="$EXECUTOR_HOME" \
       XDG_RUNTIME_DIR="$EXECUTOR_RUNTIME" \
       XDG_CONFIG_HOME="$EXECUTOR_HOME/.config" \
+      CONTAINERS_CONF="$EXECUTOR_HOME/.config/containers/containers.conf" \
+      CONTAINERS_STORAGE_CONF="$EXECUTOR_HOME/.config/containers/storage.conf" \
       "$@"
 }
 
 podman_info=$(as_executor podman --cgroup-manager=cgroupfs info --format '{{.Host.Security.Rootless}} {{.Host.CgroupsVersion}}') \
   || die "rootless Podman could not start; verify privileged, cgroup: host, /dev/fuse, and user namespaces"
-[[ $podman_info == 'true v2' ]] || die "expected rootless Podman on cgroup v2, received: $podman_info"
+[[ $podman_info == 'false v2' ]] || die "expected rootful Podman on cgroup v2, received: $podman_info"
 as_executor docker compose version >/dev/null || die "Docker Compose CLI is unavailable"
 
 if ! cmp -s "$SANDBOX_REVISION" "$STATE_DIRECTORY/.sandbox.sha256" \
@@ -113,14 +115,16 @@ if ! cmp -s "$SANDBOX_REVISION" "$STATE_DIRECTORY/.sandbox.sha256" \
 fi
 
 start_executor() {
-  setpriv --reuid="$executor_uid" --regid="$executor_gid" --init-groups -- \
-    env -i \
+  env -i \
       PATH=/usr/local/bin:/usr/bin:/bin \
       HOME="$EXECUTOR_HOME" \
       XDG_RUNTIME_DIR="$EXECUTOR_RUNTIME" \
       XDG_CONFIG_HOME="$EXECUTOR_HOME/.config" \
+      CONTAINERS_CONF="$EXECUTOR_HOME/.config/containers/containers.conf" \
+      CONTAINERS_STORAGE_CONF="$EXECUTOR_HOME/.config/containers/storage.conf" \
       ENVIRONMENT="${ENVIRONMENT:-PROD}" \
-      HARNESS_HARBOR_USER="$EXECUTOR_USER" \
+      HARNESS_HARBOR_USER=root \
+      HARNESS_PODMAN_ROOTFUL=1 \
       BENCHMARK_CONTROLLER_UID="$controller_uid" \
       BENCHMARK_EXECUTOR_SOCKET="$EXECUTOR_SOCKET" \
       BENCHMARK_STATE_DIRECTORY="$STATE_DIRECTORY" \
