@@ -26,6 +26,9 @@ serde_json = "1"
 sha2 = "0.10"
 tokio = { version = "1", features = ["full"] }
 uuid = { version = "1", features = ["v4", "serde"] }
+# store-only ZIP for the admin's "download every consent form" button. No compression
+# features: the payload is PDFs and phone photos, which are already compressed.
+zip = { version = "2", default-features = false }
 
 [profile.release]
 strip = true

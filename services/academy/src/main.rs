@@ -4,6 +4,7 @@
 mod admin;
 mod auth;
 mod board;
+mod consent;
 mod harness;
 mod html;
 mod model;
@@ -22,6 +23,7 @@ use uuid::Uuid;
 use admin::*;
 use auth::*;
 use board::*;
+use consent::*;
 use harness::*;
 use monopoly::*;
 use portal::*;
@@ -95,6 +97,10 @@ async fn main() {
         .execute(&pool)
         .await
         .expect("provider/run-kind migration failed");
+    sqlx::raw_sql(include_str!("../migrations/008_consent_schedule_venue.sql"))
+        .execute(&pool)
+        .await
+        .expect("consent/schedule/venue migration failed");
     seed_admin(&pool).await;
     seed_invite_code(&pool).await;
     seed_videos(&pool).await;
@@ -139,6 +145,18 @@ async fn main() {
         .route("/logout", post(logout))
         .route("/profile", get(profile_page).post(profile_post))
         .route("/app", get(home))
+        .route("/schedule", get(schedule))
+        .route("/schedule/image/{track}", get(schedule_image))
+        .route("/location", get(location))
+        // consent forms: a page of scans/photos is far past axum's 2 MB default
+        .route("/documents", get(documents))
+        .route(
+            "/documents/upload",
+            post(documents_upload)
+                .layer(DefaultBodyLimit::max(CONSENT_UPLOAD_MAX_MB * 1024 * 1024)),
+        )
+        .route("/documents/delete", post(documents_delete))
+        .route("/documents/file/{id}", get(document_file))
         .route("/videos", get(video_grid))
         .route("/agentic-harness", get(agentic_harness))
         .route("/agentic-harness/arc", get(agentic_harness_arc))
@@ -187,6 +205,18 @@ async fn main() {
         .route("/admin/task/level", post(admin_task_level))
         .route("/admin/task/move", post(admin_task_move))
         .route("/admin/task/delete", post(admin_task_delete))
+        // a screenshot is far past axum's 2 MB default, so this route raises its own limit
+        .route(
+            "/admin/schedule",
+            post(admin_schedule).layer(DefaultBodyLimit::max(
+                html::SCHEDULE_IMAGE_MAX_MB * 1024 * 1024,
+            )),
+        )
+        .route("/admin/schedule/delete", post(admin_schedule_delete))
+        .route("/admin/venue", post(admin_venue))
+        .route("/admin/documents.zip", get(admin_documents_zip))
+        .route("/admin/documents/lock", post(admin_documents_lock))
+        .route("/admin/documents/link", post(admin_documents_link))
         .route("/admin/user", post(admin_user))
         .route("/admin/user/delete", post(admin_user_delete))
         .route("/admin/user/hidden", post(admin_user_hidden))

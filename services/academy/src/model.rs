@@ -247,6 +247,253 @@ pub struct MemberRow {
     pub hidden_from_leaderboard: bool,
 }
 
+// ---- Haftalık program ----
+
+/// The two student groups that run their own schedule: (url key, what students see).
+/// The key is also the primary key of schedule_image_exposure_academy, so it is baked
+/// into a CHECK constraint — rename the right-hand side freely, never the left.
+pub const SCHEDULE_TRACKS: [(&str, &str); 2] = [("beginner", "Beginner"), ("advanced", "Advanced")];
+
+/// A track we're willing to look up, matched case-insensitively. Anything else falls
+/// back to the first, so a hand-typed `?track=` renders a page instead of an error.
+pub fn valid_schedule_track(t: Option<&str>) -> &'static str {
+    let want = t.unwrap_or_default().trim().to_ascii_lowercase();
+    SCHEDULE_TRACKS
+        .iter()
+        .find(|(k, _)| *k == want)
+        .map(|(k, _)| *k)
+        .unwrap_or(SCHEDULE_TRACKS[0].0)
+}
+
+pub fn schedule_track_name(t: &str) -> &'static str {
+    SCHEDULE_TRACKS
+        .iter()
+        .find(|(k, _)| *k == t)
+        .map(|(_, v)| *v)
+        .unwrap_or("?")
+}
+
+/// What's on file for one track — never the bytes, which are only ever streamed
+/// straight out of `/schedule/image/{track}`. `uploaded_at` doubles as the image's
+/// cache-busting version, so a re-upload is visible immediately despite a long
+/// max-age on the image response.
+#[derive(FromRow)]
+pub struct ScheduleImage {
+    pub track: String,
+    pub content_type: String,
+    pub uploaded_at: DateTime<Utc>,
+    pub bytes: i64,
+}
+
+impl ScheduleImage {
+    /// Cache key for the <img> src: changes exactly when a new image is uploaded.
+    pub fn version(&self) -> i64 {
+        self.uploaded_at.timestamp()
+    }
+}
+
+// ---- Konum / adres ----
+
+/// Where the academy meets — per week, because the two weeks run in different places.
+/// Kept as rows in app_settings_exposure_academy (`venue{week}_{field}`) rather than
+/// its own table: it is a handful of free-text fields, the same shape as the invite
+/// code that already lives there, so there is no schema to keep in step.
+#[derive(Default)]
+pub struct Venue {
+    /// 1 or 2. Every heading names it, so a student is never left guessing which
+    /// week an address belongs to.
+    pub week: u8,
+    /// Optional date range shown beside the week number, e.g. "3–7 Ağustos".
+    pub dates: String,
+    pub name: String,
+    pub address: String,
+    /// Whatever the admin pasted out of Google Maps. Validated as http(s) on save, so
+    /// it is safe to put straight in an href.
+    pub maps_url: String,
+    /// Anything else students need: floor, door code, transit, parking.
+    pub notes: String,
+}
+
+/// The weeks that get their own address. Adding a third is this array plus nothing —
+/// the settings keys, the admin panel and both pages are all driven off it.
+pub const VENUE_WEEKS: [u8; 2] = [1, 2];
+
+/// Settings key for one field of one week's venue.
+pub fn venue_key(week: u8, field: &str) -> String {
+    format!("venue{week}_{field}")
+}
+
+impl Venue {
+    /// Nothing filled in yet. The page then says so rather than rendering an empty card.
+    pub fn is_empty(&self) -> bool {
+        [
+            &self.dates,
+            &self.name,
+            &self.address,
+            &self.maps_url,
+            &self.notes,
+        ]
+        .iter()
+        .all(|f| f.trim().is_empty())
+    }
+
+    /// What the card is titled: "1. Hafta", or "1. Hafta · 3–7 Ağustos" once dates
+    /// are filled in.
+    pub fn heading(&self) -> String {
+        match self.dates.trim() {
+            "" => format!("{}. Hafta", self.week),
+            d => format!("{}. Hafta · {}", self.week, d),
+        }
+    }
+}
+
+// ---- Veli onay formları ----
+
+/// The consent forms, in the order students see them:
+/// `(key, title, what it is for, where the blank form lives)`.
+/// The key is the `kind` column and is baked into a CHECK constraint, so everything to
+/// its right changes freely — the key itself never does.
+///
+/// The URL here is only the default. `/admin` stores an override in
+/// app_settings_exposure_academy (`consent_url_<kind>`), which is how Paribu's link gets
+/// added when the document exists — a form field, not a deploy. Empty = no download
+/// button on the card.
+pub const CONSENT_DOCS: [(&str, &str, &str, &str); 3] = [
+    (
+        "exposure",
+        "Exposure AI Academy Veli İzin ve Katılım Formu",
+        "Programa katılım için veli/yasal temsilci onayı.",
+        "https://drive.google.com/file/d/1gkxQLuguXfVFmjjjjcBF0Y39JTKeFXr6/view?usp=sharing",
+    ),
+    (
+        "qnbeyond",
+        "QNBEYOND Lokasyon/Katılım İzin Formu",
+        "1. haftanın yapılacağı QNBEYOND lokasyonu için veli/yasal temsilci onayı.",
+        "https://drive.google.com/file/d/10YgFIm28qjhTy3stEXS5BukS_tmn-9_a/view?usp=sharing",
+    ),
+    (
+        "paribu",
+        "Paribu Lokasyon/Katılım İzin Formu",
+        "Programın 2. haftasında kullanılacak. Form hazır olduğunda paylaşılacak.",
+        "",
+    ),
+];
+
+/// Forms that start out closed: the document itself isn't ready to hand out yet, so the
+/// card is blurred and uploads are refused until an admin opens it from /admin. Stored
+/// per form in app_settings, so opening one is a button, not a deploy.
+pub const CONSENT_LOCKED_BY_DEFAULT: [&str; 1] = ["paribu"];
+
+/// When the two forms that already exist have to be in. Stated on the student page and
+/// in the admin panel from this one place.
+pub const CONSENT_DEADLINE: &str = "3 Ağustos Pazartesi";
+
+/// A `kind` we're willing to touch, or `None`. Everything that reaches the database or
+/// a filesystem-ish name goes through here first, so a hand-rolled POST can't invent one.
+pub fn valid_consent_kind(k: &str) -> Option<&'static str> {
+    let want = k.trim().to_ascii_lowercase();
+    CONSENT_DOCS
+        .iter()
+        .find(|(key, ..)| *key == want)
+        .map(|(key, ..)| *key)
+}
+
+pub fn consent_title(kind: &str) -> &'static str {
+    CONSENT_DOCS
+        .iter()
+        .find(|(k, ..)| *k == kind)
+        .map(|(_, t, ..)| *t)
+        .unwrap_or("?")
+}
+
+/// Settings key holding whether this form is closed for uploads.
+pub fn consent_lock_key(kind: &str) -> String {
+    format!("consent_lock_{kind}")
+}
+
+/// Settings key holding where the blank form can be downloaded.
+pub fn consent_url_key(kind: &str) -> String {
+    format!("consent_url_{kind}")
+}
+
+/// A Google Drive share link turned into one that downloads the file instead of opening
+/// the preview page. Anything that isn't a recognisable Drive file link is returned as-is,
+/// so pasting a plain PDF URL keeps working.
+///
+/// Both shapes Drive hands out are accepted: `/file/d/<id>/view` and `open?id=<id>`.
+pub fn direct_download_url(url: &str) -> String {
+    let u = url.trim();
+    if !u.contains("drive.google.com") {
+        return u.to_string();
+    }
+    let id = u
+        .split_once("/file/d/")
+        .map(|(_, rest)| rest.split('/').next().unwrap_or(""))
+        .or_else(|| {
+            u.split_once("id=")
+                .map(|(_, rest)| rest.split('&').next().unwrap_or(""))
+        })
+        .unwrap_or("");
+    // an id we can't find means a Drive URL shaped some way we don't know — leave it be
+    // rather than building a link that 404s
+    if id.is_empty() {
+        u.to_string()
+    } else {
+        format!("https://drive.google.com/uc?export=download&id={id}")
+    }
+}
+
+/// One uploaded file. Never carries the bytes — those only ever leave through
+/// `/documents/file/{id}` or the admin ZIP, so listing a page of documents doesn't
+/// drag megabytes out of the database.
+#[derive(FromRow)]
+pub struct ConsentDoc {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub kind: String,
+    pub filename: String,
+    pub bytes: i64,
+    pub uploaded_at: DateTime<Utc>,
+}
+
+impl ConsentDoc {
+    /// Human size for the file list: KB up to a megabyte, then MB with one decimal.
+    pub fn size_label(&self) -> String {
+        if self.bytes < 1024 * 1024 {
+            format!("{} KB", (self.bytes / 1024).max(1))
+        } else {
+            format!("{:.1} MB", self.bytes as f64 / (1024.0 * 1024.0))
+        }
+    }
+}
+
+/// A file name safe to put in a Content-Disposition header or a ZIP entry: no path
+/// separators, quotes, control characters or leading dots, and never empty.
+pub fn safe_filename(name: &str) -> String {
+    let cleaned: String = name
+        .trim()
+        .chars()
+        .map(|c| {
+            if c.is_control()
+                || matches!(
+                    c,
+                    '/' | '\\' | '"' | '\'' | ':' | '*' | '?' | '<' | '>' | '|'
+                )
+            {
+                '_'
+            } else {
+                c
+            }
+        })
+        .collect();
+    let cleaned = cleaned.trim_matches(['.', ' ', '_']).to_string();
+    if cleaned.is_empty() {
+        "belge".to_string()
+    } else {
+        cleaned.chars().take(120).collect()
+    }
+}
+
 // ---- Agentic Harness ----
 
 #[derive(FromRow, Clone)]

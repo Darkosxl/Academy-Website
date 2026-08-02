@@ -1124,3 +1124,224 @@ form.inline input, form.inline select { margin-top:0; width:auto; }
 .harness-left .panel + .panel { margin-top:16px; }
 .practicelist { margin-top:12px; }
 .practicelist .lbrow { padding:8px 12px; }
+
+/* ============================================================================
+   HAFTALIK PROGRAM (/schedule) — programın ekran görüntüsü. Portal görseli
+   yorumlamaz, yalnızca gösterir: düzen neyse ekran görüntüsündeki odur.
+   ============================================================================ */
+.sheet-shot {
+  display:block; border:1px solid var(--border-card); border-radius:var(--r-2xl);
+  overflow:hidden; background:var(--bg-card-solid); transition:border-color 150ms;
+}
+.sheet-shot:hover { border-color:var(--blue-40); }
+.sheet-shot img { display:block; width:100%; height:auto; }
+.portal .sheet-note { margin:12px 0 0; }
+.sheet-empty {
+  font-size:var(--fs-body); color:var(--text-muted);
+  background:var(--bg-card); border:1px dashed var(--border-input);
+  border-radius:var(--r-xl); padding:18px 20px;
+}
+
+/* Yönetici panelindeki yükleme bölümü — grup başına bir slot */
+.sched-slots { display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:20px; margin-top:16px; }
+.sched-slots > * { min-width:0; }
+.portal .sched-slot h3 { font-size:var(--fs-h3); font-weight:700; color:var(--text); margin-bottom:10px; }
+.sched-slot form { margin-top:10px; }
+.sched-thumb {
+  display:block; max-height:180px; overflow:hidden;
+  border:1px solid var(--border-card); border-radius:var(--r-xl); background:var(--bg-card-solid);
+}
+.sched-thumb:hover { border-color:var(--blue-40); }
+.sched-thumb img { display:block; width:100%; height:auto; }
+.sched-slot .fieldnote { margin:8px 0 10px; }
+
+@media (max-width:768px) {
+  .sched-slots { grid-template-columns:1fr; }
+}
+
+/* ============================================================================
+   KONUM (/location) — adres kartı. Aynı kart hem kendi sayfasında hem de
+   Haftalık Program'ın altında görünür (venue_card, html.rs).
+   ============================================================================ */
+/* iki hafta iki ayrı yerde: kartlar alt alta, her biri hangi haftaya ait olduğunu
+   kendi eyebrow'unda söyler */
+.venue-wrap { max-width:34rem; display:flex; flex-direction:column; gap:14px; }
+.venue-week {
+  display:block; font-size:var(--fs-label); font-weight:700; text-transform:uppercase;
+  letter-spacing:0.06em; color:var(--blue-text); margin-bottom:6px;
+}
+/* adresi henüz belli olmayan hafta — kart yerine sessiz bir yer tutucu, ama yine de
+   adıyla anılır ki "ikinci hafta yok" gibi okunmasın */
+.venue-pending {
+  background:var(--bg-card); border:1px dashed var(--border-input);
+  border-radius:var(--r-2xl); padding:18px 20px;
+}
+.venue-pending p { font-size:var(--fs-body); color:var(--text-muted); margin:0; }
+.portal .venue-sub { margin:0 0 12px; }
+/* yönetici paneli: hafta başına bir form */
+.venue-slots { display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:24px; margin-top:16px; }
+.venue-slots > * { min-width:0; }
+.portal .venue-slot h3 {
+  font-size:var(--fs-h3); font-weight:700; color:var(--text);
+  margin-bottom:12px; padding-bottom:10px; border-bottom:1px solid var(--border-subtle);
+}
+.portal .venue-head {
+  font-size:var(--fs-label); font-weight:600; text-transform:uppercase; letter-spacing:0.05em;
+  color:var(--text-muted); margin:28px 0 10px;
+}
+.venue-card { position:relative; }
+.venue-card .venue-pin { margin-bottom:12px; }
+.venue-pin {
+  display:inline-flex; align-items:center; justify-content:center;
+  width:40px; height:40px; border-radius:var(--r-xl);
+  background:var(--blue-10); color:var(--blue-text); margin-bottom:14px;
+}
+.venue-pin .ico { width:22px; height:22px; }
+.portal .venue-card h3 { font-size:var(--fs-h3); font-weight:700; color:var(--text); margin-bottom:6px; }
+/* adres ve notlar satır sonlarını korur — yönetici nasıl yazdıysa öyle görünür */
+.venue-address {
+  font-size:var(--fs-body); color:var(--text-body); line-height:1.65;
+  white-space:pre-wrap; margin-bottom:12px;
+}
+.venue-notes {
+  font-size:var(--fs-sm); color:var(--text-muted); line-height:1.7;
+  white-space:pre-wrap; margin-bottom:16px;
+  padding-top:12px; border-top:1px solid var(--border-subtle);
+}
+.portal .venue-maps { margin-top:2px; }
+
+@media (max-width:768px) {
+  .venue-slots { grid-template-columns:1fr; }
+}
+
+/* ============================================================================
+   VELİ ONAY FORMLARI (/documents) — imzalı formların yüklendiği yer. Her form
+   bir kart; belgesi henüz hazır olmayan form gizlenmez, bulanıklaştırılır ve
+   üstüne "yakında" katmanı gelir (html.rs → documents).
+   ============================================================================ */
+/* portal koyu yüzeyinde .notice/.error açık tema renklerinde kalıyor — burada koyu karşılıkları */
+.portal .portal-notice {
+  background:var(--ok-bg); border:1px solid var(--ok-border); color:var(--ok-text-2);
+}
+.portal .portal-error {
+  background:var(--err-bg); border:1px solid var(--err-border); color:var(--err-text);
+}
+/* son tarih şeridi — sayfadaki tek zorunlu tarih, kartlardan önce gelir */
+.doc-deadline {
+  display:flex; align-items:flex-start; gap:12px; margin:20px 0 14px; padding:14px 16px;
+  background:var(--warn-bg); border:1px solid var(--warn-border); border-radius:var(--r-xl);
+}
+.doc-deadline .ico { width:20px; height:20px; color:var(--warn-text); flex:none; margin-top:1px; }
+.doc-deadline b { display:block; font-size:var(--fs-body); font-weight:700; color:var(--warn-text-2); }
+.doc-deadline span { font-size:var(--fs-xs); color:var(--text-muted); line-height:1.6; }
+.portal .doc-howto { margin:0 0 4px; max-width:60rem; }
+.portal .doc-howto b { color:var(--text-body); font-weight:600; }
+
+.doccards { display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:16px; margin-top:20px; }
+.doccards > * { min-width:0; }
+.doccard { position:relative; display:flex; flex-direction:column; overflow:hidden; }
+.doccard.has-docs { border-color:var(--ok-border); }
+.dochead { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+.docico {
+  display:inline-flex; align-items:center; justify-content:center; flex:none;
+  width:36px; height:36px; border-radius:var(--r-xl);
+  background:var(--blue-10); color:var(--blue-text);
+}
+.docico .ico { width:20px; height:20px; }
+.portal .dochead h3 { font-size:var(--fs-h3); font-weight:700; color:var(--text); flex:1; line-height:1.35; }
+.badge.doc-st-done { background:var(--ok); }
+.badge.doc-st-wait { background:transparent; color:var(--warn-text); border:1px solid var(--warn-border); }
+.badge.doc-st-soon { background:transparent; color:var(--text-subtle); border:1px solid var(--border-input); }
+.doccard .desc { font-size:var(--fs-sm); color:var(--text-muted); margin-bottom:14px; }
+.doc-form { margin-top:12px; }
+.doc-form .dropzone { margin-bottom:10px; }
+.portal .doc-none { margin:0 0 4px; }
+
+/* yüklenen dosyalar — adına tıklayınca geri indirilir, çöp kutusu kaldırır */
+.doc-files { list-style:none; display:flex; flex-direction:column; gap:6px; margin:0 0 4px; }
+.doc-file {
+  display:flex; align-items:center; gap:8px; padding:8px 10px;
+  background:rgba(9,9,11,0.50); border:1px solid var(--border-subtle); border-radius:var(--r-xl);
+}
+.doc-file > a {
+  flex:1; min-width:0; font-size:var(--fs-xs); font-weight:500; color:var(--text-body);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.doc-file > a:hover { color:var(--blue-text); }
+.doc-meta { font-size:var(--fs-mini); color:var(--text-subtle); white-space:nowrap; }
+.doc-del {
+  display:inline-flex; align-items:center; justify-content:center;
+  background:none; border:none; padding:2px; cursor:pointer; color:var(--text-faint);
+}
+.doc-del:hover { color:var(--err-text); }
+.doc-del .ico { width:16px; height:16px; }
+
+/* kilitli form: içerik bulanık ve tıklanamaz, üstünde neden kapalı olduğunu
+   söyleyen katman. Gerçek bir <input> render EDİLMEZ — arkada tıklanacak bir şey yok. */
+.doc-locked { position:relative; margin-top:4px; }
+.doc-blur { filter:blur(5px); opacity:0.55; pointer-events:none; user-select:none; }
+.doc-fake { cursor:default; }
+.doc-fake-btn {
+  margin-top:10px; padding:10px 20px; border-radius:var(--r-xl); text-align:center;
+  background:var(--blue); color:#fff; font-size:var(--fs-sm); font-weight:900;
+  text-transform:uppercase; letter-spacing:0.1em;
+}
+.doc-lockmsg {
+  position:absolute; inset:0; display:flex; flex-direction:column;
+  align-items:center; justify-content:center; text-align:center; gap:4px; padding:12px;
+}
+.doc-lockmsg .ico { width:22px; height:22px; color:var(--text-muted); }
+.doc-lockmsg b { font-size:var(--fs-body); font-weight:700; color:var(--text); }
+.doc-lockmsg span { font-size:var(--fs-mini); color:var(--text-muted); line-height:1.5; max-width:24rem; }
+
+/* boş formu indirme — kart açıklamasının hemen altında, yükleme alanından önce.
+   İki yol: buton dosyayı doğrudan indirir, yanındaki bağlantı Drive önizlemesini açar
+   (telefonda biri ya da diğeri her seferinde birinde tıkanıyor). */
+.doc-get { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:0 0 14px; }
+.portal .doc-getbtn { display:inline-flex; align-items:center; gap:6px; }
+.doc-getbtn .ico { width:16px; height:16px; }
+.doc-getalt { font-size:var(--fs-mini); color:var(--text-subtle); }
+.doc-getalt:hover { color:var(--blue-text); }
+/* yönetici satırı: başlık | bağlantı formu | aç-kapat, dar ekranda alt alta */
+.consent-switch-id { flex:1 1 220px; min-width:0; }
+.consent-urlform { flex:1 1 260px; display:flex; gap:6px; align-items:center; }
+.portal .consent-urlform input { margin-top:0; flex:1; min-width:150px; font-size:var(--fs-xs); }
+
+/* Ana Sayfa uyarı şeridi — açık formlardan biri eksikken üç kapının üstünde durur */
+.alertbar {
+  display:flex; align-items:center; gap:12px; margin:20px 0 4px; padding:14px 16px;
+  background:var(--warn-bg); border:1px solid var(--warn-border); border-radius:var(--r-xl);
+  transition:border-color 150ms;
+}
+.alertbar:hover { border-color:var(--warn-text); }
+.alertbar > .ico { width:22px; height:22px; color:var(--warn-text); flex:none; }
+.alertbar div { flex:1; min-width:0; }
+.alertbar b { display:block; font-size:var(--fs-body); font-weight:700; color:var(--warn-text-2); }
+.alertbar span { font-size:var(--fs-xs); color:var(--text-muted); }
+.alertgo { font-size:var(--fs-xs); font-weight:700; color:var(--warn-text-2); white-space:nowrap; }
+
+/* yönetici paneli: form başına aç/kapat + öğrenci × form ızgarası */
+.consent-switches { display:flex; flex-direction:column; gap:8px; margin:14px 0 18px; }
+.consent-switch {
+  display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap;
+  padding:10px 14px; background:rgba(9,9,11,0.50);
+  border:1px solid var(--border-subtle); border-radius:var(--r-xl);
+}
+.consent-switch b { display:block; font-size:var(--fs-sm); font-weight:600; color:var(--text); }
+.consent-switch .item-meta { font-size:var(--fs-mini); color:var(--text-subtle); }
+.consent-table { width:100%; }
+.portal .consent-table td.consent-missing { color:var(--text-faint); }
+.consent-have .item-meta { display:block; font-size:var(--fs-mini); color:var(--text-subtle); margin-top:2px; }
+.consent-files { display:inline-flex; flex-wrap:wrap; gap:4px; }
+.consent-files a {
+  display:inline-flex; align-items:center; justify-content:center;
+  min-width:24px; height:24px; padding:0 6px; border-radius:var(--r-lg);
+  background:var(--ok-bg); border:1px solid var(--ok-border); color:var(--ok-text);
+  font-size:var(--fs-mini); font-weight:700;
+}
+.consent-files a:hover { background:var(--ok); color:#fff; }
+
+@media (max-width:768px) {
+  .doccards { grid-template-columns:1fr; }
+  .doc-deadline, .alertbar { flex-wrap:wrap; }
+}

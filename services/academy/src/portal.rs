@@ -6,11 +6,119 @@ use crate::{App, auth::*};
 use axum::{
     Json,
     extract::{Path, Query, State},
-    http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode, header},
     response::{Html, IntoResponse, Response},
 };
 use serde::Deserialize;
 use uuid::Uuid;
+
+// ---- haftalık program ----
+
+#[derive(Deserialize)]
+pub struct TrackQ {
+    track: Option<String>,
+}
+
+/// Metadata for a track's uploaded schedule, without the bytes — those only ever leave
+/// via `schedule_image`, so the page render never pulls a few MB out of the database.
+async fn schedule_meta(app: &App, track: &str) -> Option<ScheduleImage> {
+    sqlx::query_as::<_, ScheduleImage>(
+        "select track, content_type, uploaded_at, length(image)::bigint as bytes
+         from schedule_image_exposure_academy where track = $1",
+    )
+    .bind(track)
+    .fetch_optional(&app.pool)
+    .await
+    .ok()
+    .flatten()
+}
+
+pub async fn schedule(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Query(q): Query<TrackQ>,
+) -> Result<Html<String>, Response> {
+    let user = require_onboarded(current_user(&app, &headers).await)?;
+    let track = valid_schedule_track(q.track.as_deref());
+    let img = schedule_meta(&app, track).await;
+    let venues = load_venues(&app).await;
+    Ok(Html(html::schedule(&user, track, img.as_ref(), &venues)))
+}
+
+/// The uploaded screenshot itself. Members-only (it sits inside the authed routes), so
+/// the schedule isn't a public URL the way /preview/{id} is. Cached hard but privately:
+/// the src carries `?v=<upload time>`, so a replacement is a different URL and no stale
+/// image can survive it.
+pub async fn schedule_image(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(track): Path<String>,
+) -> Result<Response, Response> {
+    require_onboarded(current_user(&app, &headers).await)?;
+    let track = valid_schedule_track(Some(&track));
+    let row: Option<(Vec<u8>, String)> = sqlx::query_as(
+        "select image, content_type from schedule_image_exposure_academy where track = $1",
+    )
+    .bind(track)
+    .fetch_optional(&app.pool)
+    .await
+    .ok()
+    .flatten();
+    let Some((bytes, ct)) = row else {
+        return Err(StatusCode::NOT_FOUND.into_response());
+    };
+    Ok((
+        [
+            (header::CONTENT_TYPE, ct),
+            (header::CACHE_CONTROL, "private, max-age=86400".to_string()),
+            // the type is one we sniffed on upload; forbid the browser guessing another
+            (header::X_CONTENT_TYPE_OPTIONS, "nosniff".to_string()),
+        ],
+        bytes,
+    )
+        .into_response())
+}
+
+// ---- konum / adres ----
+
+/// One `Venue` per entry in VENUE_WEEKS, in order, always the full set. A week with no
+/// rows yet comes back with empty strings rather than being absent, so the pages can
+/// name it as "not announced" instead of leaving a hole where a week should be.
+pub async fn load_venues(app: &App) -> Vec<Venue> {
+    let rows: Vec<(String, String)> = sqlx::query_as(
+        "select key, value from app_settings_exposure_academy where key like 'venue%'",
+    )
+    .fetch_all(&app.pool)
+    .await
+    .unwrap_or_default();
+    let get = |week: u8, field: &str| {
+        let k = venue_key(week, field);
+        rows.iter()
+            .find(|(key, _)| *key == k)
+            .map(|(_, v)| v.clone())
+            .unwrap_or_default()
+    };
+    VENUE_WEEKS
+        .iter()
+        .map(|&week| Venue {
+            week,
+            dates: get(week, "dates"),
+            name: get(week, "name"),
+            address: get(week, "address"),
+            maps_url: get(week, "maps_url"),
+            notes: get(week, "notes"),
+        })
+        .collect()
+}
+
+pub async fn location(
+    State(app): State<App>,
+    headers: HeaderMap,
+) -> Result<Html<String>, Response> {
+    let user = require_onboarded(current_user(&app, &headers).await)?;
+    let venues = load_venues(&app).await;
+    Ok(Html(html::location(&user, &venues)))
+}
 
 #[derive(Deserialize)]
 pub struct LevelQ {
@@ -73,6 +181,15 @@ pub async fn home(State(app): State<App>, headers: HeaderMap) -> Result<Html<Str
     let rows: Vec<LeaderRow> = all.into_iter().filter(|r| !r.hidden).collect();
     let ranks = html::dense_ranks(&rows);
     let rank = rows.iter().position(|r| r.id == user.id).map(|i| ranks[i]);
+    // Consent forms count only while they're open for upload: a form whose document
+    // isn't ready yet (locked) is not something the student can be behind on.
+    let locks = crate::consent::consent_locks(&app).await;
+    let open: Vec<&'static str> = locks.iter().filter(|(_, l)| !l).map(|(k, _)| *k).collect();
+    let docs = crate::consent::user_consent_docs(&app, user.id).await;
+    let consent_done = open
+        .iter()
+        .filter(|k| docs.iter().any(|d| d.kind == **k))
+        .count();
     Ok(Html(html::home(
         &user,
         videos_done,
@@ -80,6 +197,8 @@ pub async fn home(State(app): State<App>, headers: HeaderMap) -> Result<Html<Str
         open_tasks,
         points,
         rank,
+        consent_done,
+        open.len(),
     )))
 }
 

@@ -6,7 +6,7 @@ use crate::model::*;
 use crate::{App, auth::*, random_token};
 use axum::{
     Form,
-    extract::{Path, State},
+    extract::{Multipart, Path, State},
     http::{HeaderMap, StatusCode, header},
     response::{Html, IntoResponse, Redirect, Response},
 };
@@ -108,6 +108,23 @@ pub async fn admin_page(
         .await
         .unwrap(),
     };
+    let schedule_images = sqlx::query_as::<_, ScheduleImage>(
+        "select track, content_type, uploaded_at, length(image)::bigint as bytes
+         from schedule_image_exposure_academy",
+    )
+    .fetch_all(&app.pool)
+    .await
+    .unwrap_or_default();
+    // metadata only — the admin grid links to each file, it doesn't embed any
+    let consent_docs = sqlx::query_as::<_, ConsentDoc>(
+        "select id, user_id, kind, filename, length(file)::bigint as bytes, uploaded_at
+         from consent_docs_exposure_academy order by kind, uploaded_at",
+    )
+    .fetch_all(&app.pool)
+    .await
+    .unwrap_or_default();
+    let consent_locks = crate::consent::consent_locks(&app).await;
+    let consent_urls = crate::consent::consent_urls(&app).await;
     Ok(Html(html::admin(
         &user,
         &stats,
@@ -119,7 +136,148 @@ pub async fn admin_page(
         &app.base_url,
         &harness,
         &monopoly,
+        &schedule_images,
+        &crate::portal::load_venues(&app).await,
+        &consent_docs,
+        &consent_locks,
+        &consent_urls,
     )))
+}
+
+// ---- haftalık program ----
+
+pub async fn admin_schedule(
+    State(app): State<App>,
+    headers: HeaderMap,
+    mut mp: Multipart,
+) -> Result<Redirect, Response> {
+    require_admin(current_user(&app, &headers).await)?;
+    let bad = |msg: &str| (StatusCode::BAD_REQUEST, msg.to_string()).into_response();
+
+    let mut track: Option<&'static str> = None;
+    let mut image: Option<Vec<u8>> = None;
+    while let Some(field) = mp.next_field().await.map_err(|_| bad("Form okunamadı."))? {
+        let name = field.name().unwrap_or("").to_string();
+        match name.as_str() {
+            "track" => {
+                track = field
+                    .text()
+                    .await
+                    .ok()
+                    .map(|t| valid_schedule_track(Some(&t)))
+            }
+            "image" => {
+                let bytes = field
+                    .bytes()
+                    .await
+                    .map_err(|_| bad("Görsel okunamadı — dosya çok büyük olabilir."))?;
+                if !bytes.is_empty() {
+                    image = Some(bytes.to_vec());
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let Some(track) = track else {
+        return Err(bad("Grup seçilmedi."));
+    };
+    let Some(image) = image else {
+        return Err(bad("Bir görsel seç."));
+    };
+    let Some(content_type) = crate::consent::sniff_image(&image) else {
+        return Err(bad("Dosya PNG, JPEG, WebP veya GIF olmalı."));
+    };
+
+    sqlx::query(
+        "insert into schedule_image_exposure_academy (track, image, content_type, uploaded_at)
+         values ($1,$2,$3, now())
+         on conflict (track) do update set
+           image = $2, content_type = $3, uploaded_at = now()",
+    )
+    .bind(track)
+    .bind(&image)
+    .bind(content_type)
+    .execute(&app.pool)
+    .await
+    .map_err(|_| bad("Kaydedilemedi."))?;
+    Ok(Redirect::to("/admin"))
+}
+
+#[derive(Deserialize)]
+pub struct ScheduleDeleteForm {
+    track: String,
+}
+
+pub async fn admin_schedule_delete(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Form(f): Form<ScheduleDeleteForm>,
+) -> Result<Redirect, Response> {
+    require_admin(current_user(&app, &headers).await)?;
+    sqlx::query("delete from schedule_image_exposure_academy where track = $1")
+        .bind(valid_schedule_track(Some(&f.track)))
+        .execute(&app.pool)
+        .await
+        .map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
+    Ok(Redirect::to("/admin"))
+}
+
+// ---- konum / adres ----
+
+#[derive(Deserialize)]
+pub struct VenueForm {
+    week: u8,
+    #[serde(default)]
+    dates: String,
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    address: String,
+    #[serde(default)]
+    maps_url: String,
+    #[serde(default)]
+    notes: String,
+}
+
+pub async fn admin_venue(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Form(f): Form<VenueForm>,
+) -> Result<Redirect, Response> {
+    require_admin(current_user(&app, &headers).await)?;
+    // a week we don't render would write settings rows nothing ever reads again
+    if !VENUE_WEEKS.contains(&f.week) {
+        return Err((StatusCode::BAD_REQUEST, "Geçersiz hafta.").into_response());
+    }
+    // Scheme-gate before it ever reaches an href: blank is fine (the button is then
+    // simply not rendered), but a javascript:/data: value must never become a link.
+    let maps_url = f.maps_url.trim();
+    if !maps_url.is_empty() && !valid_http_url(maps_url) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Haritalar bağlantısı http:// veya https:// ile başlamalı.",
+        )
+            .into_response());
+    }
+    for (field, value) in [
+        ("dates", f.dates.trim()),
+        ("name", f.name.trim()),
+        ("address", f.address.trim()),
+        ("maps_url", maps_url),
+        ("notes", f.notes.trim()),
+    ] {
+        sqlx::query(
+            "insert into app_settings_exposure_academy (key, value, updated_at) values ($1,$2, now())
+             on conflict (key) do update set value = $2, updated_at = now()",
+        )
+        .bind(venue_key(f.week, field))
+        .bind(value)
+        .execute(&app.pool)
+        .await
+        .map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
+    }
+    Ok(Redirect::to("/admin"))
 }
 
 /// Shared by both sections' team-create forms.
