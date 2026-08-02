@@ -47,7 +47,8 @@ ARG ARC_AGENTS_COMMIT=10213de83f01df0ef4f0149ee9f8408dcc3772fb
 ARG FRONTIER_COMMIT=3d694e919871dbf21ea5ff618782c99a3cb3663f
 ARG HARBOR_VERSION=0.20.0
 WORKDIR /seed
-RUN apt-get update \
+RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources \
+    && apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates git \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=python-builder /bundle/wheels /wheelhouse
@@ -109,6 +110,7 @@ RUN printf '%s\n' \
 FROM python:3.12.11-slim-bookworm AS production
 ENV DEBIAN_FRONTEND=noninteractive
 RUN set -eux; \
+    sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
       bash bubblewrap ca-certificates curl fuse-overlayfs git gnupg jq \
