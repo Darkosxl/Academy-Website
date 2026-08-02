@@ -1101,7 +1101,8 @@ def bubblewrap_harbor(
         "-y --no-force-build "
         "--ak enable_summarize=false --ak proactive_summarization_threshold=0 "
         f"--ak max_turns={FRONTIER_MAX_TURNS} --ak temperature=0 "
-        "--ak api_base=http://127.0.0.1:8000/v1",
+        "--ak api_base=http://127.0.0.1:8000/v1 "
+        "--ak 'llm_call_kwargs={\"response_format\":{\"type\":\"json_object\"}}'",
     ]
     return command
 

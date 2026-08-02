@@ -144,6 +144,7 @@ def main() -> None:
         assert str(runner.HARBOR_CLI) in shell
         assert f"-n {runner.FRONTIER_CONCURRENCY}" in shell
         assert f"max_turns={runner.FRONTIER_MAX_TURNS}" in shell
+        assert "llm_call_kwargs={\"response_format\":{\"type\":\"json_object\"}}" in shell
         assert str(Path.home() / ".local/share/uv/python") not in command
 
     cleanup_calls = []
@@ -298,6 +299,37 @@ def main() -> None:
     assert bedrock_gateway.model_uses_native_runtime(
         "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/example"
     )
+
+    forwarded: dict[str, object] = {}
+
+    class FakeCompletions:
+        def create(self, **kwargs):
+            forwarded.update(kwargs)
+            return SimpleNamespace(model_dump=lambda **_kwargs: {"usage": {}})
+
+    body = json.dumps({
+        "messages": [{"role": "user", "content": "Respond as JSON."}],
+        "response_format": {"type": "json_object"},
+    }).encode()
+    handler = SimpleNamespace(
+        path="/v1/chat/completions",
+        headers={"Content-Length": str(len(body))},
+        rfile=io.BytesIO(body),
+        server=SimpleNamespace(
+            gateway_token="test-token",
+            slots=threading.BoundedSemaphore(1),
+            api_style="chat",
+            model_id="gemma-4-31b",
+            reasoning_effort="none",
+            client=SimpleNamespace(chat=SimpleNamespace(completions=FakeCompletions())),
+            stats=bedrock_gateway.Stats(),
+            profile_name="gemma-4-31b",
+        ),
+        _authorized=lambda: True,
+        _json=lambda *_args, **_kwargs: None,
+    )
+    bedrock_gateway.GatewayHandler.do_POST(handler)
+    assert forwarded["response_format"] == {"type": "json_object"}
     print("python adapter contract ok")
 
 
