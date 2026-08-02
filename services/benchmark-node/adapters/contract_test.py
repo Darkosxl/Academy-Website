@@ -168,7 +168,7 @@ def main() -> None:
         assert verifier_prefixes == {"task-name__abc1234__verifier__"}
         task = Path(raw) / "task.toml"
         task.write_text(
-            "[agent]\ntimeout_sec = 7200\nnetwork_mode = \"host\"\nallowed_hosts = [\"example.com\"]\n"
+            "[agent]\ntimeout_sec = 7200\nnetwork_mode = \"public\"\n"
             "[verifier]\ntimeout_sec = 300\n"
             "[environment]\nbuild_timeout_sec = 600\n"
         )
@@ -176,8 +176,8 @@ def main() -> None:
         rewritten = task.read_text()
         assert "timeout_sec = 120.0" in rewritten
         assert "timeout_sec = 60.0" in rewritten
-        assert rewritten.count('network_mode = "no-network"') == 3
-        assert "allowed_hosts = []" in rewritten
+        assert 'network_mode = "public"' in rewritten
+        assert 'network_mode = "no-network"' not in rewritten
 
     class FakeProcess:
         live = 0

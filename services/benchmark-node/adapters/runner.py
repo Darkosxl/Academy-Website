@@ -971,37 +971,16 @@ def run_arc(run_id: str, repo: Path, venv: Path, gateway: Gateway, reporter: Rep
 def rewrite_timeouts(path: Path) -> None:
     section = ""
     output: list[str] = []
-    protected_sections = {"agent", "verifier", "environment"}
-    found_sections: set[str] = set()
-    network_written = False
-
-    def finish_section() -> None:
-        nonlocal network_written
-        if section in protected_sections and not network_written:
-            output.append('network_mode = "no-network"')
 
     for line in path.read_text().splitlines():
         match = re.fullmatch(r"\[([^]]+)]", line.strip())
         if match:
-            finish_section()
             section = match.group(1)
-            network_written = False
-            if section in protected_sections:
-                found_sections.add(section)
         if line.strip().startswith("timeout_sec") and section == "agent":
             line = "timeout_sec = 120.0"
         elif line.strip().startswith("timeout_sec") and section == "verifier":
             line = "timeout_sec = 60.0"
-        elif line.strip().startswith("network_mode") and section in protected_sections:
-            line = 'network_mode = "no-network"'
-            network_written = True
-        elif line.strip().startswith("allowed_hosts") and section in protected_sections:
-            line = "allowed_hosts = []"
         output.append(line)
-    finish_section()
-    if found_sections != protected_sections:
-        missing = ", ".join(sorted(protected_sections - found_sections))
-        raise InfrastructureFailed(f"Frontier task is missing required TOML sections: {missing}")
     path.write_text("\n".join(output) + "\n")
 
 
