@@ -75,7 +75,7 @@ cat >"$EXECUTOR_HOME/.config/containers/containers.conf" <<'EOF'
 [engine]
 cgroup_manager="cgroupfs"
 events_logger="file"
-init_path="/usr/bin/catatonit"
+init_path="/usr/libexec/podman/catatonit"
 EOF
 cat >"$EXECUTOR_HOME/.config/containers/storage.conf" <<EOF
 [storage]
