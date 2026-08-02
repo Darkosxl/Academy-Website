@@ -827,9 +827,10 @@ fn provider_model_options(provider: ModelProvider, select_default: bool) -> Stri
         .join("")
 }
 
-fn builtin_harness_options() -> String {
+fn builtin_harness_options(bench: &str) -> String {
     let options = BUILTIN_HARNESSES
         .iter()
+        .filter(|(id, _, _)| bench == "frontier" || *id != "terminus-2")
         .map(|(id, _, label)| format!(r#"<option value="{}">{}</option>"#, esc(id), esc(label)))
         .collect::<Vec<_>>()
         .join("");
@@ -1121,7 +1122,7 @@ fn admin_harness_form(bench: &str) -> String {
         r#"<label>agent:
       <select name="builtin_harness">{}</select>
     </label>"#,
-        builtin_harness_options()
+        builtin_harness_options(bench)
     );
     let provider_picker = r#"<label>provider:
       <select name="provider" onchange="const m=this.form.elements.model_id;for(const o of m.options)o.disabled=o.dataset.provider!==this.value;const first=[...m.options].find(o=>!o.disabled);if(m.selectedOptions[0]?.disabled&amp;&amp;first)m.value=first.value">

@@ -171,9 +171,10 @@ impl FromStr for BenchmarkKind {
     }
 }
 
-pub const BUILTIN_HARNESSES: [(&str, &str, &str); 2] = [
+pub const BUILTIN_HARNESSES: [(&str, &str, &str); 3] = [
     ("forge", "builtin://forge", "Forge"),
     ("reki", "builtin://reki", "Reki"),
+    ("terminus-2", "builtin://terminus-2", "Terminus-2 (Frontier)"),
 ];
 
 pub fn builtin_harness_uri(id: &str) -> Option<&'static str> {
@@ -491,8 +492,13 @@ mod tests {
     fn builtin_harness_ids_and_uris_are_exact() {
         assert_eq!(builtin_harness_uri("forge"), Some("builtin://forge"));
         assert_eq!(builtin_harness_uri("reki"), Some("builtin://reki"));
+        assert_eq!(
+            builtin_harness_uri("terminus-2"),
+            Some("builtin://terminus-2")
+        );
         assert_eq!(builtin_harness_uri("unknown"), None);
         assert!(is_builtin_harness("builtin://forge"));
+        assert!(is_builtin_harness("builtin://terminus-2"));
         assert!(!is_builtin_harness("builtin://unknown"));
     }
 

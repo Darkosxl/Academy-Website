@@ -65,6 +65,7 @@ MAX_REQUIREMENTS_BYTES = 32 * 1024
 BUILTIN_SUBMISSIONS = {
     "builtin://forge": ROOT / "builtin_submissions" / "forge",
     "builtin://reki": ROOT / "builtin_submissions" / "reki",
+    "builtin://terminus-2": ROOT / "builtin_submissions" / "terminus-2",
 }
 
 
