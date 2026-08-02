@@ -113,7 +113,7 @@ RUN set -eux; \
     sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
-      bash bubblewrap ca-certificates curl fuse-overlayfs git gnupg jq \
+      bash bubblewrap ca-certificates catatonit curl fuse-overlayfs git gnupg jq \
       passwd podman procps slirp4netns socat tini uidmap; \
     install -m 0755 -d /etc/apt/keyrings; \
     curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc; \

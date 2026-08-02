@@ -703,9 +703,9 @@ def run_ram_scenario(run_id: str, sessions: int, repo: Path, venv: Path, gateway
     memory_peak = 0
     try:
         pid = 0
-        start_deadline = time.monotonic() + 2
+        start_deadline = min(deadline, time.monotonic() + 10)
         while pid <= 0 and time.monotonic() < start_deadline:
-            inspected = run_checked(["podman", "inspect", "--format", "{{.State.Pid}}", name], timeout=2)
+            inspected = run_checked(["podman", "inspect", "--format", "{{.State.Pid}}", name], timeout=5)
             pid = int(inspected.stdout.strip())
             if pid <= 0:
                 time.sleep(0.02)
@@ -725,8 +725,8 @@ def run_ram_scenario(run_id: str, sessions: int, repo: Path, venv: Path, gateway
             raise RunFailed(f"RAM {sessions}-session scenario exceeded ten seconds")
         with contextlib.suppress(OSError, ValueError):
             memory_peak = int(group.joinpath("memory.peak").read_text())
-        status = run_checked(["podman", "wait", name], timeout=2).stdout.strip()
-        logs = run_checked(["podman", "logs", name], timeout=2).stdout
+        status = run_checked(["podman", "wait", name], timeout=5).stdout.strip()
+        logs = run_checked(["podman", "logs", name], timeout=5).stdout
         if status != "0":
             raise RunFailed(f"RAM {sessions}-session contract failed:\n{logs[-2000:]}")
         payload = json.loads(logs.strip().splitlines()[-1])
