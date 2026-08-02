@@ -15,14 +15,16 @@ use benchmark_node::{
     ndjson,
 };
 use benchmark_protocol::{
-    ArcFramesRequest, BENCHMARK_VERSION, ExecutorEvent, ExecutorRequest, HarnessClaim,
-    HarnessLeaseRequest, HarnessProgressRequest, HarnessResultRequest, HarnessStageRequest,
-    KaggleClaim, KaggleResultRequest, RUN_DEADLINE_SECONDS, is_builtin_harness,
+    ArcFramesRequest, BENCHMARK_VERSION, BenchmarkKind, ExecutorEvent, ExecutorRequest,
+    HarnessClaim, HarnessLeaseRequest, HarnessProgressRequest, HarnessResultRequest,
+    HarnessStageRequest, KaggleClaim, KaggleResultRequest, RUN_DEADLINE_SECONDS,
+    is_builtin_harness,
 };
 use chrono::Utc;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::{
+    collections::HashMap,
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, AtomicU64, Ordering},
@@ -32,13 +34,14 @@ use std::{
 use tokio::{
     io::BufReader,
     net::{UnixStream, unix::OwnedWriteHalf},
-    sync::{mpsc, watch},
+    sync::{Mutex as AsyncMutex, Semaphore, mpsc, watch},
 };
+use uuid::Uuid;
 
 #[derive(Default)]
 struct ControllerMetrics {
     healthy: AtomicBool,
-    running: AtomicBool,
+    running: AtomicU64,
     last_activity_epoch: AtomicU64,
     claims: AtomicU64,
     completed: AtomicU64,
@@ -52,7 +55,7 @@ struct ControllerMetrics {
 
 #[derive(Default)]
 struct ModelTotals {
-    active: Option<Arc<GatewayMetrics>>,
+    active: HashMap<Uuid, Arc<GatewayMetrics>>,
     requests: u64,
     upstream_attempts: u64,
     rate_limits: u64,
@@ -75,15 +78,14 @@ struct ModelView {
 }
 
 impl ControllerMetrics {
-    fn start_gateway(&self, gateway: Arc<GatewayMetrics>) {
+    fn start_gateway(&self, run_id: Uuid, gateway: Arc<GatewayMetrics>) {
         let mut model = self.model.lock().unwrap();
-        debug_assert!(model.active.is_none());
-        model.active = Some(gateway);
+        debug_assert!(model.active.insert(run_id, gateway).is_none());
     }
 
-    fn finish_gateway(&self) {
+    fn finish_gateway(&self, run_id: Uuid) {
         let mut model = self.model.lock().unwrap();
-        if let Some(gateway) = model.active.take() {
+        if let Some(gateway) = model.active.remove(&run_id) {
             let snapshot = gateway.snapshot();
             model.requests += snapshot.requests;
             model.upstream_attempts += snapshot.upstream_attempts;
@@ -97,22 +99,28 @@ impl ControllerMetrics {
 
     fn model_view(&self) -> ModelView {
         let model = self.model.lock().unwrap();
-        let active = model.active.as_ref().map(|gateway| gateway.snapshot());
-        ModelView {
-            requests: model.requests + active.as_ref().map_or(0, |value| value.requests),
-            upstream_attempts: model.upstream_attempts
-                + active.as_ref().map_or(0, |value| value.upstream_attempts),
-            rate_limits: model.rate_limits + active.as_ref().map_or(0, |value| value.rate_limits),
-            errors: model.errors + active.as_ref().map_or(0, |value| value.errors),
-            input_tokens: model.input_tokens
-                + active.as_ref().map_or(0, |value| value.input_tokens),
-            output_tokens: model.output_tokens
-                + active.as_ref().map_or(0, |value| value.output_tokens),
-            latency_ms: model.latency_ms + active.as_ref().map_or(0, |value| value.latency_ms),
-            completed_last_30_seconds: active
-                .as_ref()
-                .map_or(0, |value| value.completed_last_30_seconds),
+        let mut view = ModelView {
+            requests: model.requests,
+            upstream_attempts: model.upstream_attempts,
+            rate_limits: model.rate_limits,
+            errors: model.errors,
+            input_tokens: model.input_tokens,
+            output_tokens: model.output_tokens,
+            latency_ms: model.latency_ms,
+            completed_last_30_seconds: 0,
+        };
+        for gateway in model.active.values() {
+            let active = gateway.snapshot();
+            view.requests += active.requests;
+            view.upstream_attempts += active.upstream_attempts;
+            view.rate_limits += active.rate_limits;
+            view.errors += active.errors;
+            view.input_tokens += active.input_tokens;
+            view.output_tokens += active.output_tokens;
+            view.latency_ms += active.latency_ms;
+            view.completed_last_30_seconds += active.completed_last_30_seconds;
         }
+        view
     }
 }
 
@@ -168,17 +176,66 @@ async fn run(
             .await
             .context("mark initialized benchmark node idle")?;
     }
+    let arc_lane = Arc::new(Semaphore::new(1));
+    let frontier_lane = Arc::new(Semaphore::new(1));
+    let fleet_transition = Arc::new(AsyncMutex::new(()));
+    tokio::try_join!(
+        run_kind_lane(
+            config,
+            academy,
+            metrics,
+            fleet,
+            cerebras_pool,
+            BenchmarkKind::Arc,
+            arc_lane.clone(),
+            fleet_transition.clone(),
+        ),
+        run_kind_lane(
+            config,
+            academy,
+            metrics,
+            fleet,
+            cerebras_pool,
+            BenchmarkKind::Frontier,
+            frontier_lane.clone(),
+            fleet_transition.clone(),
+        ),
+        run_maintenance_lane(
+            config,
+            academy,
+            metrics,
+            fleet,
+            cerebras_pool,
+            arc_lane,
+            frontier_lane,
+            fleet_transition,
+        ),
+    )?;
+    park_for_termination().await
+}
+
+async fn run_kind_lane(
+    config: &ControllerConfig,
+    academy: &AcademyClient,
+    metrics: &Arc<ControllerMetrics>,
+    fleet: Option<&FleetManager>,
+    cerebras_pool: &Arc<CerebrasKeyPool>,
+    kind: BenchmarkKind,
+    lane: Arc<Semaphore>,
+    fleet_transition: Arc<AsyncMutex<()>>,
+) -> Result<()> {
     let mut delay = Duration::from_secs(2);
     loop {
+        let permit = lane.acquire().await.context("benchmark lane closed")?;
         touch(metrics);
-        if drain_if_terminating(fleet, metrics).await? {
-            return park_for_termination().await;
+        if stop_claiming_if_terminating(fleet, metrics, &fleet_transition).await? {
+            return Ok(());
         }
-        match academy.claim().await {
+        match academy.claim(kind).await {
             Ok(Some(claim)) => {
                 delay = Duration::from_secs(2);
                 metrics.claims.fetch_add(1, Ordering::Relaxed);
-                if let Err(error) = protect_claimed_work(fleet).await {
+                if let Err(error) = start_claimed_work(fleet, metrics, &fleet_transition).await {
                     metrics.fleet_errors.fetch_add(1, Ordering::Relaxed);
                     post_run_result(
                         academy,
@@ -189,16 +246,75 @@ async fn run(
                         ),
                     )
                     .await;
-                    if release_work(fleet, metrics).await? {
-                        return park_for_termination().await;
+                    if release_failed_claim(fleet, metrics, &fleet_transition).await? {
+                        return Ok(());
                     }
                     continue;
                 }
-                metrics.running.store(true, Ordering::Relaxed);
                 process_run(config, academy, metrics, claim, cerebras_pool).await;
-                metrics.running.store(false, Ordering::Relaxed);
-                if release_work(fleet, metrics).await? {
-                    return park_for_termination().await;
+                if finish_claimed_work(fleet, metrics, &fleet_transition).await? {
+                    return Ok(());
+                }
+                continue;
+            }
+            Ok(None) => delay = Duration::from_secs(2),
+            Err(ApiError::Unauthorized) => bail!("Academy rejected X-Worker-Token"),
+            Err(error) => {
+                metrics.academy_errors.fetch_add(1, Ordering::Relaxed);
+                eprintln!("{kind} claim failed: {error}");
+                delay = (delay * 2).min(Duration::from_secs(30));
+            }
+        }
+        drop(permit);
+        tokio::time::sleep(delay).await;
+    }
+}
+
+async fn run_maintenance_lane(
+    config: &ControllerConfig,
+    academy: &AcademyClient,
+    metrics: &Arc<ControllerMetrics>,
+    fleet: Option<&FleetManager>,
+    cerebras_pool: &Arc<CerebrasKeyPool>,
+    arc_lane: Arc<Semaphore>,
+    frontier_lane: Arc<Semaphore>,
+    fleet_transition: Arc<AsyncMutex<()>>,
+) -> Result<()> {
+    let mut delay = Duration::from_secs(2);
+    loop {
+        let arc_permit = arc_lane.acquire().await.context("ARC lane closed")?;
+        let Ok(frontier_permit) = frontier_lane.try_acquire() else {
+            drop(arc_permit);
+            tokio::time::sleep(Duration::from_millis(250)).await;
+            continue;
+        };
+        touch(metrics);
+        if stop_claiming_if_terminating(fleet, metrics, &fleet_transition).await? {
+            return Ok(());
+        }
+        match academy.claim(BenchmarkKind::Bundled).await {
+            Ok(Some(claim)) => {
+                delay = Duration::from_secs(2);
+                metrics.claims.fetch_add(1, Ordering::Relaxed);
+                if let Err(error) = start_claimed_work(fleet, metrics, &fleet_transition).await {
+                    metrics.fleet_errors.fetch_add(1, Ordering::Relaxed);
+                    post_run_result(
+                        academy,
+                        metrics,
+                        failure_result(
+                            &claim,
+                            &format!("could not protect worker capacity: {error}"),
+                        ),
+                    )
+                    .await;
+                    if release_failed_claim(fleet, metrics, &fleet_transition).await? {
+                        return Ok(());
+                    }
+                    continue;
+                }
+                process_run(config, academy, metrics, claim, cerebras_pool).await;
+                if finish_claimed_work(fleet, metrics, &fleet_transition).await? {
+                    return Ok(());
                 }
                 continue;
             }
@@ -206,9 +322,11 @@ async fn run(
             Err(ApiError::Unauthorized) => bail!("Academy rejected X-Worker-Token"),
             Err(error) => {
                 metrics.academy_errors.fetch_add(1, Ordering::Relaxed);
-                eprintln!("claim failed: {error}");
-                tokio::time::sleep(delay).await;
+                eprintln!("bundled claim failed: {error}");
                 delay = (delay * 2).min(Duration::from_secs(30));
+                drop(frontier_permit);
+                drop(arc_permit);
+                tokio::time::sleep(delay).await;
                 continue;
             }
         }
@@ -216,7 +334,7 @@ async fn run(
             Ok(Some(claim)) => {
                 delay = Duration::from_secs(2);
                 metrics.claims.fetch_add(1, Ordering::Relaxed);
-                if let Err(error) = protect_claimed_work(fleet).await {
+                if let Err(error) = start_claimed_work(fleet, metrics, &fleet_transition).await {
                     metrics.fleet_errors.fetch_add(1, Ordering::Relaxed);
                     fail_kaggle_claim(
                         academy,
@@ -225,28 +343,27 @@ async fn run(
                         &format!("could not protect worker capacity: {error}"),
                     )
                     .await;
-                    if release_work(fleet, metrics).await? {
-                        return park_for_termination().await;
+                    if release_failed_claim(fleet, metrics, &fleet_transition).await? {
+                        return Ok(());
                     }
                     continue;
                 }
-                metrics.running.store(true, Ordering::Relaxed);
                 process_kaggle(config, academy, metrics, claim).await;
-                metrics.running.store(false, Ordering::Relaxed);
-                if release_work(fleet, metrics).await? {
-                    return park_for_termination().await;
+                if finish_claimed_work(fleet, metrics, &fleet_transition).await? {
+                    return Ok(());
                 }
                 continue;
             }
-            Ok(None) => {
-                delay = Duration::from_secs(2);
-            }
+            Ok(None) => delay = Duration::from_secs(2),
             Err(ApiError::Unauthorized) => bail!("Academy rejected X-Worker-Token"),
             Err(error) => {
                 metrics.academy_errors.fetch_add(1, Ordering::Relaxed);
                 eprintln!("Kaggle claim failed: {error}");
+                delay = (delay * 2).min(Duration::from_secs(30));
             }
         }
+        drop(frontier_permit);
+        drop(arc_permit);
         tokio::time::sleep(delay).await;
     }
 }
@@ -273,6 +390,68 @@ async fn report_capacity(
             }
         }
     }
+}
+
+async fn start_claimed_work(
+    fleet: Option<&FleetManager>,
+    metrics: &ControllerMetrics,
+    fleet_transition: &AsyncMutex<()>,
+) -> Result<()> {
+    let _transition = fleet_transition.lock().await;
+    protect_claimed_work(fleet).await?;
+    metrics.running.fetch_add(1, Ordering::Relaxed);
+    Ok(())
+}
+
+async fn finish_claimed_work(
+    fleet: Option<&FleetManager>,
+    metrics: &ControllerMetrics,
+    fleet_transition: &AsyncMutex<()>,
+) -> Result<bool> {
+    let _transition = fleet_transition.lock().await;
+    let previous = metrics.running.fetch_sub(1, Ordering::Relaxed);
+    if previous == 0 {
+        metrics.running.store(0, Ordering::Relaxed);
+        bail!("benchmark worker active-run counter underflowed");
+    }
+    if previous > 1 {
+        return Ok(false);
+    }
+    release_work(fleet, metrics).await
+}
+
+async fn release_failed_claim(
+    fleet: Option<&FleetManager>,
+    metrics: &ControllerMetrics,
+    fleet_transition: &AsyncMutex<()>,
+) -> Result<bool> {
+    let _transition = fleet_transition.lock().await;
+    if metrics.running.load(Ordering::Relaxed) != 0 {
+        return Ok(false);
+    }
+    release_work(fleet, metrics).await
+}
+
+async fn stop_claiming_if_terminating(
+    fleet: Option<&FleetManager>,
+    metrics: &ControllerMetrics,
+    fleet_transition: &AsyncMutex<()>,
+) -> Result<bool> {
+    if !metrics.healthy.load(Ordering::Relaxed) {
+        return Ok(true);
+    }
+    let Some(fleet) = fleet else {
+        return Ok(false);
+    };
+    let _transition = fleet_transition.lock().await;
+    if !fleet.termination_waiting().await? {
+        return Ok(false);
+    }
+    metrics.healthy.store(false, Ordering::Relaxed);
+    if metrics.running.load(Ordering::Relaxed) == 0 {
+        fleet.complete_termination().await?;
+    }
+    Ok(true)
 }
 
 async fn protect_claimed_work(fleet: Option<&FleetManager>) -> Result<()> {
@@ -350,7 +529,10 @@ async fn process_run(
         .await;
         return;
     }
-    if is_builtin_harness(&claim.repo_url) && !claim.provider.supports_images(&claim.model_id) {
+    if is_builtin_harness(&claim.repo_url)
+        && !matches!(claim.benchmark_kind, BenchmarkKind::Frontier)
+        && !claim.provider.supports_images(&claim.model_id)
+    {
         post_run_result(
             academy,
             metrics,
@@ -387,13 +569,13 @@ async fn process_run(
             return;
         }
     };
-    metrics.start_gateway(gateway.metrics.clone());
+    metrics.start_gateway(claim.id, gateway.metrics.clone());
     let result = execute_run(config, academy, metrics, &claim, &gateway).await;
     match result {
         RunEnd::Result(result) => post_run_result(academy, metrics, result).await,
         RunEnd::Stale => eprintln!("dropping reclaimed run {}", claim.id),
     }
-    metrics.finish_gateway();
+    metrics.finish_gateway(claim.id);
     gateway.stop().await;
 }
 
@@ -765,14 +947,24 @@ async fn cancel_executor(write: &mut OwnedWriteHalf) -> Result<()> {
 
 fn failure_result(claim: &HarnessClaim, message: &str) -> HarnessResultRequest {
     let message: String = message.chars().take(8000).collect();
+    let skipped = json!({"status":"skipped"});
+    let failed = || json!({"status":"infra_failed","error":message.clone()});
     HarnessResultRequest {
         id: claim.id,
         lease_token: claim.lease_token,
         status: "infra_failed".into(),
         benchmark_state: json!({
-            "arc":{"status":"infra_failed","error":message.clone()},
-            "frontier":{"status":"infra_failed","error":message.clone()},
-            "ram":{"status":"infra_failed","error":message.clone()}
+            "arc": if matches!(claim.benchmark_kind, BenchmarkKind::Frontier) {
+                skipped.clone()
+            } else {
+                failed()
+            },
+            "frontier": if matches!(claim.benchmark_kind, BenchmarkKind::Arc) {
+                skipped
+            } else {
+                failed()
+            },
+            "ram": failed()
         }),
         score_arc: None,
         score_frontier: None,
@@ -834,7 +1026,7 @@ async fn prometheus(State(metrics): State<Arc<ControllerMetrics>>) -> Response {
             "exposure_benchmark_model_latency_ms_total {}\n",
             "exposure_benchmark_model_completions_last_30_seconds {}\n"
         ),
-        u8::from(metrics.running.load(Ordering::Relaxed)),
+        metrics.running.load(Ordering::Relaxed),
         metrics.claims.load(Ordering::Relaxed),
         metrics.completed.load(Ordering::Relaxed),
         metrics.failed.load(Ordering::Relaxed),

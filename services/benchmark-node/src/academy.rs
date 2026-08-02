@@ -1,6 +1,7 @@
 use benchmark_protocol::{
-    ArcFramesRequest, HarnessCapacity, HarnessClaim, HarnessLeaseRequest, HarnessProgressRequest,
-    HarnessResultRequest, HarnessStageRequest, KaggleClaim, KaggleResultRequest,
+    ArcFramesRequest, BenchmarkKind, HarnessCapacity, HarnessClaim, HarnessLeaseRequest,
+    HarnessProgressRequest, HarnessResultRequest, HarnessStageRequest, KaggleClaim,
+    KaggleResultRequest,
 };
 use reqwest::StatusCode;
 use serde::{Serialize, de::DeserializeOwned};
@@ -59,9 +60,12 @@ impl AcademyClient {
         })
     }
 
-    pub async fn claim(&self) -> Result<Option<HarnessClaim>, ApiError> {
-        self.post_response("/api/worker/harness/claim", &serde_json::json!({}))
-            .await
+    pub async fn claim(&self, kind: BenchmarkKind) -> Result<Option<HarnessClaim>, ApiError> {
+        self.post_response(
+            &format!("/api/worker/harness/claim?kind={kind}"),
+            &serde_json::json!({}),
+        )
+        .await
     }
 
     pub async fn capacity(&self) -> Result<HarnessCapacity, ApiError> {
@@ -186,16 +190,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn claim_request_sends_worker_header_and_null_decodes() {
+    fn split_claim_request_sends_kind_and_worker_header() {
         let client =
             AcademyClient::new("https://academy.example".into(), "worker-secret".into()).unwrap();
         let request = client
-            .request("/api/worker/harness/claim", &serde_json::json!({}))
+            .request(
+                "/api/worker/harness/claim?kind=frontier",
+                &serde_json::json!({}),
+            )
             .build()
             .unwrap();
         assert_eq!(
             request.url().as_str(),
-            "https://academy.example/api/worker/harness/claim"
+            "https://academy.example/api/worker/harness/claim?kind=frontier"
         );
         assert_eq!(request.headers()["x-worker-token"], "worker-secret");
         assert_eq!(

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import contextlib
 import datetime as dt
+import fcntl
 import hashlib
 import http.client
 import ipaddress
@@ -141,6 +142,26 @@ class InfrastructureFailed(Exception):
 
 class LeaseLost(InfrastructureFailed):
     pass
+
+
+@contextlib.contextmanager
+def ram_lane(deadline: float):
+    """Serialize host-level RAM measurements across concurrent harness runs."""
+    lock_path = Path(CONFIG.get("HARNESS_RAM_LOCK", "/tmp/exposure-benchmark-ram.lock"))
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+") as lock:
+        while True:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise InfrastructureFailed("the benchmark deadline expired waiting for the RAM lane")
+                time.sleep(0.1)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
 
 
 def log(message: str) -> None:
@@ -289,13 +310,15 @@ class Reporter:
 class NdjsonReporter:
     """Benchmark SDK progress only; Rust owns Academy state and lease decisions."""
 
-    def __init__(self, run_id: str, deadline: float):
+    def __init__(self, run_id: str, deadline: float, benchmark_kind: str = "bundled"):
+        if benchmark_kind not in {"arc", "frontier", "bundled"}:
+            raise InfrastructureFailed("executor request contained an invalid benchmark kind")
         self.run_id = run_id
         self.deadline = deadline
         self.lock = threading.Lock()
         self.state: dict[str, dict[str, Any]] = {
-            "arc": {"status": "pending"},
-            "frontier": {"status": "pending"},
+            "arc": {"status": "skipped" if benchmark_kind == "frontier" else "pending"},
+            "frontier": {"status": "skipped" if benchmark_kind == "arc" else "pending"},
             "ram": {"status": "pending"},
         }
 
@@ -1261,7 +1284,9 @@ def run_frontier(run_id: str, repo: Path, work: Path, gateway: Gateway, reporter
 
 
 def terminal_status(state: dict[str, dict[str, Any]]) -> str:
-    statuses = [item.get("status") for item in state.values()]
+    statuses = [item.get("status") for item in state.values() if item.get("status") != "skipped"]
+    if not statuses:
+        return "infra_failed"
     if all(status == "done" for status in statuses):
         return "done"
     if any(status == "done" for status in statuses):
@@ -1300,9 +1325,10 @@ def process_claim(claim: dict[str, Any]) -> None:
             gateways.append(frontier_gateway)
 
             try:
-                scores["ram1"], scores["ram10"] = run_ram(
-                    run_id, repo, venv, ram_gateway, reporter, deadline
-                )
+                with ram_lane(deadline):
+                    scores["ram1"], scores["ram10"] = run_ram(
+                        run_id, repo, venv, ram_gateway, reporter, deadline
+                    )
             except InfrastructureFailed as exc:
                 reporter.update("ram", status="infra_failed", error=str(exc))
             except Exception as exc:
@@ -1403,8 +1429,10 @@ def process_executor_run(request: dict[str, Any]) -> None:
     token = str(request.get("gateway_token") or "")
     socket_path = Path(str(request.get("gateway_socket") or ""))
     profile = str(request.get("model_profile") or "")
+    benchmark_kind = str(request.get("benchmark_kind") or "")
     if len(token) != 64 or not socket_path.is_socket() \
-            or not re.fullmatch(r"[A-Za-z0-9._-]{1,120}", profile):
+            or not re.fullmatch(r"[A-Za-z0-9._-]{1,120}", profile) \
+            or benchmark_kind not in {"arc", "frontier", "bundled"}:
         raise InfrastructureFailed("executor request contained an invalid model capability")
     BEDROCK_PROFILE_NAME = profile
     for path in (
@@ -1415,7 +1443,7 @@ def process_executor_run(request: dict[str, Any]) -> None:
     ensure_image()
 
     work = Path.cwd()
-    reporter = NdjsonReporter(run_id, deadline)
+    reporter = NdjsonReporter(run_id, deadline, benchmark_kind)
     gateway = ExternalGateway(socket_path, token)
     scores: dict[str, float | None] = {"arc": None, "frontier": None, "ram1": None, "ram10": None}
     error_log: str | None = None
@@ -1424,9 +1452,10 @@ def process_executor_run(request: dict[str, Any]) -> None:
         emit({"type": "ready", "commit_sha": sha})
 
         try:
-            scores["ram1"], scores["ram10"] = run_ram(
-                run_id, repo, venv, gateway, reporter, deadline
-            )
+            with ram_lane(deadline):
+                scores["ram1"], scores["ram10"] = run_ram(
+                    run_id, repo, venv, gateway, reporter, deadline
+                )
         except InfrastructureFailed as exc:
             reporter.update("ram", status="infra_failed", error=str(exc)[:2000])
         except Exception as exc:
@@ -1451,27 +1480,30 @@ def process_executor_run(request: dict[str, Any]) -> None:
                 with lock:
                     outcomes[name] = ("failed", exc)
 
-        arc_thread = threading.Thread(
-            target=benchmark,
-            args=("arc", lambda: run_arc(run_id, repo, venv, gateway, reporter, deadline)),
-            name=f"arc-{run_id[:8]}",
-        )
-        frontier_thread = threading.Thread(
-            target=benchmark,
-            args=("frontier", lambda: run_frontier(
-                run_id, repo, work, gateway, reporter, deadline
-            )),
-            name=f"frontier-{run_id[:8]}",
-        )
-        arc_thread.start()
-        frontier_thread.start()
-        while arc_thread.is_alive() or frontier_thread.is_alive():
+        threads: list[threading.Thread] = []
+        if benchmark_kind in {"arc", "bundled"}:
+            threads.append(threading.Thread(
+                target=benchmark,
+                args=("arc", lambda: run_arc(run_id, repo, venv, gateway, reporter, deadline)),
+                name=f"arc-{run_id[:8]}",
+            ))
+        if benchmark_kind in {"frontier", "bundled"}:
+            threads.append(threading.Thread(
+                target=benchmark,
+                args=("frontier", lambda: run_frontier(
+                    run_id, repo, work, gateway, reporter, deadline
+                )),
+                name=f"frontier-{run_id[:8]}",
+            ))
+        for thread in threads:
+            thread.start()
+        while any(thread.is_alive() for thread in threads):
             if time.monotonic() >= deadline:
                 break
             time.sleep(0.5)
-        arc_thread.join(timeout=10)
-        frontier_thread.join(timeout=10)
-        if arc_thread.is_alive() or frontier_thread.is_alive():
+        for thread in threads:
+            thread.join(timeout=10)
+        if any(thread.is_alive() for thread in threads):
             raise InfrastructureFailed("benchmark adapters did not stop at the global deadline")
         if outcomes.get("arc", (None,))[0] == "done":
             scores["arc"] = float(outcomes["arc"][1])

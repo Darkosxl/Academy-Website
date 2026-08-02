@@ -6,8 +6,9 @@ maximum of five. Each worker is an `r8i.4xlarge` (16 vCPU, 128 GiB) with an encr
 of one. Place the group in a private subnet with NAT or the required VPC endpoints;
 operators connect through SSM, never SSH.
 
-One instance runs one complete benchmark at a time. Academy's authenticated capacity API
-counts claimable and leased harness/Kaggle work. Every controller publishes the same
+One instance runs one ARC and one Frontier submission concurrently. Legacy bundled and
+Kaggle work waits for both lanes. Academy's authenticated capacity API counts claimable
+and leased harness/Kaggle work. Every controller publishes the same
 `Demand = queued + active` snapshot to `Exposure/Benchmark`; CloudWatch uses `Maximum`, so
 duplicate publishers do not multiply demand. The group adds the missing number of slots
 and removes one idle node only after 15 quiet minutes.

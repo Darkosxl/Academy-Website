@@ -1,7 +1,8 @@
 use anyhow::{Context, Result, bail};
 use benchmark_node::{MAX_NDJSON_BYTES, config::ExecutorConfig, ndjson, random_token};
 use benchmark_protocol::{
-    ExecutorEvent, ExecutorRequest, KaggleResultRequest, ModelProvider, is_builtin_harness,
+    BenchmarkKind, ExecutorEvent, ExecutorRequest, KaggleResultRequest, ModelProvider,
+    is_builtin_harness,
 };
 use chrono::Utc;
 use serde_json::json;
@@ -41,7 +42,7 @@ async fn main() -> Result<()> {
     tokio::fs::set_permissions(&config.socket, std::fs::Permissions::from_mode(0o660))
         .await
         .context("protect executor socket")?;
-    let slot = Arc::new(Semaphore::new(1));
+    let slot = Arc::new(Semaphore::new(2));
     loop {
         let (stream, _) = listener.accept().await.context("accept controller")?;
         let config = config.clone();
@@ -118,11 +119,20 @@ async fn run_adapter(
     tokio::fs::set_permissions(&work, std::fs::Permissions::from_mode(0o700))
         .await
         .context("protect run work directory")?;
-    // Harbor creates detached Compose containers without our run label. The executor is
-    // single-job, so a before/after Compose snapshot removes only this job's environments
-    // while preserving pre-existing containers (notably local development tools).
-    let baseline_containers =
-        list_container_ids(config, Some("label=com.docker.compose.project")).await;
+    // Harbor creates detached Compose containers without our run label. Only Frontier can
+    // own those containers, and the controller admits one Frontier run at a time; ARC cleanup
+    // therefore remains label-scoped and cannot remove the concurrent Frontier environment.
+    let baseline_containers = if matches!(
+        &request,
+        ExecutorRequest::Run {
+            benchmark_kind: BenchmarkKind::Frontier | BenchmarkKind::Bundled,
+            ..
+        }
+    ) {
+        list_container_ids(config, Some("label=com.docker.compose.project")).await
+    } else {
+        None
+    };
 
     let mode = match &request {
         ExecutorRequest::Run { .. } => "--executor-ndjson",
@@ -144,6 +154,10 @@ async fn run_adapter(
         .env(
             "HARNESS_CACHE_DIRECTORY",
             config.state_directory.join("cache"),
+        )
+        .env(
+            "HARNESS_RAM_LOCK",
+            config.state_directory.join("executor/ram.lock"),
         )
         .env("HARNESS_IMAGE", &config.sandbox_image)
         .stdin(Stdio::piped())
@@ -229,12 +243,13 @@ fn validate_request(request: &ExecutorRequest) -> Result<()> {
             gateway_token,
             model_profile,
             provider,
+            benchmark_kind,
             ..
         } => {
             valid_submission_source(repo_url)?;
             if *deadline_at <= Utc::now()
                 || gateway_token.len() != 64
-                || !valid_submission_model(*provider, repo_url, model_profile)
+                || !valid_submission_model(*provider, *benchmark_kind, repo_url, model_profile)
             {
                 bail!("invalid local-run capability or deadline");
             }
@@ -285,9 +300,16 @@ fn valid_submission_source(raw: &str) -> Result<()> {
     valid_repo_url(raw)
 }
 
-fn valid_submission_model(provider: ModelProvider, source: &str, model_id: &str) -> bool {
+fn valid_submission_model(
+    provider: ModelProvider,
+    benchmark_kind: BenchmarkKind,
+    source: &str,
+    model_id: &str,
+) -> bool {
     provider.supports_model(model_id)
-        && (!is_builtin_harness(source) || provider.supports_images(model_id))
+        && (!is_builtin_harness(source)
+            || matches!(benchmark_kind, BenchmarkKind::Frontier)
+            || provider.supports_images(model_id))
 }
 
 fn request_timeout(request: &ExecutorRequest) -> Duration {
@@ -334,13 +356,9 @@ fn redact(value: &str, request: &ExecutorRequest) -> String {
 fn crash_event(request: &ExecutorRequest, message: &str) -> ExecutorEvent {
     let safe: String = message.chars().take(2000).collect();
     match request {
-        ExecutorRequest::Run { .. } => ExecutorEvent::Result {
+        ExecutorRequest::Run { benchmark_kind, .. } => ExecutorEvent::Result {
             status: "infra_failed".into(),
-            benchmark_state: json!({
-                "arc":{"status":"infra_failed","error":safe.clone()},
-                "frontier":{"status":"infra_failed","error":safe.clone()},
-                "ram":{"status":"infra_failed","error":safe.clone()}
-            }),
+            benchmark_state: failed_benchmark_state(*benchmark_kind, &safe),
             score_arc: None,
             score_frontier: None,
             ram_1session_mb: None,
@@ -362,6 +380,27 @@ fn crash_event(request: &ExecutorRequest, message: &str) -> ExecutorEvent {
         },
         _ => unreachable!(),
     }
+}
+
+fn failed_benchmark_state(
+    kind: benchmark_protocol::BenchmarkKind,
+    message: &str,
+) -> serde_json::Value {
+    let skipped = json!({"status":"skipped"});
+    let failed = || json!({"status":"infra_failed","error":message});
+    json!({
+        "arc": if matches!(kind, benchmark_protocol::BenchmarkKind::Frontier) {
+            skipped.clone()
+        } else {
+            failed()
+        },
+        "frontier": if matches!(kind, benchmark_protocol::BenchmarkKind::Arc) {
+            skipped
+        } else {
+            failed()
+        },
+        "ram": failed()
+    })
 }
 
 async fn finish_child(
@@ -545,23 +584,33 @@ mod tests {
         assert!(valid_submission_source("file:///etc/passwd").is_err());
         assert!(valid_submission_model(
             ModelProvider::Bedrock,
+            BenchmarkKind::Arc,
             "builtin://forge",
             "google.gemma-4-31b"
         ));
         assert!(!valid_submission_model(
             ModelProvider::Bedrock,
+            BenchmarkKind::Arc,
             "builtin://forge",
             "openai.gpt-oss-120b"
         ));
         assert!(valid_submission_model(
             ModelProvider::Bedrock,
+            BenchmarkKind::Arc,
             "https://github.com/example/agent",
             "openai.gpt-oss-120b"
         ));
         assert!(valid_submission_model(
             ModelProvider::Cerebras,
+            BenchmarkKind::Arc,
             "builtin://forge",
             "gemma-4-31b"
+        ));
+        assert!(valid_submission_model(
+            ModelProvider::Cerebras,
+            BenchmarkKind::Frontier,
+            "builtin://forge",
+            "zai-glm-4.7"
         ));
     }
 
