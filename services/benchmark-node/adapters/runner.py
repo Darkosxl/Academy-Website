@@ -1440,7 +1440,10 @@ def process_executor_run(request: dict[str, Any]) -> None:
     ):
         if not path.exists():
             raise InfrastructureFailed(f"required benchmark cache is missing: {path}")
-    ensure_image()
+    # The Compose entrypoint builds and verifies this image before it accepts
+    # executor requests. Building on demand here is both redundant and unsafe:
+    # a nested CNI build can race a live worker and fail despite the ready image
+    # already being present in the persistent Podman store.
 
     work = Path.cwd()
     reporter = NdjsonReporter(run_id, deadline, benchmark_kind)
