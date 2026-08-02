@@ -47,6 +47,15 @@
   var runId = root.dataset.run || '';
   var currentRun = root.dataset.currentRun || '';
   var tiles = {};        // game id -> {button, canvas, meta}
+  var keys = {};         // ARC action name -> the cabinet key that lights up for it
+  var levelsOf = {};     // game id -> level count, read off the per-level baseline
+  var litKey = null;     // action currently lit, so a repeat is not a DOM write
+  var cabId = null, cabLevel = null, cabEl = null;
+  // Three shells, dealt round-robin down the game list so the split is even — a hash of
+  // the id looked cleaner but landed 14/7/4 across the 25. Assigned once and never
+  // reassigned, so a game keeps its colour across polls, reloads and every kid watching.
+  var SKINS = ['pink', 'green', 'cream'];
+  var skinOf = {};
   var focused = null;    // game the student clicked; null = grid only, no focus= param
   var film = [];         // focused game's animation, flattened to one entry per grid
   var at = -1;           // index of the grid currently on the big canvas
@@ -156,6 +165,9 @@
       var game = games[i];
       if (game.state === 'NOT_FINISHED') playing++;
       else if (game.state === 'WIN' || game.state === 'GAME_OVER') done++;
+      // one entry per level, so its length is the level count the cabinet counts against
+      if (game.baseline && game.baseline.length) levelsOf[game.game] = game.baseline.length;
+      if (skinOf[game.game] == null) skinOf[game.game] = SKINS[i % SKINS.length];
       if (!boards) continue;   // main-tab preview: focus panel only, no board wall
       var tile = tileFor(game.game);
       tile.button.dataset.state = game.state || '';
@@ -180,12 +192,78 @@
     playBtn.setAttribute('aria-label', paused ? 'Oynat' : 'Duraklat');
   }
 
+  // ---- the cabinet ----------------------------------------------------------
+  // The focused board sits in a handheld, the way arcprize.org frames a task. The deck
+  // is not decoration: every key carries an ARC action name, so the lit one is the move
+  // the agent just played. Nothing is clickable — the agent plays, the student watches,
+  // so the whole deck is aria-hidden and the caption keeps saying the action in words.
+  var PAD = [['ACTION1', '▲'], ['ACTION2', '▼'], ['ACTION3', '◀'], ['ACTION4', '▶']];
+  var PILLS = [['ACTION5', 'SPACEBAR'], ['ACTION6', 'CLICK'],
+               ['ACTION7', 'UNDO'], ['RESET', 'RESET']];
+
+  function buildDeck(deck) {
+    var pad = el('div', 'cab-pad');
+    PAD.forEach(function (item) {
+      var key = el('i', 'cab-key', item[1]);
+      key.dataset.act = item[0];   // the CSS places it on the d-pad off this
+      keys[item[0]] = key;
+      pad.appendChild(key);
+    });
+    var btns = el('div', 'cab-btns');
+    PILLS.forEach(function (item) {
+      var pill = el('span', 'cab-pill');
+      pill.appendChild(el('b', null, item[1]));
+      keys[item[0]] = el('i', 'cab-lamp');
+      pill.appendChild(keys[item[0]]);
+      btns.appendChild(pill);
+    });
+    deck.appendChild(pad);
+    deck.appendChild(btns);
+  }
+
+  function light(act) {
+    if (act === litKey) return;
+    if (keys[litKey]) keys[litKey].classList.remove('on');
+    litKey = keys[act] ? act : null;
+    if (litKey) keys[litKey].classList.add('on');
+  }
+
+  // "SEVİYE 2 / 7". The total is the baseline's length, which only rides on the board
+  // payload, so the first frames of a game show the level with no total behind it.
+  function setLevel(done) {
+    if (!cabLevel) return;
+    var all = levelsOf[focused] || 0;
+    var at = (done || 0) + 1;
+    cabLevel.textContent = 'SEVİYE ' + (all ? Math.min(at, all) + ' / ' + all : at);
+  }
+
   function buildFocus() {
+    var cab = cabEl = el('div', 'arc-cab');
+    var bar = el('div', 'cab-bar');
+    cabId = el('span', 'cab-id', '');
+    cabLevel = el('span', 'cab-level', '');
+    // the shell's printed wordmark, the way a real handheld carries its maker's name
+    var mark = el('span', 'cab-mark', 'EXPOSURE');
+    mark.appendChild(el('i', null, ''));
+    bar.appendChild(cabId);
+    bar.appendChild(mark);
+    bar.appendChild(cabLevel);
+    cab.appendChild(bar);
+
+    var screen = el('div', 'cab-screen');
     big = document.createElement('canvas');
     big.width = SIDE;
     big.height = SIDE;
     big.setAttribute('role', 'img');
-    focusBox.appendChild(big);
+    screen.appendChild(big);
+    cab.appendChild(screen);
+
+    var deck = el('div', 'cab-deck');
+    deck.setAttribute('aria-hidden', 'true');
+    buildDeck(deck);
+    cab.appendChild(deck);
+    focusBox.appendChild(cab);
+
     bigMeta = el('p', 'arc-focus-meta', '');
     focusBox.appendChild(bigMeta);
     playBtn = el('button', 'arc-play');
@@ -215,6 +293,10 @@
     if (!big) buildFocus();
     setPaused(false);
     if (prevGame) prevGame.textContent = game;
+    if (cabId) cabId.textContent = game;
+    if (cabEl) cabEl.dataset.skin = skinOf[game] || 'pink';
+    light(null);
+    setLevel(0);
     // Blank the board before the first frame of the new game lands. Without this, a failed
     // or slow fetch leaves the PREVIOUS game's board on screen under the new game's label.
     big.getContext('2d').clearRect(0, 0, SIDE, SIDE);
@@ -244,7 +326,10 @@
       bufSeq = frame.seq;
       var text = caption(payload.game, frame);
       var grids = frame.grids || [];
-      for (var j = 0; j < grids.length; j++) film.push({hex: grids[j], text: text});
+      for (var j = 0; j < grids.length; j++) {
+        // every grid of one frame is the same move animating, so they share its key
+        film.push({hex: grids[j], text: text, act: frame.action, level: frame.levels_completed});
+      }
     }
     return frames.length;
   }
@@ -254,6 +339,8 @@
     if (!cell) return;
     draw(big, cell.hex);
     bigMeta.textContent = cell.text;
+    light(cell.act);
+    setLevel(cell.level);
     if (prevCanvas) draw(prevCanvas, cell.hex);
     if (prevMeta) prevMeta.textContent = cell.text;
     if (scrub && document.activeElement !== scrub) scrub.value = String(at);

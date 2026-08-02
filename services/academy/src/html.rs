@@ -596,7 +596,7 @@ fn harness_shell(user: &User, tab: &str, sub: &str, inner: &str) -> String {
         // byte-identical output for every other page — <link rel=stylesheet> is body-ok.
         &format!(
             r##"<div class="arcade">
-<link rel="stylesheet" href="/static/harness.css?v=3">
+<link rel="stylesheet" href="/static/harness.css?v=6">
 <h1 class="pagetitle" lang="en">Agentic Harness</h1>
 <p class="muted">{sub}</p>
 <div class="chips">{chips}</div>
@@ -1086,7 +1086,7 @@ pub fn agentic_harness_main(
     </div>
   </div>
 </a>
-<script src="/static/arc.js?v=4" defer></script>"##,
+<script src="/static/arc.js?v=7" defer></script>"##,
             run_id = run.id
         ),
         _ => String::new(),
@@ -1164,7 +1164,7 @@ pub fn admin_harness_page(
     let content = match team {
         None => format!(
             r##"<div class="arcade">
-<link rel="stylesheet" href="/static/harness.css?v=3">
+<link rel="stylesheet" href="/static/harness.css?v=6">
 <h1 class="pagetitle" lang="en">Agentic Harness — Admin</h1>
 <section class="harness-left">
   <div class="gate-lock">{lock}</div>
@@ -1195,7 +1195,7 @@ pub fn admin_harness_page(
                 .collect();
             format!(
                 r##"<div class="arcade">
-<link rel="stylesheet" href="/static/harness.css?v=3">
+<link rel="stylesheet" href="/static/harness.css?v=6">
 <h1 class="pagetitle" lang="en">Agentic Harness — Admin</h1>
 <p class="muted">Takım adına doğrudan çalıştırma gönder.</p>
 <section class="harness-left">
@@ -1297,7 +1297,8 @@ pub fn agentic_harness_live(user: &User, run: Option<&HarnessRun>, replay: bool)
   <div class="arc-focus" id="arc-focus" hidden></div>
   <div class="arc-grid" id="arc-boards"></div>
 </div>
-<script src="/static/arc.js?v=4" defer></script>"##
+<link href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&display=swap" rel="stylesheet">
+<script src="/static/arc.js?v=7" defer></script>"##
     );
     harness_shell(
         user,
