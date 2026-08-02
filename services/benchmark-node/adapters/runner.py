@@ -673,6 +673,7 @@ def run_ram_scenario(run_id: str, sessions: int, repo: Path, venv: Path, gateway
     cpus = "1" if sessions == 1 else "10"
     command = [
         "podman", "run", "-d", "--name", name, "--network=none", "--cap-drop=all",
+        "--group-add", "keep-groups",
         "--security-opt=no-new-privileges", "--pids-limit", "128" if sessions == 1 else "512",
         "--memory", memory, "--cpus", cpus, "--read-only",
         "--tmpfs", "/tmp:rw,noexec,nosuid,size=256m",

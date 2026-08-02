@@ -11,6 +11,9 @@ services:
     privileged: true
     cgroup: host
     userns_mode: host
+    # The Docker stub resolver is loopback-only; BuildKit needs the EC2 VPC resolver.
+    dns:
+      - 10.0.0.2
     devices:
       - /dev/fuse:/dev/fuse:rwm
     security_opt:
