@@ -17,7 +17,8 @@ Supabase remain the durable control plane; browsers never connect to this host.
 
 The controller-to-executor socket and each run-scoped model socket are group-readable only
 by `exposure-benchmark`. Mutable data lives under `/var/lib/exposure-benchmark`; deployed
-artifacts live under `/opt/exposure-benchmark`.
+artifacts live under `/opt/exposure-benchmark`. Cerebras requests share the controller's
+four-key pool; only the per-run socket capability crosses into the executor.
 
 ## Build and test
 
@@ -76,8 +77,8 @@ sudo /path/to/artifacts/infra/install-artifacts.sh /path/to/artifacts
 
 Cloud-init creates the controller env with the Academy URL, Secrets Manager identifier,
 ASG name, lifecycle hook, and the instance's IMDSv2-derived ID. The executor env contains
-paths and the controller UID only. Store `worker_token` and `bedrock_api_key` in the JSON
-secret described in `infra/ec2/README.md`.
+paths and the controller UID only. Store `worker_token`, `bedrock_api_key`, and the four
+`cerebras_api_keys` in the JSON secret described in `infra/ec2/README.md`.
 
 Recreate these pinned caches on EC2 instead of copying local virtual environments:
 

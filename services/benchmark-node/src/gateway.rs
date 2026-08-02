@@ -8,18 +8,19 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get, post},
 };
+use benchmark_protocol::ModelProvider;
 use serde_json::{Map, Value, json};
 use std::{
-    collections::VecDeque,
+    collections::{HashSet, VecDeque},
     os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
     sync::{
         Arc, Mutex,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicU64, AtomicUsize, Ordering},
     },
     time::{Duration, Instant},
 };
-use tokio::sync::{Semaphore, oneshot};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, oneshot};
 
 const MAX_BODY_BYTES: usize = 1024 * 1024;
 const MAX_MESSAGES: usize = 12;
@@ -28,6 +29,23 @@ const MAX_TEXT_BYTES: usize = 64 * 1024;
 const MAX_IMAGE_DATA_CHARS: usize = 384 * 1024;
 const MAX_IMAGE_PARTS: usize = 16;
 const MAX_OUTPUT_TOKENS: u64 = 2048;
+const CEREBRAS_API_URL: &str = "https://api.cerebras.ai/v1/chat/completions";
+const CEREBRAS_KEY_COUNT: usize = 4;
+const CEREBRAS_CONCURRENCY_PER_KEY: usize = 8;
+const NO_PREFERRED_KEY: usize = usize::MAX;
+
+#[derive(Clone)]
+enum GatewayUpstream {
+    Bedrock {
+        url: Arc<str>,
+        key: Arc<str>,
+        slots: Arc<Semaphore>,
+    },
+    Cerebras {
+        pool: Arc<CerebrasKeyPool>,
+        preferred_key: Arc<AtomicUsize>,
+    },
+}
 
 #[derive(Clone)]
 struct GatewayState {
@@ -35,34 +53,168 @@ struct GatewayState {
     model_id: Arc<str>,
     profile_name: Arc<str>,
     reasoning_effort: Arc<str>,
-    upstream_url: Arc<str>,
-    provider_key: Arc<str>,
+    provider: ModelProvider,
+    upstream: GatewayUpstream,
     http: reqwest::Client,
-    slots: Arc<Semaphore>,
     metrics: Arc<GatewayMetrics>,
+}
+
+struct CerebrasKeyState {
+    credential: Arc<str>,
+    slots: Arc<Semaphore>,
+    in_flight: AtomicUsize,
+    cooldown_until: Mutex<Option<Instant>>,
+}
+
+pub struct CerebrasKeyPool {
+    keys: Vec<Arc<CerebrasKeyState>>,
+    cursor: AtomicUsize,
+    http: reqwest::Client,
+    upstream_url: Arc<str>,
+    default_cooldown: Duration,
+}
+
+struct CerebrasLease {
+    key: Arc<CerebrasKeyState>,
+    index: usize,
+    _permit: OwnedSemaphorePermit,
+}
+
+impl Drop for CerebrasLease {
+    fn drop(&mut self) {
+        self.key.in_flight.fetch_sub(1, Ordering::Relaxed);
+    }
+}
+
+impl CerebrasKeyPool {
+    pub fn new(keys: Vec<String>) -> Result<Self> {
+        Self::with_url(keys, CEREBRAS_API_URL, Duration::from_secs(1))
+    }
+
+    fn with_url(keys: Vec<String>, upstream_url: &str, default_cooldown: Duration) -> Result<Self> {
+        if keys.len() != CEREBRAS_KEY_COUNT
+            || keys.iter().any(|key| key.len() < 20)
+            || keys.iter().collect::<HashSet<_>>().len() != keys.len()
+        {
+            bail!("Cerebras key pool requires four distinct API keys");
+        }
+        let http = reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(3))
+            .timeout(Duration::from_secs(20))
+            .pool_max_idle_per_host(CEREBRAS_KEY_COUNT * CEREBRAS_CONCURRENCY_PER_KEY)
+            .build()
+            .context("build Cerebras HTTP client")?;
+        Ok(Self {
+            keys: keys
+                .into_iter()
+                .map(|credential| {
+                    Arc::new(CerebrasKeyState {
+                        credential: credential.into(),
+                        slots: Arc::new(Semaphore::new(CEREBRAS_CONCURRENCY_PER_KEY)),
+                        in_flight: AtomicUsize::new(0),
+                        cooldown_until: Mutex::new(None),
+                    })
+                })
+                .collect(),
+            cursor: AtomicUsize::new(0),
+            http,
+            upstream_url: upstream_url.to_owned().into(),
+            default_cooldown,
+        })
+    }
+
+    fn try_acquire(&self, preferred: usize, excluded: u64) -> Option<CerebrasLease> {
+        let now = Instant::now();
+        let mut candidates = Vec::with_capacity(self.keys.len());
+        for (index, key) in self.keys.iter().enumerate() {
+            if excluded & (1 << index) != 0 {
+                continue;
+            }
+            let healthy = {
+                let mut cooldown = key.cooldown_until.lock().unwrap();
+                if cooldown.is_some_and(|until| until <= now) {
+                    *cooldown = None;
+                }
+                cooldown.is_none()
+            };
+            let load = key.in_flight.load(Ordering::Relaxed);
+            if healthy && load < CEREBRAS_CONCURRENCY_PER_KEY {
+                candidates.push((index, load));
+            }
+        }
+        let minimum = candidates.iter().map(|(_, load)| *load).min()?;
+        let selected = if candidates
+            .iter()
+            .any(|(index, load)| *index == preferred && *load == minimum)
+        {
+            preferred
+        } else {
+            let start = self.cursor.fetch_add(1, Ordering::Relaxed) % self.keys.len();
+            (0..self.keys.len())
+                .map(|offset| (start + offset) % self.keys.len())
+                .find(|index| {
+                    candidates
+                        .iter()
+                        .any(|(candidate, load)| candidate == index && *load == minimum)
+                })?
+        };
+        let key = self.keys[selected].clone();
+        let permit = key.slots.clone().try_acquire_owned().ok()?;
+        key.in_flight.fetch_add(1, Ordering::Relaxed);
+        Some(CerebrasLease {
+            key,
+            index: selected,
+            _permit: permit,
+        })
+    }
+
+    fn cool_down(&self, index: usize, duration: Duration) {
+        *self.keys[index].cooldown_until.lock().unwrap() = Some(Instant::now() + duration);
+    }
 }
 
 #[derive(Default)]
 pub struct GatewayMetrics {
     requests: AtomicU64,
+    upstream_attempts: AtomicU64,
+    rate_limits: AtomicU64,
     errors: AtomicU64,
     input_tokens: AtomicU64,
     output_tokens: AtomicU64,
     latency_ms: AtomicU64,
     completions: Mutex<VecDeque<Instant>>,
+    key_requests: Mutex<Vec<u64>>,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct GatewaySnapshot {
     pub requests: u64,
+    pub upstream_attempts: u64,
+    pub rate_limits: u64,
     pub errors: u64,
     pub input_tokens: u64,
     pub output_tokens: u64,
     pub latency_ms: u64,
     pub completed_last_30_seconds: usize,
+    pub key_requests: Vec<u64>,
 }
 
 impl GatewayMetrics {
+    fn record_attempt(&self, key_index: Option<usize>) {
+        self.upstream_attempts.fetch_add(1, Ordering::Relaxed);
+        if let Some(index) = key_index {
+            let mut requests = self.key_requests.lock().unwrap();
+            if requests.len() <= index {
+                requests.resize(index + 1, 0);
+            }
+            requests[index] += 1;
+        }
+    }
+
+    fn record_rate_limit(&self) {
+        self.rate_limits.fetch_add(1, Ordering::Relaxed);
+    }
+
     fn record(&self, response: Option<&Value>, latency: Duration, error: bool) {
         self.requests.fetch_add(1, Ordering::Relaxed);
         self.latency_ms
@@ -114,6 +266,8 @@ impl GatewayMetrics {
         }
         GatewaySnapshot {
             requests: self.requests.load(Ordering::Relaxed),
+            upstream_attempts: self.upstream_attempts.load(Ordering::Relaxed),
+            rate_limits: self.rate_limits.load(Ordering::Relaxed),
             errors: self.errors.load(Ordering::Relaxed),
             input_tokens: self.input_tokens.load(Ordering::Relaxed),
             output_tokens: self.output_tokens.load(Ordering::Relaxed),
@@ -122,6 +276,7 @@ impl GatewayMetrics {
                 .iter()
                 .filter(|time| now.duration_since(**time) <= Duration::from_secs(30))
                 .count(),
+            key_requests: self.key_requests.lock().unwrap().clone(),
         }
     }
 }
@@ -139,11 +294,13 @@ impl GatewayHandle {
     pub async fn start(
         directory: &Path,
         run_id: uuid::Uuid,
+        provider: ModelProvider,
         region: &str,
         model_id: &str,
         profile_name: &str,
         reasoning_effort: &str,
-        provider_key: &str,
+        bedrock_key: &str,
+        cerebras_pool: Arc<CerebrasKeyPool>,
         maximum_concurrency: usize,
     ) -> Result<Self> {
         let run_directory = directory.join(run_id.to_string());
@@ -170,23 +327,32 @@ impl GatewayHandle {
 
         let token = random_token();
         let metrics = Arc::new(GatewayMetrics::default());
+        let http = reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(3))
+            .timeout(Duration::from_secs(20))
+            .pool_max_idle_per_host(maximum_concurrency)
+            .build()
+            .context("build Bedrock HTTP client")?;
+        let upstream = match provider {
+            ModelProvider::Bedrock => GatewayUpstream::Bedrock {
+                url: format!("https://bedrock-mantle.{region}.api.aws/openai/v1/chat/completions")
+                    .into(),
+                key: bedrock_key.to_owned().into(),
+                slots: Arc::new(Semaphore::new(maximum_concurrency)),
+            },
+            ModelProvider::Cerebras => GatewayUpstream::Cerebras {
+                pool: cerebras_pool,
+                preferred_key: Arc::new(AtomicUsize::new(NO_PREFERRED_KEY)),
+            },
+        };
         let state = GatewayState {
             token: token.clone().into(),
             model_id: model_id.to_owned().into(),
             profile_name: profile_name.to_owned().into(),
             reasoning_effort: reasoning_effort.to_owned().into(),
-            upstream_url: format!(
-                "https://bedrock-mantle.{region}.api.aws/openai/v1/chat/completions"
-            )
-            .into(),
-            provider_key: provider_key.to_owned().into(),
-            http: reqwest::Client::builder()
-                .connect_timeout(Duration::from_secs(3))
-                .timeout(Duration::from_secs(20))
-                .pool_max_idle_per_host(maximum_concurrency)
-                .build()
-                .context("build Bedrock HTTP client")?,
-            slots: Arc::new(Semaphore::new(maximum_concurrency)),
+            provider,
+            upstream,
+            http,
             metrics: metrics.clone(),
         };
         let router = Router::new()
@@ -252,11 +418,14 @@ async fn metrics_handler(State(state): State<GatewayState>, headers: HeaderMap) 
     let snapshot = state.metrics.snapshot();
     Json(json!({
         "requests": snapshot.requests,
+        "upstream_attempts": snapshot.upstream_attempts,
+        "rate_limits": snapshot.rate_limits,
         "errors": snapshot.errors,
         "input_tokens": snapshot.input_tokens,
         "output_tokens": snapshot.output_tokens,
         "latency_ms": snapshot.latency_ms,
         "completed_last_30s": snapshot.completed_last_30_seconds,
+        "key_requests": snapshot.key_requests,
     }))
     .into_response()
 }
@@ -271,7 +440,7 @@ async fn models(State(state): State<GatewayState>, headers: HeaderMap) -> Respon
             "id": state.profile_name.as_ref(),
             "object": "model",
             "created": 0,
-            "owned_by": "amazon-bedrock"
+            "owned_by": state.provider.as_str()
         }]
     }))
     .into_response()
@@ -289,45 +458,24 @@ async fn chat_completions(
         Ok(request) => request,
         Err(error) => return error_response(StatusCode::BAD_REQUEST, &error.to_string()),
     };
-    let permit = match tokio::time::timeout(Duration::from_secs(2), state.slots.acquire()).await {
-        Ok(Ok(permit)) => permit,
-        _ => return error_response(StatusCode::TOO_MANY_REQUESTS, "gateway concurrency is full"),
-    };
     let started = Instant::now();
-    let upstream = state
-        .http
-        .post(state.upstream_url.as_ref())
-        .bearer_auth(state.provider_key.as_ref())
-        .json(&request)
-        .send()
-        .await;
-    drop(permit);
-    let response = match upstream {
-        Ok(response) => response,
-        Err(_) => {
-            state.metrics.record(None, started.elapsed(), true);
-            return error_response(StatusCode::BAD_GATEWAY, "Bedrock request failed");
+    let value = match &state.upstream {
+        GatewayUpstream::Bedrock { url, key, slots } => {
+            send_bedrock(&state, url, key, slots, &request).await
         }
+        GatewayUpstream::Cerebras {
+            pool,
+            preferred_key,
+        } => send_cerebras(&state, pool, preferred_key, &request).await,
     };
-    let upstream_status = response.status();
-    let value = match response.json::<Value>().await {
+    let mut value = match value {
         Ok(value) => value,
-        Err(_) => {
+        Err((status, message)) => {
             state.metrics.record(None, started.elapsed(), true);
-            return error_response(StatusCode::BAD_GATEWAY, "Bedrock returned invalid JSON");
+            return error_response(status, message);
         }
     };
-    if !upstream_status.is_success() {
-        state.metrics.record(None, started.elapsed(), true);
-        let status = if upstream_status == reqwest::StatusCode::TOO_MANY_REQUESTS {
-            StatusCode::TOO_MANY_REQUESTS
-        } else {
-            StatusCode::BAD_GATEWAY
-        };
-        return error_response(status, "Bedrock rejected the request");
-    }
     state.metrics.record(Some(&value), started.elapsed(), false);
-    let mut value = value;
     if let Some(object) = value.as_object_mut() {
         object.insert(
             "model".into(),
@@ -336,11 +484,124 @@ async fn chat_completions(
     }
     let snapshot = state.metrics.snapshot();
     let mut response = Json(value).into_response();
-    response.headers_mut().insert(
-        "x-bedrock-completed-last-30s",
-        HeaderValue::from(snapshot.completed_last_30_seconds),
-    );
+    let completed = HeaderValue::from(snapshot.completed_last_30_seconds);
     response
+        .headers_mut()
+        .insert("x-bedrock-completed-last-30s", completed.clone());
+    response
+        .headers_mut()
+        .insert("x-model-completed-last-30s", completed);
+    response
+}
+
+async fn send_bedrock(
+    state: &GatewayState,
+    url: &str,
+    key: &str,
+    slots: &Arc<Semaphore>,
+    request: &Value,
+) -> std::result::Result<Value, (StatusCode, &'static str)> {
+    let permit = match tokio::time::timeout(Duration::from_secs(2), slots.acquire()).await {
+        Ok(Ok(permit)) => permit,
+        _ => return Err((StatusCode::TOO_MANY_REQUESTS, "gateway concurrency is full")),
+    };
+    state.metrics.record_attempt(None);
+    let response = state
+        .http
+        .post(url)
+        .bearer_auth(key)
+        .json(request)
+        .send()
+        .await
+        .map_err(|_| (StatusCode::BAD_GATEWAY, "Bedrock request failed"))?;
+    drop(permit);
+    if response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
+        state.metrics.record_rate_limit();
+        return Err((
+            StatusCode::TOO_MANY_REQUESTS,
+            "Bedrock rate limited the request",
+        ));
+    }
+    if !response.status().is_success() {
+        return Err((StatusCode::BAD_GATEWAY, "Bedrock rejected the request"));
+    }
+    response
+        .json::<Value>()
+        .await
+        .map_err(|_| (StatusCode::BAD_GATEWAY, "Bedrock returned invalid JSON"))
+}
+
+async fn send_cerebras(
+    state: &GatewayState,
+    pool: &CerebrasKeyPool,
+    preferred_key: &AtomicUsize,
+    request: &Value,
+) -> std::result::Result<Value, (StatusCode, &'static str)> {
+    let deadline = Instant::now() + Duration::from_secs(2);
+    let mut excluded = 0u64;
+    loop {
+        let preferred = preferred_key.load(Ordering::Relaxed);
+        let lease = loop {
+            if let Some(lease) = pool.try_acquire(preferred, excluded) {
+                break lease;
+            }
+            if Instant::now() >= deadline {
+                return Err((
+                    StatusCode::TOO_MANY_REQUESTS,
+                    "no Cerebras key is currently available",
+                ));
+            }
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        };
+        state.metrics.record_attempt(Some(lease.index));
+        let response = pool
+            .http
+            .post(pool.upstream_url.as_ref())
+            .bearer_auth(lease.key.credential.as_ref())
+            .json(request)
+            .send()
+            .await
+            .map_err(|_| (StatusCode::BAD_GATEWAY, "Cerebras request failed"))?;
+        if response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
+            state.metrics.record_rate_limit();
+            let cooldown = rate_limit_cooldown(response.headers(), pool.default_cooldown);
+            pool.cool_down(lease.index, cooldown);
+            excluded |= 1 << lease.index;
+            drop(lease);
+            if excluded.count_ones() as usize == pool.keys.len() {
+                return Err((
+                    StatusCode::TOO_MANY_REQUESTS,
+                    "all Cerebras keys are rate limited",
+                ));
+            }
+            continue;
+        }
+        if !response.status().is_success() {
+            return Err((StatusCode::BAD_GATEWAY, "Cerebras rejected the request"));
+        }
+        let value = response
+            .json::<Value>()
+            .await
+            .map_err(|_| (StatusCode::BAD_GATEWAY, "Cerebras returned invalid JSON"))?;
+        preferred_key.store(lease.index, Ordering::Relaxed);
+        return Ok(value);
+    }
+}
+
+fn rate_limit_cooldown(headers: &reqwest::header::HeaderMap, fallback: Duration) -> Duration {
+    ["retry-after", "x-ratelimit-reset-tokens-minute"]
+        .iter()
+        .find_map(|name| {
+            headers
+                .get(*name)?
+                .to_str()
+                .ok()?
+                .parse::<f64>()
+                .ok()
+                .filter(|seconds| seconds.is_finite() && *seconds >= 0.0)
+                .map(|seconds| Duration::from_secs_f64(seconds.clamp(0.1, 60.0)))
+        })
+        .unwrap_or(fallback)
 }
 
 fn authorized(state: &GatewayState, headers: &HeaderMap) -> bool {

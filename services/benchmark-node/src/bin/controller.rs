@@ -11,14 +11,13 @@ use benchmark_node::{
     academy::{AcademyClient, ApiError},
     config::ControllerConfig,
     fleet::FleetManager,
-    gateway::{GatewayHandle, GatewayMetrics},
+    gateway::{CerebrasKeyPool, GatewayHandle, GatewayMetrics},
     ndjson,
 };
 use benchmark_protocol::{
     ArcFramesRequest, BENCHMARK_VERSION, ExecutorEvent, ExecutorRequest, HarnessClaim,
     HarnessLeaseRequest, HarnessProgressRequest, HarnessResultRequest, HarnessStageRequest,
-    KaggleClaim, KaggleResultRequest, RUN_DEADLINE_SECONDS, bedrock_model_supports_images,
-    is_bedrock_model, is_builtin_harness,
+    KaggleClaim, KaggleResultRequest, RUN_DEADLINE_SECONDS, is_builtin_harness,
 };
 use chrono::Utc;
 use serde_json::json;
@@ -55,6 +54,8 @@ struct ControllerMetrics {
 struct ModelTotals {
     active: Option<Arc<GatewayMetrics>>,
     requests: u64,
+    upstream_attempts: u64,
+    rate_limits: u64,
     errors: u64,
     input_tokens: u64,
     output_tokens: u64,
@@ -64,6 +65,8 @@ struct ModelTotals {
 #[derive(Default)]
 struct ModelView {
     requests: u64,
+    upstream_attempts: u64,
+    rate_limits: u64,
     errors: u64,
     input_tokens: u64,
     output_tokens: u64,
@@ -83,6 +86,8 @@ impl ControllerMetrics {
         if let Some(gateway) = model.active.take() {
             let snapshot = gateway.snapshot();
             model.requests += snapshot.requests;
+            model.upstream_attempts += snapshot.upstream_attempts;
+            model.rate_limits += snapshot.rate_limits;
             model.errors += snapshot.errors;
             model.input_tokens += snapshot.input_tokens;
             model.output_tokens += snapshot.output_tokens;
@@ -95,6 +100,9 @@ impl ControllerMetrics {
         let active = model.active.as_ref().map(|gateway| gateway.snapshot());
         ModelView {
             requests: model.requests + active.as_ref().map_or(0, |value| value.requests),
+            upstream_attempts: model.upstream_attempts
+                + active.as_ref().map_or(0, |value| value.upstream_attempts),
+            rate_limits: model.rate_limits + active.as_ref().map_or(0, |value| value.rate_limits),
             errors: model.errors + active.as_ref().map_or(0, |value| value.errors),
             input_tokens: model.input_tokens
                 + active.as_ref().map_or(0, |value| value.input_tokens),
@@ -116,6 +124,7 @@ enum RunEnd {
 #[tokio::main]
 async fn main() -> Result<()> {
     let config = ControllerConfig::load().await?;
+    let cerebras_pool = Arc::new(CerebrasKeyPool::new(config.cerebras_api_keys.clone())?);
     let academy = AcademyClient::new(config.academy_base_url.clone(), config.worker_token.clone())
         .context("build Academy client")?;
     let fleet = match config.fleet.as_ref() {
@@ -140,7 +149,7 @@ async fn main() -> Result<()> {
     if let Some(fleet) = fleet.clone() {
         tokio::spawn(report_capacity(academy.clone(), fleet, metrics.clone()));
     }
-    run(&config, &academy, &metrics, fleet.as_ref()).await
+    run(&config, &academy, &metrics, fleet.as_ref(), &cerebras_pool).await
 }
 
 async fn run(
@@ -148,6 +157,7 @@ async fn run(
     academy: &AcademyClient,
     metrics: &Arc<ControllerMetrics>,
     fleet: Option<&FleetManager>,
+    cerebras_pool: &Arc<CerebrasKeyPool>,
 ) -> Result<()> {
     if drain_if_terminating(fleet, metrics).await? {
         return park_for_termination().await;
@@ -185,7 +195,7 @@ async fn run(
                     continue;
                 }
                 metrics.running.store(true, Ordering::Relaxed);
-                process_run(config, academy, metrics, claim).await;
+                process_run(config, academy, metrics, claim, cerebras_pool).await;
                 metrics.running.store(false, Ordering::Relaxed);
                 if release_work(fleet, metrics).await? {
                     return park_for_termination().await;
@@ -320,6 +330,7 @@ async fn process_run(
     academy: &AcademyClient,
     metrics: &Arc<ControllerMetrics>,
     claim: HarnessClaim,
+    cerebras_pool: &Arc<CerebrasKeyPool>,
 ) {
     if claim.benchmark_version != BENCHMARK_VERSION {
         post_run_result(
@@ -330,7 +341,7 @@ async fn process_run(
         .await;
         return;
     }
-    if !is_bedrock_model(&claim.model_id) {
+    if !claim.provider.supports_model(&claim.model_id) {
         post_run_result(
             academy,
             metrics,
@@ -339,7 +350,7 @@ async fn process_run(
         .await;
         return;
     }
-    if is_builtin_harness(&claim.repo_url) && !bedrock_model_supports_images(&claim.model_id) {
+    if is_builtin_harness(&claim.repo_url) && !claim.provider.supports_images(&claim.model_id) {
         post_run_result(
             academy,
             metrics,
@@ -354,11 +365,13 @@ async fn process_run(
     let gateway = match GatewayHandle::start(
         &config.gateway_directory,
         claim.id,
+        claim.provider,
         &config.aws_region,
         &claim.model_id,
         &claim.model_id,
         &config.reasoning_effort,
         &config.bedrock_api_key,
+        cerebras_pool.clone(),
         config.maximum_model_concurrency,
     )
     .await
@@ -813,6 +826,8 @@ async fn prometheus(State(metrics): State<Arc<ControllerMetrics>>) -> Response {
             "exposure_benchmark_fleet_errors_total {}\n",
             "exposure_benchmark_frames_dropped_total {}\n",
             "exposure_benchmark_model_requests_total {}\n",
+            "exposure_benchmark_model_upstream_attempts_total {}\n",
+            "exposure_benchmark_model_rate_limits_total {}\n",
             "exposure_benchmark_model_errors_total {}\n",
             "exposure_benchmark_model_input_tokens_total {}\n",
             "exposure_benchmark_model_output_tokens_total {}\n",
@@ -828,6 +843,8 @@ async fn prometheus(State(metrics): State<Arc<ControllerMetrics>>) -> Response {
         metrics.fleet_errors.load(Ordering::Relaxed),
         metrics.frames_dropped.load(Ordering::Relaxed),
         model.requests,
+        model.upstream_attempts,
+        model.rate_limits,
         model.errors,
         model.input_tokens,
         model.output_tokens,

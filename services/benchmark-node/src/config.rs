@@ -2,7 +2,7 @@ use anyhow::{Context, Result, bail};
 use aws_config::BehaviorVersion;
 use aws_sdk_secretsmanager::Client as SecretsClient;
 use serde::Deserialize;
-use std::{env, net::SocketAddr, path::PathBuf};
+use std::{collections::HashSet, env, net::SocketAddr, path::PathBuf};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Environment {
@@ -16,12 +16,15 @@ struct SecretDocument {
     worker_token: String,
     #[serde(alias = "BEDROCK_API_KEY")]
     bedrock_api_key: String,
+    #[serde(alias = "CEREBRAS_API_KEYS")]
+    cerebras_api_keys: Vec<String>,
 }
 
 pub struct ControllerConfig {
     pub academy_base_url: String,
     pub worker_token: String,
     pub bedrock_api_key: String,
+    pub cerebras_api_keys: Vec<String>,
     pub aws_region: String,
     pub reasoning_effort: String,
     pub maximum_model_concurrency: usize,
@@ -54,6 +57,7 @@ impl ControllerConfig {
             SecretDocument {
                 worker_token: env::var("WORKER_TOKEN").unwrap_or_default(),
                 bedrock_api_key: env::var("BEDROCK_API_KEY").unwrap_or_default(),
+                cerebras_api_keys: local_cerebras_keys(),
             }
         } else {
             load_secret(secret_id.trim(), &aws_region).await?
@@ -61,6 +65,7 @@ impl ControllerConfig {
         if secrets.worker_token.len() < 32 || secrets.bedrock_api_key.len() < 20 {
             bail!("worker and model credentials are missing or too short");
         }
+        validate_cerebras_keys(&secrets.cerebras_api_keys)?;
         let academy_base_url = required("ACADEMY_BASE_URL")?
             .trim_end_matches('/')
             .to_owned();
@@ -97,6 +102,7 @@ impl ControllerConfig {
             academy_base_url,
             worker_token: secrets.worker_token,
             bedrock_api_key: secrets.bedrock_api_key,
+            cerebras_api_keys: secrets.cerebras_api_keys,
             aws_region,
             reasoning_effort,
             maximum_model_concurrency,
@@ -181,6 +187,41 @@ fn value(name: &str, default: &str) -> String {
         .ok()
         .filter(|value| !value.trim().is_empty())
         .unwrap_or_else(|| default.to_owned())
+}
+
+fn split_api_keys(raw: &str) -> Vec<String> {
+    raw.split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(String::from)
+        .collect()
+}
+
+fn local_cerebras_keys() -> Vec<String> {
+    let combined = env::var("CEREBRAS_API_KEYS").unwrap_or_default();
+    if !combined.trim().is_empty() {
+        return split_api_keys(&combined);
+    }
+    [
+        "CEM_CEREBRAS_API_KEY",
+        "VARRO_CEREBRAS_API_KEY",
+        "EXPOSURE_CEREBRAS_API_KEY",
+        "TERMINUSEYE_CEREBRAS_API_KEY",
+    ]
+    .iter()
+    .filter_map(|name| env::var(name).ok())
+    .filter(|key| !key.trim().is_empty())
+    .collect()
+}
+
+fn validate_cerebras_keys(keys: &[String]) -> Result<()> {
+    if keys.len() != 4
+        || keys.iter().any(|key| key.len() < 20)
+        || keys.iter().collect::<HashSet<_>>().len() != keys.len()
+    {
+        bail!("CEREBRAS_API_KEYS must contain four distinct API keys")
+    }
+    Ok(())
 }
 
 fn required(name: &str) -> Result<String> {
@@ -291,5 +332,16 @@ mod tests {
                 metric_namespace: "Exposure/Benchmark".into(),
             }
         );
+    }
+
+    #[test]
+    fn cerebras_key_list_is_exact_and_distinct() {
+        let keys = split_api_keys(
+            "csk-11111111111111111111, csk-22222222222222222222,csk-33333333333333333333,csk-44444444444444444444",
+        );
+        assert_eq!(keys.len(), 4);
+        assert!(validate_cerebras_keys(&keys).is_ok());
+        assert!(validate_cerebras_keys(&keys[..3]).is_err());
+        assert!(validate_cerebras_keys(&vec![keys[0].clone(); 4]).is_err());
     }
 }

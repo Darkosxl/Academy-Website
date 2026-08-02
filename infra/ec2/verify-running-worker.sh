@@ -36,9 +36,12 @@ secret = json.loads(
     boto3.client("secretsmanager", region_name=config["AWS_REGION"])
     .get_secret_value(SecretId=config["BENCHMARK_SECRET_ID"])["SecretString"]
 )
-assert set(secret) == {"worker_token", "bedrock_api_key"}, "unexpected secret schema"
+assert set(secret) == {"worker_token", "bedrock_api_key", "cerebras_api_keys"}, "unexpected secret schema"
 assert len(secret["worker_token"]) >= 32, "worker token is too short"
 assert len(secret["bedrock_api_key"]) >= 20, "Bedrock API key is too short"
+assert len(secret["cerebras_api_keys"]) == 4, "exactly four Cerebras API keys are required"
+assert len(set(secret["cerebras_api_keys"])) == 4, "Cerebras API keys must be distinct"
+assert all(len(key) >= 20 for key in secret["cerebras_api_keys"]), "Cerebras API key is too short"
 PY
 
 runuser -u exposure-executor -- env \
