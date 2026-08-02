@@ -10,6 +10,7 @@ mod html;
 mod model;
 mod monopoly;
 mod portal;
+mod teams;
 
 use axum::extract::DefaultBodyLimit;
 use axum::{
@@ -27,6 +28,7 @@ use consent::*;
 use harness::*;
 use monopoly::*;
 use portal::*;
+use teams::*;
 
 #[derive(Clone)]
 pub struct App {
@@ -195,6 +197,7 @@ async fn main() {
         .route("/board/interest", post(board_interest))
         .route("/board/sites/{task_id}", get(board_sites))
         .route("/admin", get(admin_page))
+        .route("/admin/harness", get(admin_harness_page))
         .route("/admin/video", post(admin_video))
         .route("/admin/video/level", post(admin_video_level))
         .route("/admin/video/delete", post(admin_video_delete))
@@ -224,17 +227,14 @@ async fn main() {
         .route("/admin/prompts.txt", get(admin_prompts_txt))
         .route("/admin/invite", post(admin_rotate_invite))
         .route("/admin/submission/live", post(admin_submission_live))
-        .route("/admin/harness/team", post(admin_harness_team))
-        .route(
-            "/admin/harness/team/delete",
-            post(admin_harness_team_delete),
-        )
-        .route("/admin/harness/member", post(admin_harness_member))
-        .route(
-            "/admin/harness/member/remove",
-            post(admin_harness_member_remove),
-        )
         .route("/admin/harness/run/fail", post(admin_harness_run_fail))
+        // Takım formasyonu — harness team membership, split off /admin (teams.rs)
+        .route("/admin/takimlar", get(teams_page))
+        .route("/admin/takimlar/team", post(team_create))
+        .route("/admin/takimlar/team/rename", post(team_rename))
+        .route("/admin/takimlar/team/delete", post(team_delete))
+        .route("/admin/takimlar/member", post(member_assign))
+        .route("/admin/takimlar/member/remove", post(member_remove))
         .route("/admin/monopoly/team", post(admin_monopoly_team))
         .route(
             "/admin/monopoly/team/delete",

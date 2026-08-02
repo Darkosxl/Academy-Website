@@ -575,12 +575,20 @@ pub struct HarnessKaggleSubmission {
     pub updated_at: DateTime<Utc>,
 }
 
-/// Interim admin-side team management, bundled so `html::admin`'s signature grows
-/// by one parameter. Goes away when real team onboarding lands.
+/// Interim admin-side run management. Team membership moved to /admin/takimlar
+/// (`teams.rs`); what stays here is the stuck-run escape hatch.
 pub struct HarnessAdmin {
-    pub teams: Vec<HarnessTeam>,
-    pub members: Vec<TeamMemberRow>,
     pub active_runs: Vec<HarnessActiveRun>,
+}
+
+/// One draggable card on the Takım formasyonu board. `team_id` is `None` for a kid
+/// who is on no team — the state the board exists to make visible, and the one the
+/// admin dropdown could never show.
+#[derive(FromRow)]
+pub struct FormationKid {
+    pub id: Uuid,
+    pub display_name: String,
+    pub team_id: Option<Uuid>,
 }
 
 // ---- AI Monopoly ----

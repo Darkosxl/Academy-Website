@@ -194,6 +194,18 @@
 .portal .arcade .harness-countdown {
   font-family:var(--ah-mono); font-size:0.875rem; font-weight:600; color:var(--warn-text);
 }
+/* Bir takım arkadaşı zaten çalıştırıyorken gönderim denemesi: eskiden düz 400 sayfasıydı,
+   artık burada anlatılıyor ve izleme butonu veriliyor. */
+.portal .arcade .harness-busy {
+  display:flex; flex-direction:column; align-items:flex-start; gap:10px;
+  margin-bottom:14px; padding:12px 14px;
+  background:var(--warn-bg); border:1px solid var(--warn-border);
+  border-radius:var(--radius, 18px);
+}
+.portal .arcade .harness-busy p {
+  margin:0; font-size:var(--fs-xs); font-weight:600; color:var(--warn-text);
+}
+.portal .arcade .harness-watch { white-space:nowrap; }
 
 /* ---- leaderboard rows ---------------------------------------------------- */
 .portal .arcade .lb { gap:4px; }
