@@ -568,8 +568,13 @@ async fn verify_host(config: &ExecutorConfig) -> Result<()> {
         .output()
         .await
         .context("run podman info")?;
-    if !output.status.success() || String::from_utf8_lossy(&output.stdout).trim() != "true v2" {
-        bail!("executor requires rootless Podman with cgroup v2");
+    let expected = if std::env::var("HARNESS_PODMAN_ROOTFUL").as_deref() == Ok("1") {
+        "false v2"
+    } else {
+        "true v2"
+    };
+    if !output.status.success() || String::from_utf8_lossy(&output.stdout).trim() != expected {
+        bail!("executor requires Podman {expected}");
     }
     for command in ["bwrap", "socat", "docker", "pkill"] {
         let status = Command::new("sh")
