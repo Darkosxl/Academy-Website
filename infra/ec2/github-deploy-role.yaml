@@ -53,6 +53,17 @@ Resources:
                   - ec2:ModifyLaunchTemplate
                   - ec2:CreateTags
                 Resource: !Sub arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:launch-template/*
+              - Sid: UseWorkerLaunchTemplate
+                Effect: Allow
+                Action: ec2:RunInstances
+                Resource: '*'
+              - Sid: TagWorkerVolumes
+                Effect: Allow
+                Action: ec2:CreateTags
+                Resource: !Sub arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:volume/*
+                Condition:
+                  StringEquals:
+                    ec2:CreateAction: RunInstances
               - Sid: ReadAutoScalingState
                 Effect: Allow
                 Action:
@@ -62,6 +73,8 @@ Resources:
                 Effect: Allow
                 Action:
                   - autoscaling:CreateOrUpdateTags
+                  - autoscaling:DisableMetricsCollection
+                  - autoscaling:EnableMetricsCollection
                   - autoscaling:SetDesiredCapacity
                   - autoscaling:TerminateInstanceInAutoScalingGroup
                   - autoscaling:UpdateAutoScalingGroup
