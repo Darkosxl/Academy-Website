@@ -137,6 +137,10 @@ def main() -> None:
         assert not has_sequence(["--bind", str(work), str(work)])
         assert has_sequence(["--setenv", "DOCKER_CONFIG", str(docker_config)])
         assert "--unshare-net" in command
+        shell = command[-1]
+        assert str(runner.HARBOR_ROOT / "bin/python") in shell
+        assert str(runner.HARBOR_CLI) in shell
+        assert str(Path.home() / ".local/share/uv/python") not in command
 
     cleanup_calls = []
     original_subprocess_run = runner.subprocess.run

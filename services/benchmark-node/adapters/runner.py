@@ -1085,8 +1085,6 @@ def bubblewrap_harbor(
         "--unshare-ipc", "--unshare-net", "--ro-bind", "/", "/", "--tmpfs", "/home",
         "--dir", str(home), "--dir", str(home / ".local"), "--dir", str(home / ".local/share"),
         "--dir", str(home / ".local/share/uv"), "--dir", str(home / ".local/share/uv/tools"),
-        "--dir", str(home / ".local/share/uv/python"),
-        "--ro-bind", str(home / ".local/share/uv/python"), str(home / ".local/share/uv/python"),
         "--ro-bind", str(HARBOR_ROOT), str(HARBOR_ROOT), "--tmpfs", "/run",
         "--dir", "/run/harness", "--ro-bind", str(gateway.directory), "/run/harness",
         "--tmpfs", "/tmp", "--dir", str(sandbox_root),
@@ -1105,7 +1103,8 @@ def bubblewrap_harbor(
         "--chdir", str(repo_mount), "sh", "-lc",
         "mkdir -p /tmp/home && "
         "socat TCP-LISTEN:8000,bind=127.0.0.1,reuseaddr,fork UNIX-CONNECT:/run/harness/bedrock.sock & "
-        f"exec {shlex.quote(str(HARBOR_CLI))} run -p {shlex.quote(str(dataset_mount))} "
+        f"exec {shlex.quote(str(HARBOR_ROOT / 'bin/python'))} "
+        f"{shlex.quote(str(HARBOR_CLI))} run -p {shlex.quote(str(dataset_mount))} "
         "-a agent.harbor_agent:HarborAgent "
         f"-m openai/{BEDROCK_PROFILE_NAME} -n 5 -o {shlex.quote(str(jobs_mount))} "
         "-y --no-force-build "
