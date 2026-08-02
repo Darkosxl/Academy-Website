@@ -23,6 +23,8 @@ services:
     environment:
       ENVIRONMENT: PROD
       ACADEMY_BASE_URL: ${ACADEMY_BASE_URL:?Set the public Academy URL in Dokploy}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:?Set the AWS access key id in Dokploy}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:?Set the AWS secret access key in Dokploy}
       AWS_REGION: ${AWS_REGION:-us-east-1}
       BENCHMARK_SECRET_ID: ${BENCHMARK_SECRET_ID:?Set the AWS Secrets Manager secret id in Dokploy}
       BENCHMARK_METRICS_BIND: 127.0.0.1:9108
