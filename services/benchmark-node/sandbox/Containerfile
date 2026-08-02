@@ -1,0 +1,13 @@
+FROM docker.io/library/python:3.12.11-slim-bookworm
+
+RUN sed -i 's|http://|https://|g' /etc/apt/sources.list.d/debian.sources \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends build-essential git socat \
+    && rm -rf /var/lib/apt/lists/* \
+    && python -m pip install --no-cache-dir \
+       "arc-agi==0.9.9" "openai==2.44.0" "python-dotenv==1.2.2"
+
+COPY vendor/ARC-AGI-3-Agents /opt/arc-agents
+ENV PYTHONPATH=/opt/arc-agents \
+    MPLCONFIGDIR=/tmp/matplotlib
+WORKDIR /submission

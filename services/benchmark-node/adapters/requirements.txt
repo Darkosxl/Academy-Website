@@ -1,0 +1,4 @@
+# Legacy gateway dependencies. Production inference is implemented by the Rust controller;
+# this short file remains for old-worker rollback. Docker artifacts use requirements.lock.
+boto3==1.40.61
+openai==2.44.0

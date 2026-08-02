@@ -1,0 +1,693 @@
+/* ============================================================================
+   AGENTIC HARNESS — "Arcade" skin.
+
+   This file exists so style.css can stay byte-identical. Every rule below is
+   scoped to `.portal .arcade`, the wrapper harness_shell puts around the harness
+   content and nothing else, because most of the classes the harness uses are
+   shared: .lbrow/.lb/.lbnote/.avatar-fb belong to AI Monopoly and the
+   leaderboard too, and .harnesswrap/.harness-left/.harness-right are AI
+   Monopoly's as well (html.rs:1495-1497). A sheet that only matches .arcade
+   cannot reach a page that has no .arcade in it.
+
+   Loaded from inside the harness content, not from layout(), so layout() keeps
+   its exact output for every other page in the app.
+
+   Approach: override the design-system custom properties on .arcade first —
+   that re-skins .panel, .lbrow, .substatus and the inputs in one move, because
+   custom properties inherit only into this subtree — then add explicit rules
+   for the parts that are genuinely new (podium, board overlays, watch layout,
+   live preview).
+   ============================================================================ */
+
+.portal .arcade {
+  /* The ARC engine's own 16-colour palette, which is the point of the skin:
+     the boards are drawn in these colours, so the chrome uses them too. */
+  --ah-blue:#1E93FF; --ah-violet:#A356D6; --ah-pink:#E53AA3;
+  --ah-green:#4FCC30; --ah-red:#F93C31; --ah-yellow:#FFDC00;
+  --ah-cyan:#88D8F1; --ah-orange:#FF851B; --ah-silver:#88D8F1;
+  --ah-grad:linear-gradient(95deg, var(--ah-blue), var(--ah-violet));
+  --ah-mono:ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+  /* ---- design-system overrides, subtree-local ---- */
+  --bg-card:#191428;
+  --bg-card-solid:#221a35;
+  --bg-raised:#221a35;
+  --bg-raised-hover:#2f2547;
+  --border:#241d38;
+  --border-card:#2f2547;
+  --border-subtle:#241d38;
+  --border-input:#3d3159;
+  --border-strong:#3d3159;
+
+  --text:#f6f2ff;
+  --text-body:#d9cff0;
+  --text-muted:#a99cc4;
+  --text-subtle:#7a6d96;
+  --text-faint:#5d5275;
+
+  --blue:#1E93FF; --blue-hover:rgba(30,147,255,0.90);
+  --blue-text:#5fb3ff; --blue-soft:#88D8F1;
+  --blue-50:rgba(30,147,255,0.50); --blue-40:rgba(30,147,255,0.40);
+  --blue-30:rgba(30,147,255,0.30); --blue-25:rgba(30,147,255,0.25);
+  --blue-20:rgba(30,147,255,0.20); --blue-15:rgba(30,147,255,0.15);
+  --blue-10:rgba(30,147,255,0.10);
+
+  --ok:#4FCC30; --ok-text:#8be86f; --ok-text-2:#b6f5a4;
+  --ok-bg:rgba(79,204,48,0.12); --ok-border:rgba(79,204,48,0.32);
+  --err:#F93C31; --err-text:#ff7b72;
+  --err-bg:rgba(249,60,49,0.12); --err-border:rgba(249,60,49,0.32);
+  --warn-text:#FFDC00; --warn-text-2:#ffe95c;
+  --warn-bg:rgba(255,220,0,0.12); --warn-border:rgba(255,220,0,0.32);
+
+  --r-lg:0.5rem; --r-xl:0.75rem; --r-2xl:1.125rem;
+}
+
+/* [hidden] is a UA rule, so ANY author `display` beats it — .arc-live is
+   display:grid (style.css:886), which meant the main tab's offscreen player root
+   rendered at full size under the leaderboard. Restate it with enough specificity
+   to win. */
+.portal .arcade [hidden] { display:none; }
+
+/* The harness is its own world and needs the width; :has() keeps the rule from
+   matching any page that does not contain the wrapper. (style.css:1085 already
+   uses :has(), so this introduces no new browser assumption.) */
+.portal .portal-inner:has(> .arcade) { max-width:88rem; }
+/* .portal-main is a flex item, so min-width:auto stops it shrinking past its
+   content's min-content width — which is what let the history table push the
+   whole page 7px sideways at 1440 instead of scrolling inside its own panel. */
+.portal-main:has(.arcade) { min-width:0; }
+.portal-main:has(.arcade) {
+  background:
+    radial-gradient(1100px 560px at 18% -12%, rgba(30,147,255,0.10), transparent 62%),
+    radial-gradient(900px 500px at 88% -4%, rgba(163,86,214,0.11), transparent 58%),
+    #0b0812;
+}
+
+/* ---- header ------------------------------------------------------------- */
+.portal .arcade .pagetitle {
+  font-size:2.25rem; font-weight:800; letter-spacing:-0.035em; line-height:1.1;
+  margin-bottom:6px;
+  background:linear-gradient(95deg, var(--ah-blue), var(--ah-violet) 45%, var(--ah-pink));
+  -webkit-background-clip:text; background-clip:text; color:transparent;
+}
+.portal .arcade > .muted { font-size:0.9375rem; color:var(--text-muted); margin:2px 0 20px; }
+
+/* ---- tabs: the top-level .chips row becomes a segmented control ----------
+   Direct child only, so the benchmark filters and the member-name chips
+   further down are untouched by this. */
+.portal .arcade > .chips {
+  display:inline-flex; gap:2px; width:max-content; max-width:100%;
+  margin-bottom:24px; padding:4px; overflow-x:auto;
+  background:var(--bg-card); border:1px solid var(--border-card); border-radius:14px;
+}
+.portal .arcade > .chips .chip {
+  border:0; background:transparent; border-radius:11px;
+  padding:9px 18px; font-size:0.8125rem; font-weight:600;
+  color:var(--text-muted); white-space:nowrap;
+}
+.portal .arcade > .chips .chip:hover { color:var(--text); background:var(--bg-raised); }
+.portal .arcade > .chips .chip.active {
+  background:var(--ah-grad); color:#fff; box-shadow:0 4px 16px rgba(30,147,255,0.35);
+}
+
+/* ---- benchmark filters: underlined, so they can never read as navigation -- */
+.portal .arcade .harness-right > .chips {
+  display:flex; gap:24px; flex-wrap:wrap; padding:0; margin-bottom:18px;
+  border-bottom:1px solid var(--border-card);
+}
+.portal .arcade .harness-right > .chips .chip {
+  border:0; border-bottom:2px solid transparent; border-radius:0; background:none;
+  padding:0 0 10px; margin-bottom:-1px;
+  font-size:0.8125rem; font-weight:600; color:var(--text-muted);
+}
+.portal .arcade .harness-right > .chips .chip:hover { color:var(--text); background:none; }
+.portal .arcade .harness-right > .chips .chip.active {
+  color:var(--text); background:none; border-bottom-color:var(--ah-blue);
+}
+
+/* ---- panels / cards ----------------------------------------------------- */
+.portal .arcade .panel { border-radius:var(--r-2xl); padding:22px; }
+.portal .arcade .panel h2 {
+  font-size:1rem; font-weight:650; letter-spacing:-0.01em;
+  text-transform:none; color:var(--text); margin-bottom:12px;
+}
+.portal .arcade .btn-dark {
+  border-radius:12px; padding:12px 18px; font-weight:650;
+  background:var(--ah-grad); border-color:transparent; color:#fff;
+}
+.portal .arcade .btn-dark:hover { filter:brightness(1.08); background:var(--ah-grad); }
+.portal .arcade .btn-outline { border-radius:11px; }
+.portal .arcade input,
+.portal .arcade select,
+.portal .arcade textarea { border-radius:11px; }
+
+/* ---- main tab: submission and standings are ONE card ---------------------
+   They are not independent: what a team submits depends on which benchmark is
+   selected on the right, so splitting them into two floating cards implied a
+   choice that does not exist. One card, two zones, a rule between them.
+   minmax(0,1fr), never a bare 1fr: a bare 1fr keeps min-width:auto, so one long
+   commit sha or <pre> widens the track and pushes the whole page sideways.
+   overflow stays visible — .pod-you hangs 9px above its card. */
+.portal .arcade .harnesswrap {
+  display:grid; grid-template-columns:minmax(300px,344px) minmax(0,1fr);
+  gap:0; align-items:stretch; margin-top:16px; overflow:visible;
+  background:var(--bg-card); border:1px solid var(--border-card);
+  border-radius:var(--r-2xl);
+}
+.portal .arcade .harness-left {
+  width:auto; padding:22px; border-right:1px solid var(--border-card);
+}
+.portal .arcade .harness-right { min-width:0; padding:22px; }
+.portal .arcade .harness-left h2 {
+  font-size:1rem; font-weight:650; letter-spacing:-0.01em; color:var(--text); margin-bottom:12px;
+}
+/* Takım adı bir başlık gibi görünür ama input'tur: çocuk üstüne yazıp Enter'a basar
+   ya da başka yere tıklar. Ayrı bir "değiştir" butonu yok. */
+.portal .arcade .teamname { margin:0 0 12px; }
+.portal .arcade .teamname input {
+  width:100%; margin:0; padding:4px 8px; margin-left:-8px;
+  font-size:1rem; font-weight:650; letter-spacing:-0.01em; color:var(--text);
+  background:transparent; border:1px solid transparent; border-radius:8px;
+  cursor:text; transition:background 150ms, border-color 150ms;
+  text-overflow:ellipsis;
+}
+/* hover alone has to hint it is editable — there is no button to give that away */
+.portal .arcade .teamname input:hover { border-color:var(--line); background:rgba(255,255,255,0.03); }
+.portal .arcade .teamname input:focus {
+  outline:none; border-color:var(--accent); background:var(--surface2);
+}
+.portal .arcade .teamname-note { margin:-8px 0 12px; font-size:0.75rem; font-weight:600; }
+.portal .arcade .teamname-note.ok { color:var(--ok); }
+.portal .arcade .teamname-note.bad { color:var(--bad); }
+.portal .arcade .harness-left .subform { gap:12px; }
+/* the shipped overlap bug: .fieldnote carries margin:-10px (style.css:806) while
+   the submit button is width:100% (style.css:851), so the helper text lands on
+   top of the button. */
+.portal .arcade .harness-left .subform + .fieldnote { margin:16px 0 0; }
+
+/* ---- run stepper / benchmark cards --------------------------------------
+   Colour identity per benchmark rides on the background only. The border is
+   left alone on purpose so [data-status] (style.css:872-876) keeps owning it —
+   running/done/failed still read, now in the Arcade palette via the var
+   overrides above. */
+.portal .arcade .harness-benchmark { border-radius:16px; padding:14px 16px; }
+.portal .arcade .harness-benchmark[data-benchmark="arc"] {
+  background:linear-gradient(180deg, rgba(30,147,255,0.14), rgba(25,20,40,0.55)); }
+.portal .arcade .harness-benchmark[data-benchmark="frontier"] {
+  background:linear-gradient(180deg, rgba(229,58,163,0.14), rgba(25,20,40,0.55)); }
+.portal .arcade .harness-benchmark[data-benchmark="ram"] {
+  background:linear-gradient(180deg, rgba(79,204,48,0.14), rgba(25,20,40,0.55)); }
+.portal .arcade .harness-benchmark h3 { font-size:0.9375rem; font-weight:650; }
+.portal .arcade .harness-benchmark-grid { gap:12px; }
+.portal .arcade .substatus {
+  border-radius:999px; font-weight:650; letter-spacing:0.01em; padding:4px 10px;
+  white-space:nowrap;
+}
+/* the run header lives in a ~340px column now: let the countdown and Durdur drop
+   to their own line instead of squeezing the status pill onto two */
+.portal .arcade .harness-live-head { flex-wrap:wrap; row-gap:8px; }
+.portal .arcade .harness-live-actions { flex-wrap:wrap; row-gap:8px; }
+.portal .arcade .harness-repo,
+.portal .arcade .harness-run-meta { margin:0; }
+.portal .arcade .harness-countdown {
+  font-family:var(--ah-mono); font-size:0.875rem; font-weight:600; color:var(--warn-text);
+}
+/* Bir takım arkadaşı zaten çalıştırıyorken gönderim denemesi: eskiden düz 400 sayfasıydı,
+   artık burada anlatılıyor ve izleme butonu veriliyor. */
+.portal .arcade .harness-busy {
+  display:flex; flex-direction:column; align-items:flex-start; gap:10px;
+  margin-bottom:14px; padding:12px 14px;
+  background:var(--warn-bg); border:1px solid var(--warn-border);
+  border-radius:var(--radius, 18px);
+}
+.portal .arcade .harness-busy p {
+  margin:0; font-size:var(--fs-xs); font-weight:600; color:var(--warn-text);
+}
+.portal .arcade .harness-watch { white-space:nowrap; }
+
+/* ---- leaderboard rows ---------------------------------------------------- */
+.portal .arcade .lb { gap:4px; }
+.portal .arcade .lbrow { border-radius:12px; padding:12px 14px; }
+.portal .arcade .lbrank { font-family:var(--ah-mono); font-size:0.875rem; }
+.portal .arcade .lbpts {
+  font-family:var(--ah-mono); font-size:1.375rem; font-weight:700; letter-spacing:-0.02em;
+  color:var(--text);
+}
+.portal .arcade .lbmeta { font-family:var(--ah-mono); }
+.portal .arcade .lbrow.mine { box-shadow:inset 3px 0 0 var(--ah-blue); }
+
+/* ---- podium -------------------------------------------------------------
+   Top three, drawn once. No emoji: the rank badge is a numeral in a coloured
+   ring, so it is legible, translatable and screen-readable.
+   auto-fit, not repeat(3): dense_ranks_by (html.rs:527) ranks on the
+   display-rounded score, so ties are routine and a tie inside the top three
+   produces four or five cards. auto-fit gives 3 columns for 3 and 5 for 5. */
+.portal .arcade .podium {
+  display:grid; gap:12px; margin-bottom:20px; align-items:stretch;
+  grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));
+}
+/* The classic podium: gold in the middle and tallest, silver right, bronze left,
+   bottoms on one line so the tops step down. Visual only — `order` leaves the DOM
+   in rank order, which is what a screen reader and the tab key follow.
+   :has() gates it on EXACTLY three cards (third child is also the last): a tie
+   inside the top three yields four or five, and there is no pyramid shape for
+   that — those fall back to the plain auto-fit row above. */
+.portal .arcade .podium:has(> .pod:nth-child(3):last-child) { align-items:end; }
+.portal .arcade .podium:has(> .pod:nth-child(3):last-child) > .p3 { order:1; min-height:158px; }
+.portal .arcade .podium:has(> .pod:nth-child(3):last-child) > .p1 { order:2; min-height:206px; }
+.portal .arcade .podium:has(> .pod:nth-child(3):last-child) > .p2 { order:3; min-height:178px; }
+/* content sits at the bottom of the block so the extra height reads as a plinth */
+.portal .arcade .podium:has(> .pod:nth-child(3):last-child) > .pod {
+  display:flex; flex-direction:column; justify-content:flex-end;
+}
+.portal .arcade .pod {
+  position:relative; text-align:center; padding:20px 14px 18px; border-radius:16px;
+  background:var(--bg-card-solid); border:1px solid var(--border-card);
+}
+.portal .arcade .pod-rank {
+  display:grid; place-items:center; margin:0 auto 10px; width:34px; height:34px;
+  border-radius:999px; line-height:1;
+  font-family:var(--ah-mono); font-size:0.9375rem; font-weight:700;
+  color:var(--text-muted); background:var(--bg-card); border:2px solid var(--border-card);
+}
+/* first place is taller and gold-washed — that, not DOM order, is what makes it
+   read as first, so the cards can stay in reading order left to right */
+.portal .arcade .pod.p1 {
+  padding:30px 14px 26px; border-color:var(--ah-yellow);
+  background:linear-gradient(180deg, rgba(255,220,0,0.16), var(--bg-card-solid));
+}
+.portal .arcade .pod.p1 .pod-rank {
+  width:44px; height:44px; font-size:1.1875rem;
+  color:var(--ah-yellow); border-color:var(--ah-yellow);
+}
+.portal .arcade .pod.p2 {
+  border-color:var(--ah-silver);
+  background:linear-gradient(180deg, rgba(136,216,241,0.13), var(--bg-card-solid));
+}
+.portal .arcade .pod.p2 .pod-rank { color:var(--ah-silver); border-color:var(--ah-silver); }
+.portal .arcade .pod.p3 {
+  border-color:var(--ah-orange);
+  background:linear-gradient(180deg, rgba(255,133,27,0.13), var(--bg-card-solid));
+}
+.portal .arcade .pod.p3 .pod-rank { color:var(--ah-orange); border-color:var(--ah-orange); }
+.portal .arcade .pod .who { font-size:0.875rem; font-weight:650; color:var(--text); margin-bottom:2px; }
+.portal .arcade .pod .kids {
+  font-size:0.6875rem; color:var(--text-subtle); margin-bottom:10px;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.portal .arcade .pod .pts {
+  font-family:var(--ah-mono); font-size:1.625rem; font-weight:700;
+  font-variant-numeric:tabular-nums; color:var(--text);
+}
+.portal .arcade .pod .pts small { font-size:0.75rem; color:var(--text-subtle); margin-left:2px; }
+.portal .arcade .pod.p1 .pts { font-size:2.125rem; color:var(--ah-yellow); }
+.portal .arcade .pod.p2 .pts { color:var(--ah-silver); }
+.portal .arcade .pod.p3 .pts { color:var(--ah-orange); }
+/* a student in the top three has no list row left, so they must be findable here */
+.portal .arcade .pod.is-mine { box-shadow:0 0 0 2px var(--ah-blue); }
+.portal .arcade .pod-you {
+  position:absolute; top:-9px; left:50%; translate:-50% 0; white-space:nowrap;
+  font-size:0.625rem; font-weight:700; letter-spacing:0.06em;
+  padding:2px 9px; border-radius:999px; background:var(--ah-blue); color:#fff;
+}
+
+/* ---- ARC boards ---------------------------------------------------------- */
+.portal .arcade .arc-grid { grid-template-columns:repeat(auto-fill, minmax(190px, 1fr)); gap:14px; }
+.portal .arcade .arc-tile {
+  position:relative; border-radius:16px; border-width:2px;
+  transition:transform 120ms, border-color 150ms;
+}
+.portal .arcade .arc-tile:hover { transform:translateY(-3px); }
+.portal .arcade .arc-name {
+  font-family:var(--ah-mono); font-size:0.8125rem; font-weight:700;
+  text-transform:none; letter-spacing:0.02em;
+}
+.portal .arcade .arc-tile canvas { aspect-ratio:1; }
+
+/* The finished badge. Pure CSS on the existing tile: `content` is driven off the
+   data-state attribute arc.js already writes (arc.js:121), so there is no markup
+   change and no new JS contract. An absolutely positioned ::after never becomes
+   a grid item, so the tile's own grid is unaffected. */
+.portal .arcade .arc-tile[data-state="WIN"]::after,
+.portal .arcade .arc-tile[data-state="GAME_OVER"]::after {
+  position:absolute; top:10px; left:10px; right:10px; aspect-ratio:1;
+  display:grid; place-items:center; border-radius:8px; pointer-events:none;
+  font-size:clamp(11px, 2.2vw, 17px); font-weight:800; letter-spacing:0.1em;
+  text-align:center; line-height:1.1;
+}
+.portal .arcade .arc-tile[data-state="WIN"]::after {
+  content:"FINISHED"; color:#0d2b05; background:rgba(79,204,48,0.86);
+}
+.portal .arcade .arc-tile[data-state="GAME_OVER"]::after {
+  content:"GAME OVER"; color:#fff; background:rgba(249,60,49,0.84);
+}
+/* the five that are actually playing get a pulse instead of a label */
+.portal .arcade .arc-tile[data-state="NOT_FINISHED"] .arc-name::before {
+  content:""; display:inline-block; width:7px; height:7px; border-radius:999px;
+  background:var(--ah-cyan); margin-right:6px; vertical-align:middle;
+  animation:ah-livepulse 1.4s ease-in-out infinite;
+}
+@keyframes ah-livepulse { 50% { opacity:0.25; } }
+
+/* ---- the focused board (the player) -------------------------------------
+   #arc-focus holds exactly what arc.js builds into it — <canvas>,
+   <p class="arc-focus-meta">, the play/pause button and the range input. */
+.portal .arcade .arc-focus {
+  display:grid; grid-template-columns:auto minmax(0,1fr); gap:10px 12px;
+  align-content:start; justify-items:center; padding:16px; border-radius:var(--r-2xl);
+}
+/* 640 = 64 x 10 exactly. Integer upscale matters with image-rendering:pixelated —
+   a fractional factor gives some cells 8 device px and some 9, which is visible on
+   the engine's HUD strip. 768 (x12) also scales cleanly, but then the board plus
+   its caption and scrubber stop fitting one 1080p screen, which defeats the point
+   of a watch page. */
+.portal .arcade .arc-focus canvas {
+  grid-column:1 / -1; width:100%; max-width:640px; height:auto; aspect-ratio:1;
+  display:block; border-radius:10px;
+}
+.portal .arcade .arc-focus-meta {
+  grid-column:1 / -1; justify-self:start; margin:0;
+  font-family:var(--ah-mono); font-size:0.78125rem; color:var(--text-muted);
+  font-variant-numeric:tabular-nums;
+}
+.portal .arcade .arc-play {
+  width:38px; height:32px; display:grid; place-items:center; border-radius:9px;
+  font:inherit; font-size:0.75rem; cursor:pointer;
+  background:var(--bg-raised); color:var(--text); border:1px solid var(--border-card);
+}
+.portal .arcade .arc-play:hover { background:var(--bg-raised-hover); }
+.portal .arcade .arc-focus input[type="range"] {
+  width:100%; max-width:none; align-self:center; accent-color:var(--ah-blue);
+}
+
+/* ---- the cabinet ---------------------------------------------------------
+   arcprize.org frames a task as a pink handheld, so the focused board does too.
+   All CSS on the DOM arc.js already builds: no image, so it scales with the
+   board instead of pixelating next to it, and there is no asset to bust.
+   Scoped to .arc-live — Frontier, RAM and the leaderboard never see any of it. */
+.portal .arcade .arc-live {
+  /* the only place the pixel face is used. Swap the first name for a self-hosted
+     @font-face and the whole cabinet follows. */
+  --arc-pixel:"Silkscreen", var(--ah-mono);
+}
+/* 692 = 640 board + 28 shell padding + 20 bezel padding + 4 bezel border, so the canvas
+   still lands on 64 x 10 exactly. Anything else gives some cells 8 device px and some 9,
+   which image-rendering:pixelated makes visible on the engine's HUD strip. */
+.portal .arcade .arc-cab {
+  /* ---- skin: pink, the arcprize.org shell. arc.js writes data-skin per game, so a
+     game keeps its colour across polls, reloads and every kid watching it. Every
+     rule below reads these and nothing else, so a fourth shell is one more block. */
+  --cab-hi:#f492cd; --cab:#e0479f; --cab-lo:#b62d7d;
+  --cab-ink:#5d0e3c;
+  --cab-tex:rgba(255,255,255,0.05);
+  --cab-glow:rgba(160,20,105,0.35);
+  --cab-chip-bg:rgba(255,255,255,0.55); --cab-chip-br:rgba(93,14,60,0.35);
+  --cab-label:rgba(255,255,255,0.92);
+  --cab-key:linear-gradient(180deg, #f79ad2, #cf3b93);
+  --cab-keyshadow:rgba(120,10,75,0.4);
+  --cab-on:linear-gradient(180deg, #fff, #ffd7ee); --cab-on-ink:var(--cab-ink);
+  --cab-on-ring:rgba(255,255,255,0.9); --cab-on-halo:rgba(255,255,255,0.75);
+
+  /* the shell's width comes from the watch layout, not the viewport, so the bar has to
+     query itself — a media query would keep the wordmark in the 340px-wide replay column */
+  container-type:inline-size;
+  grid-column:1 / -1; width:100%; max-width:692px;
+  display:grid; gap:12px; padding:14px 14px 18px; border-radius:26px;
+  /* the faint crosshatch of the real shell, then the moulded highlight */
+  background:
+    repeating-linear-gradient(0deg, var(--cab-tex) 0 1px, transparent 1px 4px),
+    repeating-linear-gradient(90deg, var(--cab-tex) 0 1px, transparent 1px 4px),
+    linear-gradient(160deg, var(--cab-hi), var(--cab) 42%, var(--cab-lo));
+  box-shadow:
+    inset 0 2px 0 rgba(255,255,255,0.55), inset 0 -3px 0 rgba(0,0,0,0.18),
+    0 18px 40px var(--cab-glow);
+}
+/* neon green */
+.portal .arcade .arc-cab[data-skin="green"] {
+  --cab-hi:#b6f78e; --cab:#4FCC30; --cab-lo:#1f8f12;
+  --cab-ink:#0d3b03;
+  --cab-glow:rgba(40,150,20,0.35);
+  --cab-chip-br:rgba(13,59,3,0.35);
+  --cab-key:linear-gradient(180deg, #9cef72, #33a81c);
+  --cab-keyshadow:rgba(12,80,6,0.4);
+  --cab-on:linear-gradient(180deg, #fff, #e2ffcf);
+}
+/* Exposure: the site's own cream (--light-bg #FFFCF6), brand blue for ink and the
+   emerald from --ok for the lit key, because white-on-cream would not read. */
+.portal .arcade .arc-cab[data-skin="cream"] {
+  --cab-hi:#FFFCF6; --cab:#FDEEE0; --cab-lo:#F0D5BC;
+  --cab-ink:#0339A6;
+  --cab-tex:rgba(3,57,166,0.05);
+  --cab-glow:rgba(180,140,110,0.35);
+  --cab-chip-bg:rgba(255,255,255,0.80); --cab-chip-br:rgba(3,57,166,0.28);
+  --cab-label:#0339A6;
+  --cab-key:linear-gradient(180deg, #fff, #EBD8C6);
+  --cab-keyshadow:rgba(150,110,80,0.4);
+  --cab-on:linear-gradient(180deg, #34d399, #10b981); --cab-on-ink:#fff;
+  --cab-on-ring:rgba(16,185,129,0.55); --cab-on-halo:rgba(16,185,129,0.45);
+}
+/* 1fr auto 1fr, not space-between: the wordmark has to sit on the shell's centre line
+   however wide the id and the level chip happen to be. */
+.portal .arcade .cab-bar {
+  display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap:8px;
+}
+/* pinned, not auto-placed: hiding the wordmark below drops its item, and auto-placement
+   would slide the level chip into the vacated middle column instead of staying right */
+.portal .arcade .cab-id { grid-column:1; justify-self:start; }
+.portal .arcade .cab-mark { grid-column:2; }
+.portal .arcade .cab-level { grid-column:3; justify-self:end; }
+/* Printed on the shell, so no pill behind it — the highlight is the moulding catching
+   the light. The <i> is a 2x2 pixel block in the logo's own gradient stops, done with
+   box-shadow so it costs one element instead of four. */
+.portal .arcade .cab-mark {
+  display:inline-flex; align-items:center; gap:13px;
+  font-family:var(--arc-pixel); font-size:1.3125rem; letter-spacing:0.18em;
+  color:var(--cab-ink); text-shadow:0 1px 0 rgba(255,255,255,0.45);
+  white-space:nowrap; padding-left:0.18em;   /* offsets the trailing letter-space */
+}
+.portal .arcade .cab-mark i {
+  width:7px; height:7px; flex:none; background:#0339A6;
+  box-shadow:9px 0 0 #7C3AED, 0 9px 0 #7C3AED, 9px 9px 0 #E8763C;
+  margin-bottom:9px;   /* the block grows down and right, so lift it onto the baseline */
+}
+/* 409px is what the bar measures at: 62 id + 177 mark + 126 level + 16 gap + 28 shell
+   padding. Below that the id and the level are the two the student actually reads, so
+   the wordmark goes first rather than everything crushing. */
+@container (max-width: 408px) {
+  .portal .arcade .cab-mark { display:none; }
+}
+.portal .arcade .cab-id,
+.portal .arcade .cab-level {
+  font-family:var(--arc-pixel); font-size:0.75rem; letter-spacing:0.04em;
+  padding:5px 12px; border-radius:10px; color:var(--cab-ink);
+  background:var(--cab-chip-bg); border:1px solid var(--cab-chip-br);
+  font-variant-numeric:tabular-nums; white-space:nowrap;
+}
+.portal .arcade .cab-screen {
+  position:relative; padding:10px; border-radius:16px;
+  background:rgba(0,0,0,0.18); border:2px solid rgba(255,255,255,0.35);
+  box-shadow:inset 0 2px 6px rgba(0,0,0,0.35), 0 1px 0 rgba(255,255,255,0.4);
+}
+/* wins over `.arc-focus canvas` only by being later — same specificity, so this
+   block must stay below it in the file. */
+.portal .arcade .cab-screen canvas {
+  max-width:none; border-radius:8px; background:#000;
+}
+/* CRT scanlines. Sits over the canvas, never over a pointer. */
+.portal .arcade .cab-screen::after {
+  content:""; position:absolute; inset:10px; border-radius:8px; pointer-events:none;
+  background:repeating-linear-gradient(180deg, rgba(0,0,0,0.16) 0 1px, transparent 1px 3px);
+}
+.portal .arcade .cab-deck {
+  display:grid; grid-template-columns:auto minmax(0,1fr); gap:16px;
+  align-items:center; padding:2px 6px 0;
+}
+.portal .arcade .cab-pad {
+  display:grid; grid-template-columns:repeat(3, 26px); grid-template-rows:repeat(3, 26px);
+  gap:3px;
+}
+.portal .arcade .cab-key[data-act="ACTION1"] { grid-area:1 / 2; }
+.portal .arcade .cab-key[data-act="ACTION3"] { grid-area:2 / 1; }
+.portal .arcade .cab-key[data-act="ACTION4"] { grid-area:2 / 3; }
+.portal .arcade .cab-key[data-act="ACTION2"] { grid-area:3 / 2; }
+.portal .arcade .cab-key {
+  display:grid; place-items:center; border-radius:50%; font-style:normal;
+  font-size:0.625rem; line-height:1; color:var(--cab-label);
+  background:var(--cab-key);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.6), 0 2px 3px var(--cab-keyshadow);
+}
+.portal .arcade .cab-btns {
+  display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:7px 14px;
+}
+.portal .arcade .cab-pill {
+  display:flex; align-items:center; justify-content:flex-end; gap:8px;
+  font-family:var(--ah-mono); font-size:0.5625rem; font-weight:700;
+  letter-spacing:0.08em; color:var(--cab-label);
+}
+.portal .arcade .cab-lamp {
+  width:32px; height:13px; border-radius:999px; flex:none; background:var(--cab-key);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.55), 0 2px 3px var(--cab-keyshadow);
+}
+/* the move the agent just played */
+.portal .arcade .cab-key.on,
+.portal .arcade .cab-lamp.on {
+  background:var(--cab-on); color:var(--cab-on-ink);
+  box-shadow:0 0 0 2px var(--cab-on-ring), 0 0 14px var(--cab-on-halo);
+}
+/* ARC game ids are the one place the pixel face belongs outside the cabinet */
+.portal .arcade .arc-live .arc-name { font-family:var(--arc-pixel); font-size:0.6875rem; }
+
+/* ---- watch mode ---------------------------------------------------------
+   Player left, one scrolling column of sessions right. arc.js adds .watching
+   once a game is focused, so the two-column layout never appears with an empty
+   left half. Source order already puts #arc-focus before #arc-boards
+   (html.rs:962-963), so an LTR grid gives player-left with no `order:` hack. */
+.portal .arcade .arc-live.watching {
+  display:grid; grid-template-columns:minmax(0,1fr) 340px; gap:16px; align-items:start;
+}
+.portal .arcade .arc-live.watching > .arc-run,
+.portal .arcade .arc-live.watching > .arc-idle { grid-column:1 / -1; }
+.portal .arcade .arc-live.watching #arc-boards {
+  grid-template-columns:minmax(0,1fr); gap:8px;
+  max-height:min(760px, calc(100vh - 210px));
+  overflow-y:auto; overscroll-behavior:contain; padding-right:4px;
+}
+/* each tile flips to a row: the canvas spans both text rows, name and meta
+   auto-place beside it */
+.portal .arcade .arc-live.watching .arc-tile {
+  grid-template-columns:84px minmax(0,1fr); column-gap:10px; row-gap:2px;
+  align-content:center; padding:8px;
+}
+.portal .arcade .arc-live.watching .arc-tile:hover { transform:none; }
+.portal .arcade .arc-live.watching .arc-tile canvas { grid-row:1 / 3; }
+.portal .arcade .arc-live.watching .arc-tile[data-state="WIN"]::after,
+.portal .arcade .arc-live.watching .arc-tile[data-state="GAME_OVER"]::after {
+  right:auto; width:84px; top:8px; left:8px; font-size:9.5px; letter-spacing:0.04em;
+}
+.portal .arcade .arc-run {
+  padding:12px 16px; border-radius:var(--r-2xl);
+  background:var(--bg-card); border:1px solid var(--border-card);
+}
+.portal .arcade .arc-run .fieldnote { margin:0; font-family:var(--ah-mono); }
+.portal .arcade .arc-idle { border-radius:var(--r-2xl); }
+
+/* ---- main tab live preview ----------------------------------------------
+   One board, animating, and the whole card is the link to the Canlı tab. */
+.portal .arcade .ah-preview {
+  display:block; margin-top:18px; color:inherit; text-decoration:none;
+  transition:border-color 150ms;
+}
+.portal .arcade .ah-preview:hover { border-color:var(--blue-40); }
+.portal .arcade .ah-preview-head {
+  display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px;
+}
+.portal .arcade .ah-preview-head h2 { margin:0; }
+.portal .arcade .ah-prev {
+  display:grid; grid-template-columns:minmax(0,360px) minmax(0,1fr); gap:20px; align-items:center;
+}
+.portal .arcade .ah-prev-board { position:relative; }
+.portal .arcade .ah-prev-board canvas {
+  width:100%; height:auto; aspect-ratio:1; display:block;
+  image-rendering:pixelated; background:#000; border-radius:12px;
+}
+.portal .arcade .ah-prev-live {
+  position:absolute; top:10px; left:10px; display:inline-flex; align-items:center; gap:6px;
+  font-size:0.6875rem; font-weight:700; letter-spacing:0.1em;
+  padding:4px 9px; border-radius:7px; background:var(--ah-red); color:#fff;
+}
+.portal .arcade .ah-prev-live::before {
+  content:""; width:6px; height:6px; border-radius:999px; background:#fff;
+  animation:ah-livepulse 1.4s ease-in-out infinite;
+}
+.portal .arcade .ah-prev-side h3 {
+  margin:0 0 4px; font-family:var(--ah-mono); font-size:1.25rem; font-weight:650; color:var(--text);
+}
+.portal .arcade .ah-prev-side .arc-focus-meta { margin:0 0 16px; }
+.portal .arcade .ah-counts { display:flex; gap:22px; margin-bottom:18px; flex-wrap:wrap; }
+.portal .arcade .ah-counts span {
+  display:flex; flex-direction:column; font-size:0.71875rem; color:var(--text-subtle);
+}
+.portal .arcade .ah-counts b {
+  font-family:var(--ah-mono); font-size:1.375rem; font-weight:650; color:var(--text);
+  font-variant-numeric:tabular-nums;
+}
+.portal .arcade .ah-cta {
+  display:inline-flex; align-items:center; justify-content:center;
+  padding:11px 18px; border-radius:12px; font-size:0.875rem; font-weight:650;
+  background:var(--ah-grad); color:#fff;
+}
+
+/* ---- history table ------------------------------------------------------- */
+.portal .arcade .panel.wide { padding:0; overflow-x:auto; }
+.portal .arcade .panel.wide table { min-width:900px; }
+.portal .arcade .panel.wide th {
+  background:var(--bg-card-solid); padding:12px 14px; white-space:nowrap;
+}
+.portal .arcade .panel.wide td { padding:12px 14px; vertical-align:top; }
+.portal .arcade code { font-family:var(--ah-mono); }
+
+/* ---- instructions -------------------------------------------------------
+   .admingrid is auto-fit minmax(300px,1fr), which chops the rules into three
+   columns of prose at this width. One readable measure instead. */
+.portal .arcade .admingrid.stack { grid-template-columns:minmax(0,1fr); max-width:80ch; }
+.portal .arcade .admingrid.stack .panel h2 { font-size:1.1875rem; margin-bottom:14px; }
+.portal .arcade .plan-pre { max-width:none; }
+
+/* ============================================================================
+   RESPONSIVE — one block, last in the file, every selector .arcade-scoped.
+   Kept together on purpose: a media query declared before a same-specificity
+   rule loses to it, which is exactly how three of the mockup's 390px layouts
+   broke. Overriding .harnesswrap above also outranks style.css:753's mobile
+   stack, so that has to be restated here.
+   ========================================================================= */
+@media (prefers-reduced-motion: reduce) {
+  .portal .arcade .arc-tile[data-state="NOT_FINISHED"] .arc-name::before,
+  .portal .arcade .ah-prev-live::before { animation:none; }
+  .portal .arcade .arc-tile:hover { transform:none; }
+}
+@media (max-width:1280px) {
+  .portal .arcade .harnesswrap { grid-template-columns:288px minmax(0,1fr); }
+  .portal .arcade .harness-left,
+  .portal .arcade .harness-right { padding:18px; }
+}
+@media (max-width:1100px) {
+  .portal .arcade .arc-live.watching { grid-template-columns:minmax(0,1fr); }
+  .portal .arcade .arc-live.watching #arc-boards {
+    grid-template-columns:repeat(auto-fill, minmax(150px, 1fr));
+    max-height:none; overflow:visible; padding-right:0;
+  }
+  .portal .arcade .arc-live.watching .arc-tile { grid-template-columns:minmax(0,1fr); row-gap:5px; }
+  .portal .arcade .arc-live.watching .arc-tile canvas { grid-row:auto; }
+  .portal .arcade .arc-live.watching .arc-tile[data-state="WIN"]::after,
+  .portal .arcade .arc-live.watching .arc-tile[data-state="GAME_OVER"]::after {
+    right:10px; left:10px; top:10px; width:auto;
+    font-size:clamp(11px, 2.2vw, 17px); letter-spacing:0.1em;
+  }
+}
+@media (max-width:1000px) {
+  /* stacked, so the rule between the two zones has to move to the bottom edge */
+  .portal .arcade .harnesswrap { grid-template-columns:minmax(0,1fr); }
+  .portal .arcade .harness-left {
+    border-right:0; border-bottom:1px solid var(--border-card);
+  }
+}
+@media (max-width:900px) {
+  /* one column: the pyramid has nowhere to stand, and out-of-order cards in a
+     vertical list just read as wrong. The reset has to repeat the :has() —
+     :has() takes the specificity of its argument, so a plain `.podium > .pod`
+     would lose to the pyramid rules above instead of overriding them. */
+  .portal .arcade .podium { grid-template-columns:minmax(0,1fr); }
+  .portal .arcade .podium:has(> .pod:nth-child(3):last-child) > .pod {
+    order:0; min-height:0;
+  }
+  .portal .arcade .pod.p1 { padding:20px 14px 18px; }
+}
+@media (max-width:820px) {
+  .portal .arcade .ah-prev { grid-template-columns:minmax(0,1fr); }
+}
+@media (max-width:620px) {
+  .portal .arcade .pagetitle { font-size:1.75rem; }
+  .portal .arcade > .chips { width:100%; }
+  .portal .arcade .arc-grid { grid-template-columns:repeat(auto-fill, minmax(110px, 1fr)); gap:8px; }
+  .portal .arcade .panel { padding:16px; }
+}

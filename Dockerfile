@@ -1,26 +1,21 @@
-# ---- builder ----
-FROM rust:1-slim-bookworm AS builder
+# Backward-compatible Academy image. Build from the repository root.
+FROM rust:1.95.0-slim-bookworm AS builder
 WORKDIR /app
 
-# cache deps
 COPY Cargo.toml Cargo.lock ./
-RUN mkdir src && echo "fn main() {}" > src/main.rs
-RUN cargo build --release && rm -rf src
+COPY crates ./crates
+COPY services ./services
+RUN cargo build --locked --release -p academy
 
-# real source
-COPY src ./src
-COPY migrations ./migrations
-COPY videos.dat ./
-RUN touch src/main.rs && cargo build --release
-
-# ---- runtime ----
 FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
-    && useradd -m -u 1000 app
+    && useradd --create-home --uid 1000 app
 WORKDIR /app
 COPY --from=builder /app/target/release/academy ./academy
-COPY static ./static
+# CARGO_MANIFEST_DIR is embedded in the binary, so preserve its build-time asset path.
+COPY services/academy/static ./services/academy/static
 
 USER app
 ENV BIND=0.0.0.0:3000

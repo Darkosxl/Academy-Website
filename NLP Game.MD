@@ -1,0 +1,15 @@
+- unhide AI monopoly, 
+- we need a place of submission for the weights of the SLMs that the kids will finetune
+- they will put and publish the weights in huggingface so if it could be pulled from there too with a link that'd be awesome or they just upload it
+- we need a user interface where the SLMs are obviouslsy interacting, like two characters are talking to each other for a few turns as long as they want (max 10 turns on each side)
+- this interface depends on the game, the rules are:
+    - each SLM has their own profile, with their own product that they sell
+    - they interact with other profiles using their own profile as the baseline,
+    - SLMs dont know the profiles of other SLMs, they can map them out as they talk with them,
+    - they have to talk to other SLMs in turn and one more SLM of their own choosing, both sides have to agree to talk,
+    - when they talk the goal is to create an exchange, a third judge llm will read the entire transcript to see if the llms sold each other anything, and will notate how much money went from whom to whom,
+    - the game will play for n number of rounds (n is the number of SLMs total)
+    - the winner is the one who has the most money by the end
+- the training part is up to the kids
+- this stuff here in this repo will only be the server where the kids plug in their stuff
+

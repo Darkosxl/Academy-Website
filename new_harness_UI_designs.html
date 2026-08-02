@@ -1,0 +1,1365 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agentic Harness — 4 tasarım yönü</title>
+<style>
+/* ============================================================================
+   MOCKUP CHROME — not part of any design. The dark bar at the top is the
+   review harness itself; everything below the bar is the candidate design.
+   ========================================================================= */
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  font-family: "Geist", system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: #08080a;
+  color: #fff;
+  -webkit-font-smoothing: antialiased;
+}
+.mk-bar {
+  position: sticky; top: 0; z-index: 100;
+  display: flex; flex-wrap: wrap; gap: 18px; align-items: center;
+  padding: 10px 18px;
+  background: #17171c;
+  border-bottom: 1px solid #2e2e38;
+  box-shadow: 0 6px 24px rgba(0,0,0,.5);
+}
+.mk-group { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.mk-label {
+  font-size: 10px; letter-spacing: .14em; text-transform: uppercase;
+  color: #7a7a8c; font-weight: 600; margin-right: 2px;
+}
+.mk-btn {
+  font: inherit; font-size: 12.5px; font-weight: 550;
+  padding: 6px 12px; border-radius: 7px; cursor: pointer;
+  background: #26262e; color: #c9c9d6; border: 1px solid #35353f;
+}
+.mk-btn:hover { background: #2f2f39; color: #fff; }
+.mk-btn[aria-pressed="true"] { background: #f0f0f5; color: #111; border-color: #f0f0f5; }
+.mk-note { font-size: 11.5px; color: #63636f; margin-left: auto; }
+.mk-note b { color: #9a9aa8; font-weight: 600; }
+
+/* fake app shell so the harness is judged in its real surroundings */
+.mk-shell { display: grid; grid-template-columns: 220px 1fr; min-height: calc(100vh - 49px); }
+.mk-side {
+  background: #0d0d10; border-right: 1px solid #1e1e26;
+  padding: 18px 12px; display: flex; flex-direction: column; gap: 4px;
+}
+.mk-brand { padding: 6px 10px 20px; }
+.mk-wordmark { font-size: 20px; font-weight: 700; letter-spacing: -.02em;
+  background: linear-gradient(90deg,#4f8dff,#c05bff 55%,#ff5b9e);
+  -webkit-background-clip: text; background-clip: text; color: transparent; }
+.mk-tag { display:block; font-size:9.5px; letter-spacing:.16em; text-transform:uppercase;
+  color:#4f8dff; font-weight:700; margin-top:3px; }
+.mk-nav { display:flex; align-items:center; gap:10px; padding:8px 10px; border-radius:8px;
+  font-size:13.5px; color:#8b8b99; text-decoration:none; }
+.mk-nav:hover { color:#d5d5e0; background:#15151a; }
+.mk-nav.on { color:#fff; background:#1b1b22; }
+.mk-nav .dot { width:15px; height:15px; border-radius:4px; background:#2c2c36; flex:none; }
+.mk-nav.on .dot { background:#4f8dff; }
+.mk-sechead { font-size:9.5px; letter-spacing:.16em; text-transform:uppercase; color:#4a4a56;
+  padding:18px 10px 6px; font-weight:700; }
+.mk-stage { min-width: 0; }          /* lets the design decide its own width */
+
+@media (max-width: 900px) {
+  .mk-shell { grid-template-columns: 1fr; }
+  .mk-side { display: none; }
+}
+
+/* ============================================================================
+   SHARED HARNESS STRUCTURE
+   Every design uses the SAME markup and the same JS hooks that ship today
+   (#harness-live, [data-benchmark], #arc-boards, .substatus st-*). Designs
+   differ by redefining tokens and a handful of layout rules below.
+   ========================================================================= */
+.h {
+  --bg:#0b0b0e; --surface:#141419; --surface2:#1a1a21; --line:#26262f;
+  --text:#f4f4f7; --muted:#8f8fa0; --dim:#63636f;
+  --accent:#3b82f6; --accent-ink:#fff;
+  --ok:#4ade80; --warn:#fbbf24; --bad:#f87171; --run:#60a5fa;
+  --radius:12px; --pad:28px; --maxw:none;
+  --mono:"Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: var(--bg); color: var(--text);
+  min-height: 100%; padding: var(--pad);
+}
+.h-inner { max-width: var(--maxw); margin: 0 auto; }
+
+/* --- header ------------------------------------------------------------- */
+.h-head { margin-bottom: 22px; }
+.h-title { font-size: 30px; font-weight: 680; letter-spacing:-.025em; margin:0 0 5px; }
+.h-sub { margin:0; color: var(--muted); font-size: 14px; }
+
+/* --- tabs: a segmented control, visually distinct from filter chips ------ */
+.h-tabs { display:flex; gap:2px; margin:20px 0 24px; padding:3px;
+  background: var(--surface); border:1px solid var(--line); border-radius:10px;
+  width:max-content; max-width:100%; overflow-x:auto; }
+.h-tab { font:inherit; font-size:13px; font-weight:550; white-space:nowrap;
+  padding:7px 15px; border-radius:7px; border:0; background:transparent;
+  color: var(--muted); cursor:pointer; }
+.h-tab:hover { color: var(--text); }
+.h-tab.on { background: var(--accent); color: var(--accent-ink); }
+
+/* --- filter chips: underlined, so they can never be read as navigation --- */
+.h-filters { display:flex; gap:22px; border-bottom:1px solid var(--line); margin-bottom:18px; }
+.h-filter { font:inherit; font-size:13px; font-weight:550; padding:0 0 10px;
+  border:0; border-bottom:2px solid transparent; background:none;
+  color: var(--muted); cursor:pointer; margin-bottom:-1px; }
+.h-filter:hover { color: var(--text); }
+.h-filter.on { color: var(--text); border-bottom-color: var(--accent); }
+
+/* --- cards -------------------------------------------------------------- */
+.card { background: var(--surface); border:1px solid var(--line);
+  border-radius: var(--radius); padding: 20px; }
+.card-h { display:flex; align-items:center; justify-content:space-between;
+  gap:12px; margin:0 0 14px; }
+.card-h h2 { font-size:15px; font-weight:620; margin:0; letter-spacing:-.01em; }
+.card-h h3 { font-size:14px; font-weight:600; margin:0; }
+
+/* --- status pills: the shipped .substatus contract ---------------------- */
+.substatus { display:inline-block; font-size:11px; font-weight:600; white-space:nowrap;
+  padding:3px 9px; border-radius:99px; border:1px solid transparent; }
+.st-pending  { color:var(--muted); background:color-mix(in srgb,var(--muted) 14%,transparent);
+               border-color:color-mix(in srgb,var(--muted) 30%,transparent); }
+.st-reviewing{ color:var(--run);  background:color-mix(in srgb,var(--run) 14%,transparent);
+               border-color:color-mix(in srgb,var(--run) 32%,transparent); }
+.st-passed   { color:var(--ok);   background:color-mix(in srgb,var(--ok) 14%,transparent);
+               border-color:color-mix(in srgb,var(--ok) 32%,transparent); }
+.st-failed   { color:var(--bad);  background:color-mix(in srgb,var(--bad) 14%,transparent);
+               border-color:color-mix(in srgb,var(--bad) 32%,transparent); }
+
+/* --- main tab layout ---------------------------------------------------- */
+/* every 1fr track is minmax(0,1fr): a bare 1fr keeps min-width:auto, so one
+   long commit sha or <pre> can widen the track and push the page sideways */
+.h-main { display:grid; grid-template-columns: minmax(320px,380px) minmax(0,1fr); gap:20px;
+  align-items:start; }
+.h-main > *, .h-body > *, .doc > * { min-width:0; }
+
+/* submit form. The fix for the shipped overlap bug is here: the form is a
+   flow column with real gaps, and the helper text is a sibling with margin,
+   so a button can never land on top of it. */
+.subform { display:flex; flex-direction:column; gap:12px; }
+.field { display:flex; flex-direction:column; gap:6px; }
+.field > span { font-size:11px; font-weight:600; letter-spacing:.06em;
+  text-transform:uppercase; color:var(--dim); }
+.subform input, .subform select {
+  font:inherit; font-size:13.5px; width:100%;
+  padding:10px 12px; border-radius:9px;
+  background: var(--surface2); color: var(--text);
+  border:1px solid var(--line);
+}
+.subform input::placeholder { color: var(--dim); }
+.subform input:focus, .subform select:focus {
+  outline:none; border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.btn { font:inherit; font-size:13.5px; font-weight:600; cursor:pointer;
+  display:inline-flex; align-items:center; justify-content:center;
+  text-decoration:none; white-space:nowrap;
+  padding:11px 16px; border-radius:9px; border:1px solid transparent;
+  background: var(--accent); color: var(--accent-ink); }
+.btn:hover { filter:brightness(1.08); }
+.btn-ghost { background:transparent; color:var(--text); border-color:var(--line); }
+.btn-ghost:hover { background:var(--surface2); filter:none; }
+.btn-sm { padding:5px 10px; font-size:12px; border-radius:7px; }
+.helper { margin:14px 0 0; font-size:12px; line-height:1.55; color:var(--dim); }
+.helper a { color:var(--muted); }
+
+.members { display:flex; flex-wrap:wrap; gap:6px; margin:0 0 16px; }
+/* emails are long: cap them so the card can never be stretched by data */
+.member { display:inline-flex; align-items:center; gap:6px; max-width:100%;
+  font-size:12px; color:var(--muted);
+  background:var(--surface2); border:1px solid var(--line);
+  padding:4px 9px 4px 4px; border-radius:99px; }
+.member i { width:18px; height:18px; border-radius:99px; flex:none; font-style:normal;
+  display:grid; place-items:center; font-size:9.5px; font-weight:700;
+  background:var(--accent); color:var(--accent-ink); }
+.member b { font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+/* --- leaderboard -------------------------------------------------------- */
+.lb { display:flex; flex-direction:column; }
+.lbrow { display:grid; grid-template-columns:34px 30px 1fr auto auto; gap:12px;
+  align-items:center; padding:11px 12px; border-radius:9px; }
+.lbrow + .lbrow { border-top:1px solid var(--line); border-radius:0; }
+.lbrow.mine { background:color-mix(in srgb,var(--accent) 10%,transparent);
+  box-shadow: inset 2px 0 0 var(--accent); }
+.lbrank { font-family:var(--mono); font-size:13px; font-weight:600; color:var(--dim);
+  font-variant-numeric:tabular-nums; }
+.lbrow.m1 .lbrank{color:#fbbf24}.lbrow.m2 .lbrank{color:#cbd5e1}.lbrow.m3 .lbrank{color:#d19a66}
+.lbav { width:28px; height:28px; border-radius:99px; display:grid; place-items:center;
+  font-size:11.5px; font-weight:700; background:var(--surface2); color:var(--muted);
+  border:1px solid var(--line); }
+.lbname { font-size:14px; font-weight:550; min-width:0; }
+.lbname small { display:block; font-size:11.5px; font-weight:400; color:var(--dim);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.lbmeta { font-size:12px; color:var(--dim); font-family:var(--mono);
+  font-variant-numeric:tabular-nums; }
+.lbpts { font-family:var(--mono); font-size:19px; font-weight:600;
+  font-variant-numeric:tabular-nums; letter-spacing:-.02em; }
+.lbpts small { font-size:11px; font-weight:500; color:var(--dim); margin-left:2px; }
+.lbnote { margin:16px 0 0; font-size:12px; line-height:1.6; color:var(--dim); }
+
+/* --- empty states: a real state, not one grey sentence ------------------ */
+.empty { display:flex; flex-direction:column; align-items:center; gap:10px;
+  text-align:center; padding:52px 24px;
+  border:1px dashed var(--line); border-radius:var(--radius); }
+.empty .glyph { width:44px; height:44px; border-radius:12px; display:grid; place-items:center;
+  background:var(--surface2); color:var(--dim); font-size:20px; }
+.empty h3 { margin:0; font-size:15px; font-weight:600; }
+.empty p { margin:0; font-size:13px; color:var(--dim); max-width:44ch; line-height:1.6; }
+
+/* --- run stepper -------------------------------------------------------- */
+.runbar { display:flex; flex-wrap:wrap; align-items:center; gap:14px;
+  padding:14px 18px; border-radius:var(--radius);
+  background:var(--surface); border:1px solid var(--line); margin-bottom:16px; }
+.runbar .sep { width:1px; height:20px; background:var(--line); }
+.runmeta { font-size:12px; color:var(--dim); font-family:var(--mono); }
+.runmeta b { color:var(--muted); font-weight:500; }
+.countdown { margin-left:auto; font-family:var(--mono); font-size:15px; font-weight:600;
+  font-variant-numeric:tabular-nums; color:var(--warn); }
+.bench-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:14px; }
+.bench { background:var(--surface); border:1px solid var(--line);
+  border-radius:var(--radius); padding:16px; }
+.bench[data-status="running"] { border-color:color-mix(in srgb,var(--run) 45%,var(--line)); }
+.bench[data-status="infra_failed"], .bench[data-status="failed"] {
+  border-color:color-mix(in srgb,var(--bad) 45%,var(--line)); }
+.bench-rule { margin:0 0 12px; font-size:12px; color:var(--dim); }
+.bench-progress { margin:0; font-size:12.5px; color:var(--muted); line-height:1.6; }
+/* the throughput gauge — the number that actually aborts runs */
+.gauge { margin-top:12px; }
+.gauge-track { height:5px; border-radius:99px; background:var(--surface2); overflow:hidden; }
+.gauge-fill { height:100%; border-radius:99px; background:var(--run); }
+.gauge.low .gauge-fill { background:var(--bad); }
+.gauge-cap { display:flex; justify-content:space-between; margin-top:6px;
+  font-size:11px; font-family:var(--mono); color:var(--dim); }
+
+/* --- live tab ----------------------------------------------------------- */
+/* .arc-tile mirrors arc.js:78-96: a <button> whose direct children are canvas,
+   .arc-name and .arc-meta. Grid, so the tile keeps working when the watch layout
+   flips it to a horizontal row. */
+.arc-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:12px; }
+.arc-tile { display:grid; gap:5px; padding:8px; cursor:pointer; position:relative;
+  background:var(--surface); border:1px solid var(--line);
+  border-radius:10px; text-align:left; font:inherit; color:inherit; }
+.arc-tile:hover { border-color:color-mix(in srgb,var(--accent) 55%,var(--line)); }
+.arc-tile[aria-pressed="true"] { border-color:var(--accent);
+  box-shadow:0 0 0 1px var(--accent); }
+.arc-tile canvas { width:100%; height:auto; aspect-ratio:1; display:block;
+  image-rendering:pixelated; background:#000; border-radius:6px; }
+.arc-name { font-family:var(--mono); font-size:12.5px; font-weight:600; }
+.arc-meta { font-size:11px; color:var(--dim); line-height:1.45;
+  font-variant-numeric:tabular-nums; }
+.arc-tile[data-state="NOT_PLAYED"] { opacity:.45; }
+.arc-tile[data-state="NOT_FINISHED"] { border-color:var(--run); }
+.arc-tile[data-state="WIN"] { border-color:var(--ok); }
+.arc-tile[data-state="GAME_OVER"] { border-color:var(--bad); }
+
+/* The finished badge: one ::after over the canvas box, driven entirely off the
+   data-state attribute arc.js already writes (arc.js:120). No markup change, and
+   an absolutely positioned ::after never becomes a grid item. */
+.arc-tile[data-state="WIN"]::after,
+.arc-tile[data-state="GAME_OVER"]::after {
+  position:absolute; top:8px; left:8px; right:8px; aspect-ratio:1;
+  display:grid; place-items:center; border-radius:6px; pointer-events:none;
+  font-size:clamp(11px, 2.4vw, 17px); font-weight:800; letter-spacing:.1em;
+  text-align:center; line-height:1.1;
+}
+.arc-tile[data-state="WIN"]::after {
+  content:"FINISHED"; color:#0d2b05;
+  background:color-mix(in srgb, var(--ok) 82%, transparent);
+}
+.arc-tile[data-state="GAME_OVER"]::after {
+  content:"GAME OVER"; color:#fff;
+  background:color-mix(in srgb, var(--bad) 80%, transparent);
+}
+/* the five that are actually playing get a pulse instead of a label */
+.arc-tile[data-state="NOT_FINISHED"] .arc-name::before {
+  content:""; display:inline-block; width:7px; height:7px; border-radius:99px;
+  background:var(--run); margin-right:6px; vertical-align:middle;
+  animation:livepulse 1.4s ease-in-out infinite;
+}
+@keyframes livepulse { 50% { opacity:.25; } }
+@media (prefers-reduced-motion: reduce) {
+  .arc-tile[data-state="NOT_FINISHED"] .arc-name::before { animation:none; }
+}
+
+/* Focus panel holds exactly what arc.js builds into #arc-focus — canvas,
+   <p class="arc-focus-meta">, the range input — plus the play/pause button. */
+.arc-focus { display:grid; grid-template-columns:auto minmax(0,1fr); gap:10px 12px;
+  align-content:start; justify-items:center; padding:16px;
+  background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); }
+/* 640 = 64 x 10 exactly. Integer upscale matters with image-rendering:pixelated —
+   a fractional factor gives some cells 8 device px and some 9, which shows up on the
+   engine's HUD strip. 768 (x12) also scales cleanly but the board plus its caption and
+   scrubber no longer fit one 1080p screen, which defeats the point of a watch page. */
+.arc-focus canvas { grid-column:1 / -1; width:100%; max-width:640px;
+  height:auto; aspect-ratio:1; display:block;
+  image-rendering:pixelated; background:#000; border-radius:8px; }
+.arc-focus-meta { grid-column:1 / -1; justify-self:start; margin:0;
+  font-family:var(--mono); font-size:12.5px; color:var(--muted);
+  font-variant-numeric:tabular-nums; }
+.arc-play { font:inherit; font-size:12px; cursor:pointer; width:36px; height:30px;
+  display:grid; place-items:center; border-radius:8px;
+  background:var(--surface2); color:var(--text); border:1px solid var(--line); }
+.arc-play:hover { background:var(--line); }
+.arc-scrub { width:100%; align-self:center; accent-color:var(--accent); }
+
+/* Watch mode: player left, one scrolling column of sessions right. Everything
+   else inside #arc-live spans both tracks. */
+.arc-live.watching { display:grid; grid-template-columns:minmax(0,1fr) 340px;
+  gap:16px; align-items:start; }
+.arc-live.watching > .arc-run { grid-column:1 / -1; }
+.arc-live.watching #arc-boards {
+  grid-template-columns:minmax(0,1fr); gap:8px;
+  max-height:min(760px, calc(100vh - 210px));
+  overflow-y:auto; overscroll-behavior:contain; padding-right:4px;
+}
+/* the tile becomes a row: canvas spans both text rows, name and meta auto-place */
+.arc-live.watching .arc-tile { grid-template-columns:84px minmax(0,1fr);
+  column-gap:10px; row-gap:2px; align-content:center; }
+.arc-live.watching .arc-tile canvas { grid-row:1 / 3; }
+.arc-live.watching .arc-tile[data-state="WIN"]::after,
+.arc-live.watching .arc-tile[data-state="GAME_OVER"]::after {
+  right:auto; width:84px; font-size:9.5px; letter-spacing:.06em;
+}
+.arc-run { display:flex; align-items:center; gap:12px; flex-wrap:wrap;
+  padding:12px 16px; background:var(--surface); border:1px solid var(--line);
+  border-radius:var(--radius); }
+.arc-run .fieldnote { margin:0; font-size:12px; color:var(--dim);
+  font-family:var(--mono); }
+.arc-run .countdown { margin-left:auto; }
+
+/* --- main tab live preview ---------------------------------------------- */
+.ah-preview { margin-top:16px; cursor:pointer; }
+.ah-preview:hover { border-color:color-mix(in srgb,var(--accent) 55%,var(--line)); }
+.ah-prev { display:grid; grid-template-columns:minmax(0,360px) minmax(0,1fr);
+  gap:20px; align-items:center; }
+.ah-prev-board { position:relative; }
+.ah-prev-board canvas { width:100%; height:auto; aspect-ratio:1; display:block;
+  image-rendering:pixelated; background:#000; border-radius:10px; }
+.ah-prev-live { position:absolute; top:10px; left:10px;
+  display:inline-flex; align-items:center; gap:6px;
+  font-size:11px; font-weight:700; letter-spacing:.1em;
+  padding:4px 9px; border-radius:6px; background:var(--bad); color:#fff; }
+.ah-prev-live::before { content:""; width:6px; height:6px; border-radius:99px;
+  background:#fff; animation:livepulse 1.4s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .ah-prev-live::before { animation:none; } }
+.ah-prev-side h3 { margin:0 0 4px; font-family:var(--mono); font-size:20px; font-weight:600; }
+.ah-prev-side .arc-focus-meta { margin:0 0 16px; }
+.ah-counts { display:flex; gap:22px; margin-bottom:18px; }
+.ah-counts span { display:flex; flex-direction:column; font-size:11.5px; color:var(--dim); }
+.ah-counts b { font-family:var(--mono); font-size:22px; font-weight:650; color:var(--text);
+  font-variant-numeric:tabular-nums; }
+
+/* --- history tab -------------------------------------------------------- */
+.tablewrap { overflow-x:auto; border:1px solid var(--line); border-radius:var(--radius);
+  background:var(--surface); }
+table.h-table { width:100%; border-collapse:collapse; font-size:12.5px; min-width:900px; }
+.h-table th { text-align:left; font-size:10.5px; font-weight:600; letter-spacing:.07em;
+  text-transform:uppercase; color:var(--dim); padding:12px 14px;
+  border-bottom:1px solid var(--line); white-space:nowrap; background:var(--surface2); }
+.h-table td { padding:13px 14px; border-bottom:1px solid var(--line); vertical-align:top; }
+.h-table tr:last-child td { border-bottom:0; }
+.h-table code { font-family:var(--mono); font-size:11.5px; color:var(--muted); }
+.h-table .num { font-family:var(--mono); font-variant-numeric:tabular-nums; }
+.h-table small { display:block; color:var(--dim); font-size:11px; margin-top:2px; }
+/* explicit tracks: auto-fit + 1fr stretched two credential fields across 1450px
+   and pushed the save button onto its own full-width row */
+.kaggle { display:grid; grid-template-columns:minmax(0,280px) minmax(0,320px) auto;
+  gap:12px; align-items:end; justify-content:start; }
+
+/* --- instructions tab --------------------------------------------------- */
+.doc { display:grid; grid-template-columns:220px minmax(0,1fr); gap:36px; align-items:start; }
+.doc-index { position:sticky; top:70px; display:flex; flex-direction:column; gap:1px; }
+.doc-index a { font-size:12.5px; color:var(--dim); text-decoration:none;
+  padding:6px 10px; border-radius:7px; border-left:2px solid transparent; }
+.doc-index a:hover { color:var(--text); background:var(--surface); }
+.doc-index a.on { color:var(--text); border-left-color:var(--accent); background:var(--surface); }
+.doc-body { max-width:76ch; }
+.doc-sec { padding-bottom:30px; margin-bottom:30px; border-bottom:1px solid var(--line); }
+.doc-sec:last-child { border-bottom:0; }
+.doc-sec h2 { font-size:19px; font-weight:640; margin:0 0 12px; letter-spacing:-.015em; }
+.doc-sec p { margin:0 0 12px; font-size:14px; line-height:1.72; color:var(--muted); }
+.doc-sec p b { color:var(--text); font-weight:600; }
+.doc-sec code { font-family:var(--mono); font-size:12.5px; color:var(--text);
+  background:var(--surface2); padding:1.5px 5px; border-radius:5px; }
+.doc-sec pre { font-family:var(--mono); font-size:12.5px; line-height:1.65; margin:0 0 14px;
+  padding:15px 17px; border-radius:10px; overflow-x:auto;
+  background:var(--surface); border:1px solid var(--line); color:var(--muted); }
+.doc-sec ul { margin:0 0 12px; padding-left:20px; }
+.doc-sec li { font-size:14px; line-height:1.7; color:var(--muted); margin-bottom:7px; }
+.doc-sec a { color:var(--accent); }
+.doc-sec table { width:100%; border-collapse:collapse; font-size:13px; margin-bottom:12px; }
+.doc-sec th, .doc-sec td { text-align:left; padding:9px 12px;
+  border-bottom:1px solid var(--line); color:var(--muted); }
+.doc-sec th { color:var(--dim); font-size:11px; text-transform:uppercase; letter-spacing:.06em; }
+
+/* ============================================================================
+   DESIGN 1 — MISSION CONTROL
+   Telemetry rig. Full bleed, three columns, hairline rules, signal colours,
+   monospace numerals. The throughput gauge is promoted to the status bar
+   because that is the number that actually kills runs.
+   ========================================================================= */
+[data-design="1"].h {
+  --bg:#08090b; --surface:#0f1116; --surface2:#151820; --line:#1f242e;
+  --text:#e8ecf2; --muted:#8896a8; --dim:#5a6675;
+  --accent:#22d3ee; --accent-ink:#04191d;
+  --ok:#34d399; --warn:#fbbf24; --bad:#fb7185; --run:#38bdf8;
+  --radius:6px; --pad:0;
+}
+[data-design="1"] .h-inner { padding:0; }
+/* full-width instrument bar instead of a page title block */
+[data-design="1"] .h-head { margin:0; padding:16px 26px 14px;
+  border-bottom:1px solid var(--line); background:var(--surface);
+  display:flex; align-items:baseline; gap:16px; flex-wrap:wrap; }
+[data-design="1"] .h-title { font-size:15px; font-weight:600; letter-spacing:.14em;
+  text-transform:uppercase; margin:0; }
+[data-design="1"] .h-sub { font-size:11.5px; font-family:var(--mono); color:var(--dim); }
+[data-design="1"] .h-strip { margin-left:auto; display:flex; gap:22px; align-items:center; }
+[data-design="1"] .h-readout { display:flex; flex-direction:column; gap:2px; }
+[data-design="1"] .h-readout span { font-size:9px; letter-spacing:.16em; text-transform:uppercase;
+  color:var(--dim); font-weight:600; }
+[data-design="1"] .h-readout b { font-family:var(--mono); font-size:13px; font-weight:600;
+  font-variant-numeric:tabular-nums; }
+[data-design="1"] .h-tabs { margin:0; padding:0; background:none; border:0;
+  border-bottom:1px solid var(--line); border-radius:0; width:100%;
+  padding:0 26px; gap:0; }
+[data-design="1"] .h-tab { border-radius:0; padding:11px 18px; font-size:11.5px;
+  letter-spacing:.1em; text-transform:uppercase; font-family:var(--mono);
+  border-bottom:2px solid transparent; margin-bottom:-1px; }
+[data-design="1"] .h-tab.on { background:none; color:var(--accent);
+  border-bottom-color:var(--accent); }
+[data-design="1"] .h-body { padding:20px 26px 40px; }
+/* three columns: submit rail, standings, live strip */
+[data-design="1"] .h-main { grid-template-columns:300px minmax(0,1fr) 240px; gap:16px; }
+[data-design="1"] .card { padding:14px; }
+[data-design="1"] .card-h h2 { font-size:10.5px; letter-spacing:.14em; text-transform:uppercase;
+  color:var(--dim); font-family:var(--mono); }
+[data-design="1"] .lbrow { padding:8px 10px; }
+[data-design="1"] .lbrow + .lbrow { border-top:1px solid var(--line); }
+[data-design="1"] .lbpts { font-size:16px; color:var(--accent); }
+[data-design="1"] .lbav { display:none; }
+[data-design="1"] .lbrow { grid-template-columns:30px 1fr auto auto; }
+[data-design="1"] .arc-grid { grid-template-columns:repeat(auto-fill,minmax(120px,1fr)); gap:8px; }
+[data-design="1"] .rail-live .arc-grid { grid-template-columns:repeat(2,1fr); }
+[data-design="1"] .arc-tile { border-radius:4px; }
+[data-design="1"] .bench { border-radius:6px; }
+[data-design="1"] .substatus { border-radius:3px; font-family:var(--mono);
+  font-size:10px; letter-spacing:.08em; text-transform:uppercase; }
+
+/* ============================================================================
+   DESIGN 2 — ARCADE
+   The ARC 16-colour palette, used deliberately. This is a kids' academy and
+   the page is currently joyless. Per-benchmark colour identity, a podium for
+   the top three, and the game boards as the hero element.
+   ========================================================================= */
+[data-design="2"].h {
+  --bg:#0e0b16; --surface:#191428; --surface2:#221a35; --line:#2f2547;
+  --text:#f6f2ff; --muted:#a99cc4; --dim:#7a6d96;
+  --accent:#1E93FF; --accent-ink:#fff;
+  --ok:#4FCC30; --warn:#FFDC00; --bad:#F93C31; --run:#88D8F1;
+  --radius:18px; --pad:30px; --maxw:1500px;
+}
+[data-design="2"] .h-title { font-size:38px; font-weight:760; letter-spacing:-.035em;
+  background:linear-gradient(95deg,#1E93FF,#A356D6 45%,#E53AA3);
+  -webkit-background-clip:text; background-clip:text; color:transparent; }
+[data-design="2"] .h-sub { font-size:15px; }
+[data-design="2"] .h-tabs { border-radius:14px; padding:4px; }
+[data-design="2"] .h-tab { border-radius:11px; padding:9px 18px; font-weight:600; }
+[data-design="2"] .h-tab.on { background:linear-gradient(95deg,#1E93FF,#A356D6);
+  box-shadow:0 4px 16px rgba(30,147,255,.35); }
+[data-design="2"] .card { padding:24px; }
+[data-design="2"] .btn { border-radius:12px; padding:13px 18px; font-weight:650;
+  background:linear-gradient(95deg,#1E93FF,#A356D6); }
+[data-design="2"] .subform input, [data-design="2"] .subform select { border-radius:12px; padding:12px 14px; }
+/* Podium. auto-fit, not repeat(3): dense ranks tie, and a tie inside the top three
+   produces four or five cards. auto-fit gives 3 columns for 3 cards and 5 for 5. */
+[data-design="2"] .podium { display:grid; gap:12px; margin-bottom:20px; align-items:stretch;
+  grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); }
+[data-design="2"] .pod { position:relative; border-radius:16px; padding:20px 14px 18px;
+  text-align:center; background:var(--surface2); border:1px solid var(--line); }
+/* Rank badge, not an emoji: the numeral carries the medal colour. Rank 1 is bigger
+   and gold-washed, which is what makes it read as first without reordering the DOM. */
+[data-design="2"] .pod-rank { display:grid; place-items:center; margin:0 auto 10px;
+  width:34px; height:34px; border-radius:99px;
+  font-family:var(--mono); font-size:15px; font-weight:700; line-height:1;
+  color:var(--muted); border:2px solid var(--line); background:var(--surface); }
+[data-design="2"] .pod.p1 { border-color:#FFDC00; padding:30px 14px 26px;
+  background:linear-gradient(180deg,rgba(255,220,0,.16),var(--surface2)); }
+[data-design="2"] .pod.p1 .pod-rank { width:44px; height:44px; font-size:19px;
+  color:#FFDC00; border-color:#FFDC00; }
+[data-design="2"] .pod.p2 { border-color:#88D8F1; background:linear-gradient(180deg,rgba(136,216,241,.13),var(--surface2)); }
+[data-design="2"] .pod.p2 .pod-rank { color:#88D8F1; border-color:#88D8F1; }
+[data-design="2"] .pod.p3 { border-color:#FF851B; background:linear-gradient(180deg,rgba(255,133,27,.13),var(--surface2)); }
+[data-design="2"] .pod.p3 .pod-rank { color:#FF851B; border-color:#FF851B; }
+[data-design="2"] .pod .who { font-size:14px; font-weight:650; margin-bottom:2px; }
+[data-design="2"] .pod .kids { font-size:11px; color:var(--dim); margin-bottom:10px;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+[data-design="2"] .pod .pts { font-family:var(--mono); font-size:26px; font-weight:700;
+  font-variant-numeric:tabular-nums; }
+[data-design="2"] .pod .pts small { font-size:12px; color:var(--dim); margin-left:2px; }
+[data-design="2"] .pod.p1 .pts { font-size:34px; color:#FFDC00; }
+[data-design="2"] .pod.p2 .pts { color:#88D8F1; }
+[data-design="2"] .pod.p3 .pts { color:#FF851B; }
+/* a student in the top three must still find themselves — the list row is gone */
+[data-design="2"] .pod.is-mine { box-shadow:0 0 0 2px var(--accent); }
+[data-design="2"] .pod-you { position:absolute; top:-9px; left:50%; translate:-50% 0;
+  font-size:10px; font-weight:700; letter-spacing:.06em; white-space:nowrap;
+  padding:2px 9px; border-radius:99px; background:var(--accent); color:var(--accent-ink); }
+[data-design="2"] .lbrow { border-radius:12px; }
+[data-design="2"] .lbrow + .lbrow { border-top:0; margin-top:4px; border-radius:12px; }
+[data-design="2"] .lbrow:nth-child(odd) { background:color-mix(in srgb,var(--surface2) 55%,transparent); }
+[data-design="2"] .arc-grid { grid-template-columns:repeat(auto-fill,minmax(190px,1fr)); gap:16px; }
+[data-design="2"] .arc-tile { border-radius:16px; border-width:2px; }
+[data-design="2"] .arc-tile:hover { transform:translateY(-3px); transition:transform .12s; }
+[data-design="2"] .arc-name { font-size:14px; }
+/* per-benchmark colour identity */
+[data-design="2"] .bench { border-radius:18px; border-width:2px; }
+[data-design="2"] .bench[data-benchmark="arc"]      { border-color:#1E93FF; background:linear-gradient(180deg,rgba(30,147,255,.11),var(--surface)); }
+[data-design="2"] .bench[data-benchmark="frontier"] { border-color:#E53AA3; background:linear-gradient(180deg,rgba(229,58,163,.11),var(--surface)); }
+[data-design="2"] .bench[data-benchmark="ram"]      { border-color:#4FCC30; background:linear-gradient(180deg,rgba(79,204,48,.11),var(--surface)); }
+[data-design="2"] .runbar { border-radius:18px; }
+
+/* ============================================================================
+   DESIGN 3 — EDITORIAL
+   Typography does the work. Oversized numerals anchor every row; one accent.
+   Its real argument is the Instructions tab, which becomes a set article with
+   a sticky index instead of nine stacked panels.
+   ========================================================================= */
+[data-design="3"].h {
+  --bg:#0c0c0c; --surface:#131313; --surface2:#181818; --line:#242424;
+  --text:#f7f5f0; --muted:#9d9a92; --dim:#6b6862;
+  --accent:#e8dcc0; --accent-ink:#141210;
+  --ok:#8fbf7a; --warn:#d9b25f; --bad:#d97b6c; --run:#8fa8bf;
+  --radius:2px; --pad:44px 48px; --maxw:1400px;
+}
+[data-design="3"] .h-head { border-bottom:2px solid var(--text); padding-bottom:18px;
+  margin-bottom:0; }
+[data-design="3"] .h-title { font-size:56px; font-weight:400; letter-spacing:-.045em;
+  line-height:1; margin-bottom:10px; }
+[data-design="3"] .h-sub { font-size:14px; font-style:italic; color:var(--muted); }
+[data-design="3"] .h-tabs { background:none; border:0; border-bottom:1px solid var(--line);
+  border-radius:0; padding:0; width:100%; gap:30px; margin:0 0 30px; }
+[data-design="3"] .h-tab { border-radius:0; padding:14px 0; font-size:12px;
+  letter-spacing:.13em; text-transform:uppercase; font-weight:600;
+  border-bottom:2px solid transparent; margin-bottom:-1px; }
+[data-design="3"] .h-tab.on { background:none; color:var(--text); border-bottom-color:var(--text); }
+[data-design="3"] .card { background:none; border:0; border-top:1px solid var(--line);
+  border-radius:0; padding:22px 0 0; }
+[data-design="3"] .h-main { grid-template-columns:minmax(300px,340px) minmax(0,1fr); gap:56px; }
+[data-design="3"] .card-h h2 { font-size:11px; letter-spacing:.16em; text-transform:uppercase;
+  color:var(--dim); font-weight:600; }
+[data-design="3"] .lbrow { grid-template-columns:60px 1fr auto auto; padding:20px 0;
+  border-radius:0; align-items:baseline; }
+[data-design="3"] .lbrow + .lbrow { margin-top:0; }
+[data-design="3"] .lbrow.mine { background:none; box-shadow:none; }
+[data-design="3"] .lbrow.mine .lbname { text-decoration:underline; text-underline-offset:5px;
+  text-decoration-color:var(--accent); }
+/* the underline must not run through the member names on the second line */
+[data-design="3"] .lbrow.mine .lbname small { text-decoration:none; }
+[data-design="3"] .lbav { display:none; }
+[data-design="3"] .lbrank { font-size:34px; font-weight:300; color:var(--dim);
+  letter-spacing:-.04em; font-family:inherit; }
+[data-design="3"] .lbrow.m1 .lbrank { color:var(--accent); }
+[data-design="3"] .lbname { font-size:20px; font-weight:450; letter-spacing:-.015em; }
+[data-design="3"] .lbpts { font-size:38px; font-weight:300; letter-spacing:-.045em;
+  font-family:inherit; }
+[data-design="3"] .lbpts small { font-size:12px; }
+[data-design="3"] .subform input, [data-design="3"] .subform select {
+  border-radius:0; border-width:0 0 1px 0; background:none; padding:10px 2px; }
+[data-design="3"] .subform input:focus, [data-design="3"] .subform select:focus {
+  box-shadow:none; border-bottom-color:var(--accent); }
+[data-design="3"] .btn { border-radius:0; letter-spacing:.08em; text-transform:uppercase;
+  font-size:12px; padding:14px 20px; }
+[data-design="3"] .bench { background:none; border:0; border-top:1px solid var(--line);
+  border-radius:0; padding:18px 0 0; }
+[data-design="3"] .runbar { background:none; border:0; border-bottom:1px solid var(--line);
+  border-radius:0; padding:0 0 14px; }
+[data-design="3"] .arc-tile { border-radius:0; background:none; border-color:var(--line); }
+[data-design="3"] .doc-sec h2 { font-size:26px; font-weight:400; letter-spacing:-.03em; }
+[data-design="3"] .doc-sec p { font-size:15.5px; line-height:1.8; }
+[data-design="3"] .doc-body { max-width:68ch; }
+[data-design="3"] .substatus { border-radius:0; }
+
+/* ============================================================================
+   DESIGN 4 — LAB (light)
+   Off-white paper, hairline rules, ink type, spec-sheet density. The ARC
+   boards read at their strongest against white, and it survives a projector.
+   ========================================================================= */
+[data-design="4"].h {
+  --bg:#f7f7f4; --surface:#ffffff; --surface2:#f2f2ee; --line:#e0e0d8;
+  --text:#16161a; --muted:#5b5b63; --dim:#8a8a92;
+  --accent:#1f5fd0; --accent-ink:#fff;
+  --ok:#177245; --warn:#a86800; --bad:#c02626; --run:#1f5fd0;
+  --radius:8px; --pad:32px; --maxw:1500px;
+}
+[data-design="4"] .h-title { font-weight:640; letter-spacing:-.03em; }
+[data-design="4"] .card { box-shadow:0 1px 2px rgba(16,16,20,.05); }
+[data-design="4"] .arc-tile canvas { background:#fff; }
+[data-design="4"] .arc-tile { box-shadow:0 1px 2px rgba(16,16,20,.05); }
+[data-design="4"] .h-table th { background:var(--surface2); }
+[data-design="4"] .doc-sec pre { background:var(--surface2); }
+[data-design="4"] .lbrow.mine { background:color-mix(in srgb,var(--accent) 7%,transparent); }
+[data-design="4"] .mk-hint { color:#6b6b73; }
+
+/* ============================================================================
+   RESPONSIVE — one block, last in the file, every selector scoped [data-design]
+   so it outranks the per-design layout rules above instead of losing to them.
+   Splitting these next to each design is what let the 390px layouts break.
+   ========================================================================= */
+@media (max-width:1300px) {
+  [data-design] .h-main { grid-template-columns:280px minmax(0,1fr); }
+  [data-design] .rail-live { display:none; }
+}
+@media (max-width:1000px) {
+  [data-design] .h-main { grid-template-columns:minmax(0,1fr); gap:20px; }
+}
+@media (max-width:900px) {
+  [data-design] .doc { grid-template-columns:minmax(0,1fr); }
+  [data-design] .doc-index { display:none; }
+  [data-design] .podium { grid-template-columns:minmax(0,1fr); }
+}
+/* watch mode collapses to player-on-top; the playlist stops being its own scroller
+   once the page itself is the scroller */
+@media (max-width:1100px) {
+  [data-design] .arc-live.watching { grid-template-columns:minmax(0,1fr); }
+  [data-design] .arc-live.watching #arc-boards {
+    grid-template-columns:repeat(auto-fill,minmax(150px,1fr));
+    max-height:none; overflow:visible; }
+  [data-design] .arc-live.watching .arc-tile { grid-template-columns:minmax(0,1fr); }
+  [data-design] .arc-live.watching .arc-tile canvas { grid-row:auto; }
+  [data-design] .arc-live.watching .arc-tile[data-state="WIN"]::after,
+  [data-design] .arc-live.watching .arc-tile[data-state="GAME_OVER"]::after {
+    right:8px; width:auto; font-size:clamp(11px,2.4vw,17px); letter-spacing:.1em; }
+}
+@media (max-width:820px) {
+  [data-design] .ah-prev { grid-template-columns:minmax(0,1fr); }
+  [data-design="3"].h { --pad:24px 20px; }
+  [data-design="3"] .h-title { font-size:38px; }
+}
+@media (max-width:620px) {
+  [data-design].h { --pad:18px 14px; }
+  [data-design="1"].h { --pad:0; }
+  [data-design="1"] .h-head, [data-design="1"] .h-tabs { padding-left:14px; padding-right:14px; }
+  [data-design="1"] .h-body { padding:16px 14px 32px; }
+  [data-design] .h-tabs { width:100%; }
+  [data-design] .arc-grid { grid-template-columns:repeat(auto-fill,minmax(104px,1fr)); gap:8px; }
+  [data-design] .lbrow { grid-template-columns:26px minmax(0,1fr) auto; row-gap:2px; }
+  [data-design] .lbav, [data-design] .lbmeta { display:none; }
+  [data-design] .kaggle { grid-template-columns:minmax(0,1fr); }
+  [data-design="2"] .h-title { font-size:28px; }
+  [data-design="3"] .h-title { font-size:32px; }
+  [data-design="3"] .lbrank { font-size:24px; }
+  [data-design="3"] .lbpts { font-size:28px; }
+}
+
+/* utility */
+.hide { display:none !important; }
+.row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.grow { flex:1; min-width:0; }
+</style>
+</head>
+<body>
+
+<div class="mk-bar">
+  <div class="mk-group">
+    <span class="mk-label">Tasarım</span>
+    <button class="mk-btn" data-set-design="1" aria-pressed="true">1 · Mission Control</button>
+    <button class="mk-btn" data-set-design="2" aria-pressed="false">2 · Arcade</button>
+    <button class="mk-btn" data-set-design="3" aria-pressed="false">3 · Editorial</button>
+    <button class="mk-btn" data-set-design="4" aria-pressed="false">4 · Lab (açık)</button>
+  </div>
+  <div class="mk-group">
+    <span class="mk-label">Sekme</span>
+    <button class="mk-btn" data-set-tab="main" aria-pressed="true">Gönderim</button>
+    <button class="mk-btn" data-set-tab="live" aria-pressed="false">Canlı</button>
+    <button class="mk-btn" data-set-tab="history" aria-pressed="false">Geçmiş</button>
+    <button class="mk-btn" data-set-tab="instructions" aria-pressed="false">Instructions</button>
+  </div>
+  <div class="mk-group">
+    <span class="mk-label">Durum</span>
+    <button class="mk-btn" data-set-state="idle" aria-pressed="true">Boşta</button>
+    <button class="mk-btn" data-set-state="running" aria-pressed="false">Koşu sürüyor</button>
+    <button class="mk-btn" data-set-state="empty" aria-pressed="false">Boş / hata</button>
+  </div>
+  <span class="mk-note">4 tasarım × 4 sekme × 3 durum · <b>mockup</b>, canlı veri yok</span>
+</div>
+
+<div class="mk-shell">
+  <aside class="mk-side">
+    <div class="mk-brand">
+      <div class="mk-wordmark">exposure</div>
+      <span class="mk-tag">AI Academy</span>
+    </div>
+    <a class="mk-nav" href="#"><i class="dot"></i>Ana Sayfa</a>
+    <a class="mk-nav" href="#"><i class="dot"></i>Videolar</a>
+    <a class="mk-nav" href="#"><i class="dot"></i>Görev Panosu</a>
+    <a class="mk-nav" href="#"><i class="dot"></i>Puan Tablosu</a>
+    <a class="mk-nav on" href="#"><i class="dot"></i>Agentic Harness</a>
+    <a class="mk-nav" href="#"><i class="dot"></i>AI Monopoly</a>
+    <a class="mk-nav" href="#"><i class="dot"></i>İnteraktif Demolar</a>
+    <div class="mk-sechead">Yönetim</div>
+    <a class="mk-nav" href="#"><i class="dot"></i>Yönetici paneli</a>
+  </aside>
+  <div class="mk-stage">
+    <div class="h" id="stage" data-design="1"></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ------------------------------------------------------------------ data
+     Real copy from services/academy/src/html.rs, real game ids, and the real
+     failure text from run 80960efe so error states are shown under the same
+     conditions the harness actually produces. */
+
+  // ARC_GAMES, in order, from crates/benchmark-protocol/src/lib.rs:102 — 25 of them.
+  var GAMES = ['bp35','m0r0','ft09','ar25','s5i5','sp80','g50t','lp85','r11l','sc25',
+               'tn36','sk48','re86','wa30','cn04','tu93','tr87','sb26','su15','ls20',
+               'ka59','cd82','dc22','vc33','lf52'];
+
+  // ARC_CONCURRENCY is 5, so a mid-run snapshot always reads the same way down the
+  // queue: finished, then exactly five playing, then not started yet.
+  var PLAYING_FROM = 15, PLAYING_TO = 20;
+  var WON = {bp35:1, ft09:1, s5i5:1, r11l:1, tn36:1, re86:1};   // 6 of the 15 finished
+  function stateOf(i) {
+    if (i < PLAYING_FROM) return WON[GAMES[i]] ? 'WIN' : 'GAME_OVER';
+    if (i < PLAYING_TO) return 'NOT_FINISHED';
+    return 'NOT_PLAYED';
+  }
+  var FOCUS = GAMES[PLAYING_FROM];   // the board the preview and the player show
+
+  // arcengine's canonical 16-colour map, straight out of static/arc.js
+  var PALETTE = ['#FFFFFF','#CCCCCC','#999999','#666666','#333333','#000000','#E53AA3',
+                 '#FF7BCC','#F93C31','#1E93FF','#88D8F1','#FFDC00','#FF851B','#921231',
+                 '#4FCC30','#A356D6'];
+
+  var TEAMS = [
+    {name:'Nöron Ekibi',   kids:'Ada Yılmaz, Kerem Doğan, Elif Kaya', arc:71.4, fr:64.0, r1:41.2,  r10:198.6, mine:false},
+    {name:'Test Takımı',   kids:'Berke Arslan, Onur Çelik',           arc:63.9, fr:58.0, r1:72.7,  r10:515.3, mine:true},
+    {name:'Kuantum Kedi',  kids:'Mert Aydın, Zeynep Şahin',           arc:58.2, fr:70.0, r1:88.4,  r10:612.0, mine:false},
+    {name:'Devre Kırıcı',  kids:'Deniz Ak, Ege Polat, Su Tanrıkulu',  arc:44.6, fr:42.0, r1:120.9, r10:844.1, mine:false},
+    {name:'Piksel Avcıları',kids:'İpek Uçar, Barış Yalçın',           arc:31.0, fr:36.0, r1:157.3, r10:1102.7,mine:false},
+    {name:'Gradyan İnişi', kids:'Alp Sönmez, Duru Kılıç',             arc:28.7, fr:30.0, r1:96.5,  r10:702.4, mine:false},
+    {name:'Sıfır Gün',     kids:'Arda Bulut, Melis Toprak, Efe Sarı', arc:24.1, fr:26.0, r1:134.0, r10:948.9, mine:false},
+    {name:'Yarı İletken',  kids:'Can Öz, Nil Erdem',                  arc:12.5, fr:18.0, r1:203.8, r10:1490.2,mine:false},
+    {name:'Kırmızı Kod',   kids:'Yiğit Demir, Lara Acar',             arc:6.3,  fr:12.0, r1:181.6, r10:1233.5,mine:false},
+    {name:'Boş Küme',      kids:'Ruya Ergin, Toprak Yıldız',          arc:0.0,  fr:4.0,  r1:245.1, r10:1808.0,mine:false}
+  ];
+
+  var RUNS = [
+    {date:'01.08.2026 18:23', sha:'be0f06c', model:'google.gemma-4-31b', src:'Forge',
+     stage:'partial',      arc:null,  fr:null, r1:72.7,  r10:515.3,
+     err:'ARC Bedrock throughput stayed below target: 75/100 turns per 30s', replay:false},
+    {date:'01.08.2026 10:01', sha:'a41c9d2', model:'xai.grok-4.3', src:'harness-mockup-agent',
+     stage:'done',         arc:63.9, fr:58.0, r1:74.1,  r10:521.8, err:null, replay:true},
+    {date:'31.07.2026 22:47', sha:'7f2e118', model:'xai.grok-4.3', src:'harness-mockup-agent',
+     stage:'infra_failed', arc:null,  fr:null, r1:null,  r10:null,
+     err:'Bedrock gateway did not start: AccessDeniedException', replay:false},
+    {date:'31.07.2026 19:12', sha:'c908ba4', model:'xai.grok-4.3', src:'harness-mockup-agent',
+     stage:'failed',       arc:null,  fr:null, r1:null,  r10:null,
+     err:'missing required files: agent/harbor_agent.py', replay:false}
+  ];
+
+  var STAGE = {
+    queued:      ['Sırada',                'st-pending'],
+    preparing:   ['Repo hazırlanıyor',     'st-reviewing'],
+    running:     ["Benchmark'lar çalışıyor",'st-reviewing'],
+    done:        ['Tamamlandı',            'st-passed'],
+    partial:     ['Kısmen tamamlandı',     'st-pending'],
+    infra_failed:['Altyapı hatası',        'st-failed'],
+    failed:      ['Başarısız',             'st-failed']
+  };
+  var BSTATUS = {
+    pending:     ['Bekliyor',      'st-pending'],
+    running:     ['Çalışıyor',     'st-reviewing'],
+    done:        ['Tamamlandı',    'st-passed'],
+    failed:      ['Başarısız',     'st-failed'],
+    infra_failed:['Altyapı hatası','st-failed']
+  };
+  var STATE_TR = {NOT_PLAYED:'Başlamadı', NOT_FINISHED:'Oynanıyor', WIN:'Kazandı', GAME_OVER:'Bitti'};
+
+  var MODELS = ['xai.grok-4.3','google.gemma-4-31b','qwen.qwen3-vl-235b-a22b-instruct',
+                'openai.gpt-oss-120b','deepseek.v3.2','zai.glm-5','moonshotai.kimi-k2.5'];
+
+  /* ------------------------------------------------------- board generator
+     Deterministic per game id, so a board looks the same every render.
+     Produces something ARC-shaped: a HUD strip, a separator, a few solid
+     regions and a small agent — not noise, not a grey placeholder. */
+  function rng(seed) {
+    var s = 0; for (var i = 0; i < seed.length; i++) s = (s * 31 + seed.charCodeAt(i)) | 0;
+    s = s || 1;
+    return function () { s ^= s << 13; s ^= s >>> 17; s ^= s << 5; return ((s >>> 0) % 1000) / 1000; };
+  }
+
+  function board(game, step) {
+    var r = rng(game + ':' + (step || 0));
+    var g = [], y, x;
+    var bg = [0, 1, 5][Math.floor(r() * 3)];
+    for (y = 0; y < 64; y++) { g.push([]); for (x = 0; x < 64; x++) g[y].push(bg); }
+
+    // HUD strip along the top, like the engine's score panel
+    var hud = 2 + Math.floor(r() * 3);
+    for (y = 0; y < 6; y++) for (x = 0; x < 64; x++) g[y][x] = hud;
+    var pips = 1 + Math.floor(r() * 5);
+    for (var p = 0; p < pips; p++)
+      for (y = 2; y < 5; y++) for (x = 3 + p * 5; x < 6 + p * 5; x++) g[y][x] = 11;
+    for (x = 0; x < 64; x++) g[6][x] = 4;              // separator bar
+
+    // playfield regions
+    var blocks = 3 + Math.floor(r() * 5);
+    for (var b = 0; b < blocks; b++) {
+      var c  = [6,7,8,9,10,12,13,14,15][Math.floor(r() * 9)];
+      var bw = 5 + Math.floor(r() * 14), bh = 5 + Math.floor(r() * 14);
+      var bx = 2 + Math.floor(r() * (60 - bw)), by = 9 + Math.floor(r() * (52 - bh));
+      for (y = by; y < by + bh; y++) for (x = bx; x < bx + bw; x++) g[y][x] = c;
+    }
+    // the agent, nudged by step so consecutive frames visibly differ
+    var ax = 8 + Math.floor(r() * 44) + (step || 0), ay = 20 + Math.floor(r() * 30);
+    for (y = ay; y < Math.min(64, ay + 4); y++)
+      for (x = ax % 60; x < Math.min(64, (ax % 60) + 4); x++) g[y][x] = 8;
+    return g;
+  }
+
+  function paint(canvas, grid) {
+    var ctx = canvas.getContext('2d');
+    var img = ctx.createImageData(64, 64), d = img.data;
+    for (var y = 0; y < 64; y++) for (var x = 0; x < 64; x++) {
+      var hex = PALETTE[grid[y][x]] || '#000000', o = (y * 64 + x) * 4;
+      d[o]     = parseInt(hex.slice(1, 3), 16);
+      d[o + 1] = parseInt(hex.slice(3, 5), 16);
+      d[o + 2] = parseInt(hex.slice(5, 7), 16);
+      d[o + 3] = 255;
+    }
+    ctx.putImageData(img, 0, 0);
+  }
+
+  /* -------------------------------------------------------------- partials */
+  function esc(s) {
+    return String(s).replace(/[&<>"]/g, function (c) {
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];
+    });
+  }
+  function pill(map, key) {
+    var v = map[key] || map.pending || ['—','st-pending'];
+    return '<span class="substatus ' + v[1] + '">' + v[0] + '</span>';
+  }
+  function num(v, dp) { return v == null ? '—' : v.toFixed(dp == null ? 1 : dp); }
+  function initial(s) { return s.charAt(0).toLocaleUpperCase('tr'); }
+
+  function tabs(active) {
+    var items = [['main','Gönderim ve Sıralama'],['live','Canlı'],
+                 ['history','Geçmiş'],['instructions','Instructions']];
+    return '<div class="h-tabs" role="tablist">' + items.map(function (t) {
+      return '<button class="h-tab ' + (t[0] === active ? 'on' : '') +
+             '" data-set-tab="' + t[0] + '">' + t[1] + '</button>';
+    }).join('') + '</div>';
+  }
+
+  function header(design, sub, extra) {
+    var strip = '';
+    // design 1 puts live telemetry in the header instead of a plain subtitle
+    if (design === '1' && extra) strip = extra;
+    return '<div class="h-head">' +
+      '<div><h1 class="h-title" lang="en">Agentic Harness</h1>' +
+      '<p class="h-sub">' + sub + '</p></div>' + strip + '</div>';
+  }
+
+  function members() {
+    return '<div class="members">' +
+      [['B','Berke Arslan'],['O','Onur Çelik']].map(function (m) {
+        return '<span class="member"><i>' + m[0] + '</i><b>' + m[1] + '</b></span>';
+      }).join('') + '</div>';
+  }
+
+  function submitCard() {
+    return '<section class="card">' +
+      '<div class="card-h"><h2>Test Takımı</h2>' +
+        '<span class="substatus st-passed">Hazır</span></div>' +
+      members() +
+      '<form class="subform" onsubmit="return false">' +
+        '<label class="field"><span>Repo bağlantısı</span>' +
+          '<input type="url" placeholder="https://github.com/takim/ajan"></label>' +
+        '<label class="field"><span>Agent</span><select>' +
+          '<option>GitHub URL</option><option>Forge</option><option>Reki</option>' +
+        '</select></label>' +
+        '<label class="field"><span>Model</span><select>' +
+          MODELS.map(function (m) { return '<option>' + m + '</option>'; }).join('') +
+        '</select></label>' +
+        '<button class="btn" type="button">Ajanı Gönder →</button>' +
+      '</form>' +
+      '<p class="helper">Herhangi bir takım üyesi gönderebilir. Aynı anda tek çalıştırma. ' +
+        'Kurallar için <a href="#" lang="en">Instructions</a> sekmesine bak.</p>' +
+    '</section>';
+  }
+
+  function gauge(done, target) {
+    var pct = Math.min(100, Math.round(done / target * 100));
+    return '<div class="gauge ' + (done < target ? 'low' : '') + '">' +
+      '<div class="gauge-track"><div class="gauge-fill" style="width:' + pct + '%"></div></div>' +
+      '<div class="gauge-cap"><span>' + done + ' tur / 30 sn</span>' +
+        '<span>hedef ' + target + '</span></div></div>';
+  }
+
+  function stepper(design) {
+    var benches = [
+      {k:'arc', t:'ARC-AGI-3', rule:'13 public oyun · doğal bitiş koşulları',
+       status:'running', prog:'0/13 · 13 aktif · 75 tur / 30 sn (hedef 100)', g:[75,100]},
+      {k:'frontier', t:'Frontier Sprint', rule:'5 görev · görev başına 120 sn',
+       status:'running', prog:'2/5 · 3 aktif · 96 tur / 30 sn (hedef 60)', g:[96,60]},
+      {k:'ram', t:'RAM-bench', rule:'1 ve 10 oturum · 10 sn · cgroup PSS',
+       status:'done', prog:'2/2 · 1 oturum 72.7 MB · 10 oturum 515.3 MB', g:null}
+    ];
+    return '<div class="harness-live" id="harness-live" data-active="true">' +
+      '<div class="runbar">' +
+        '<span id="harness-run-status" class="substatus st-reviewing">Benchmark\'lar çalışıyor</span>' +
+        '<span class="sep"></span>' +
+        '<span class="runmeta">Forge · <b id="harness-commit">be0f06c</b></span>' +
+        '<span class="sep"></span>' +
+        '<span class="runmeta">harness-2026-sprint-v2 · Bedrock <b id="harness-profile">google.gemma-4-31b</b></span>' +
+        '<span class="countdown" id="harness-countdown">Sert sınır 7:12</span>' +
+      '</div>' +
+      '<div class="bench-grid">' + benches.map(function (b) {
+        return '<article class="bench" data-benchmark="' + b.k + '" data-status="' + b.status + '">' +
+          '<div class="card-h"><h3 lang="en">' + b.t + '</h3>' +
+            pill(BSTATUS, b.status).replace('substatus', 'substatus benchmark-status') + '</div>' +
+          '<p class="bench-rule">' + b.rule + '</p>' +
+          '<p class="bench-progress">' + b.prog + '</p>' +
+          (b.g ? gauge(b.g[0], b.g[1]) : '') +
+        '</article>';
+      }).join('') + '</div>' +
+      // Design 1 keeps its permanent right rail; the others get the watch preview.
+      // One board, not twenty-five: only the focused game has a frame buffer server-side
+      // (harness.rs:456 sends one grid per game), so only one board can actually play.
+      (design === '1' ? '' : preview()) +
+    '</div>';
+  }
+
+  function preview() {
+    var playing = PLAYING_TO - PLAYING_FROM, finished = PLAYING_FROM;
+    return '<section class="card ah-preview" data-goto-live role="button" tabindex="0" ' +
+      'aria-label="Canlı izlemeye geç">' +
+      '<div class="card-h"><h2>Canlı</h2>' +
+        '<span class="substatus st-reviewing">' + playing + ' oyun oynanıyor</span></div>' +
+      '<div class="ah-prev">' +
+        '<div class="ah-prev-board">' +
+          '<canvas data-play width="64" height="64" role="img" ' +
+            'aria-label="' + FOCUS + ' canlı tahta"></canvas>' +
+          '<span class="ah-prev-live">CANLI</span>' +
+        '</div>' +
+        '<div class="ah-prev-side">' +
+          '<h3>' + FOCUS + '</h3>' +
+          '<p class="arc-focus-meta">' + FOCUS + ' · #143 · ACTION6 (12,40) · Seviye 1 · Oynanıyor</p>' +
+          '<div class="ah-counts">' +
+            '<span><b>' + playing + '</b> oynuyor</span>' +
+            '<span><b>' + finished + '</b> bitti</span>' +
+            '<span><b>' + GAMES.length + '</b> toplam</span>' +
+          '</div>' +
+          '<button class="btn" type="button" data-goto-live>Canlı izle →</button>' +
+        '</div>' +
+      '</div>' +
+    '</section>';
+  }
+
+  /* Dense ranks over the DISPLAY-rounded score, matching dense_ranks_by in
+     html.rs:525 — two teams that both render 71.4 share rank 1 and the next team is
+     rank 2. Everything downstream must split on rank, never on array index. */
+  function ranked() {
+    var out = [], place = 0, prev = null;
+    TEAMS.forEach(function (t) {
+      var key = num(t.arc);
+      if (key !== prev) { place++; prev = key; }
+      out.push({t: t, rank: place});
+    });
+    return out;
+  }
+
+  // Podium cards in rank order, left to right. No emoji, no centre-the-winner
+  // reordering: a tie makes "middle = first" wrong, and reading order should be
+  // rank order anyway.
+  function podium(top) {
+    return '<div class="podium">' + top.map(function (e) {
+      return '<div class="pod p' + Math.min(e.rank, 3) + (e.t.mine ? ' is-mine' : '') + '">' +
+        '<span class="pod-rank">' + e.rank + '</span>' +
+        '<div class="who">' + esc(e.t.name) + '</div>' +
+        '<div class="kids">' + esc(e.t.kids) + '</div>' +
+        '<div class="pts">' + num(e.t.arc) + '<small>p</small></div>' +
+        (e.t.mine ? '<div class="pod-you">senin takımın</div>' : '') +
+      '</div>';
+    }).join('') + '</div>';
+  }
+
+  function leaderboard(design, empty) {
+    var filters = [['arc','ARC-AGI-3'],['frontier','Frontier Sprint'],['ram','RAM-bench']];
+    var head = '<div class="h-filters">' + filters.map(function (f, i) {
+      return '<button class="h-filter ' + (i === 0 ? 'on' : '') + '" lang="en">' + f[1] + '</button>';
+    }).join('') + '</div>';
+
+    if (empty) {
+      return '<section class="card">' + head +
+        '<div class="empty"><div class="glyph">◇</div>' +
+        '<h3>Henüz tamamlanmış çalıştırma yok</h3>' +
+        '<p>İlk gönderen takım siz olun — bir ajan gönderdiğinizde puanınız burada ' +
+        'belirir. Kurallar için <a href="#" lang="en">Instructions</a> sekmesine bak.</p>' +
+        '</div></section>';
+    }
+
+    var all = ranked();
+    var top = all.filter(function (e) { return e.rank <= 3; });
+    // Arcade is the only direction with a podium; the others keep the plain 1..n list.
+    // Podium is suppressed below three teams (one "podium" card reads as a bug) and
+    // above six (an all-podium board from pathological ties is worse than none).
+    var hasPodium = design === '2' && all.length >= 3 && top.length <= 6;
+    var listed = hasPodium ? all.filter(function (e) { return e.rank > 3; }) : all;
+
+    var rows = listed.map(function (e) {
+      return '<div class="lbrow ' + (e.t.mine ? 'mine' : '') + ' m' + e.rank + '">' +
+        '<span class="lbrank">' + e.rank + '</span>' +
+        '<span class="lbav">' + initial(e.t.name) + '</span>' +
+        '<span class="lbname">' + esc(e.t.name) + '<small>' + esc(e.t.kids) + '</small></span>' +
+        '<span class="lbmeta">Frontier ' + num(e.t.fr) + '</span>' +
+        '<span class="lbpts">' + num(e.t.arc) + '<small>p</small></span></div>';
+    }).join('');
+
+    // podium full, nothing left over — say so instead of shipping an empty container
+    var body = listed.length
+      ? '<div class="lb">' + rows + '</div>'
+      : '<p class="lbnote">Şimdilik sıralamada bu kadar takım var.</p>';
+
+    return '<section class="card">' + head +
+      (hasPodium ? podium(top) : '') +
+      body +
+      '<p class="lbnote">Her takımın bu harness sürümündeki en iyi puanı gösterilir. ' +
+      'RAM-bench\'te düşük olan daha iyidir. Kısmi çalıştırmalardaki tamamlanmış puanlar korunur.</p>' +
+    '</section>';
+  }
+
+  /* ------------------------------------------------------------- main tab */
+  function mainTab(design, state) {
+    var left = state === 'running'
+      ? '<section class="card"><div class="card-h"><h2>Test Takımı</h2></div>' + members() +
+        '<p class="helper" style="margin-top:0">Çalıştırma sürerken yeni gönderim kapalıdır. ' +
+        'Tahtaları <a href="#">Canlı</a> sekmesinden izleyebilirsiniz.</p></section>'
+      : state === 'empty'
+        ? '<section class="card"><div class="empty"><div class="glyph">🔒</div>' +
+          '<h3>Takımın henüz yok</h3><p>Henüz bir takımda değilsin — eğitmenine yaz. ' +
+          'Takımlar şimdilik eğitmen tarafından atanıyor.</p></div></section>'
+        : submitCard();
+
+    var right = state === 'running'
+      ? stepper(design)
+      : leaderboard(design, state === 'empty');
+
+    // design 1 keeps a live board rail permanently in view
+    var rail = design === '1'
+      ? '<aside class="rail-live"><section class="card">' +
+        '<div class="card-h"><h2>Canlı tahtalar</h2></div>' +
+        '<div class="arc-grid" data-boards="rail"></div></section></aside>'
+      : '';
+
+    return '<div class="h-main">' + left + '<div>' + right + '</div>' + rail + '</div>';
+  }
+
+  /* ------------------------------------------------------------- live tab */
+  function liveTab(design, state) {
+    if (state === 'empty') {
+      return '<div class="empty"><div class="glyph">⌛</div>' +
+        '<h3>Çalıştırma bulunamadı</h3>' +
+        '<p>Bu tekrar silinmiş olabilir veya takımınıza ait değil.</p>' +
+        '<button class="btn btn-sm btn-ghost" type="button">Canlıya dön</button></div>';
+    }
+    // #arc-live is the two-column grid itself, and #arc-focus holds exactly what
+    // arc.js:127-135 + :203 build into it — canvas, <p class="arc-focus-meta">, and the
+    // range input — plus the play/pause button arc.js is missing (see the note below).
+    // Source order already puts the focus before the boards (html.rs:962-963), which in
+    // an LTR grid is player-left / playlist-right with no `order:` hack.
+    return '<div id="arc-live" class="arc-live watching" data-active="true" ' +
+      'data-replay="false" data-game="' + FOCUS + '">' +
+      '<div class="arc-run">' +
+        '<span class="substatus st-reviewing">Benchmark\'lar çalışıyor</span>' +
+        '<span class="fieldnote">Forge · <code>be0f06c</code> · google.gemma-4-31b · ' +
+          '01.08.2026 18:23</span>' +
+        '<span class="countdown">Sert sınır 7:12</span>' +
+      '</div>' +
+      '<div class="arc-focus" id="arc-focus">' +
+        '<canvas data-play width="64" height="64" role="img" ' +
+          'aria-label="' + FOCUS + ' oyun tahtası, büyük görünüm"></canvas>' +
+        '<p class="arc-focus-meta">' + FOCUS + ' · #143 · ACTION6 (12,40) · Seviye 1 · Oynanıyor</p>' +
+        // arc.js can set `paused` (arc.js:212) but never clears it except by focusing a
+        // different game (arc.js:143) — scrub once and the board freezes for good.
+        // This button is the fix, shown here so the layout accounts for it.
+        '<button class="arc-play" type="button" aria-label="Duraklat">❚❚</button>' +
+        '<input class="arc-scrub" type="range" min="0" max="143" value="143" ' +
+          'aria-label="Kare seçici">' +
+      '</div>' +
+      '<div class="arc-grid" id="arc-boards" data-boards="all"></div>' +
+    '</div>';
+  }
+
+  /* ---------------------------------------------------------- history tab */
+  function historyTab(design, state) {
+    var kaggle = '<section class="card" style="margin-bottom:16px">' +
+      '<div class="card-h"><h2 lang="en">Official Kaggle</h2>' +
+        '<span class="substatus st-passed">Hesap kayıtlı</span></div>' +
+      '<p class="helper" style="margin:0 0 14px">ARC-AGI-3 public yarışmasına gönderim yerel ' +
+        'harness\'ten ayrıdır ve yalnızca düğmeye bastığınızda başlar. ' +
+        'Resmi skor yerel sıralamayı değiştirmez.</p>' +
+      '<form class="subform kaggle" onsubmit="return false">' +
+        '<label class="field"><span>Kaggle kullanıcı adı</span>' +
+          '<input value="test-takimi"></label>' +
+        '<label class="field"><span>API token</span>' +
+          '<input type="password" placeholder="••••••••••••••••"></label>' +
+        '<button class="btn" type="button">Kaydet</button>' +
+      '</form></section>';
+
+    if (state === 'empty') {
+      return kaggle + '<div class="empty"><div class="glyph">◇</div>' +
+        '<h3>Henüz gönderim yok</h3>' +
+        '<p>Takımınız bir ajan gönderdiğinde her çalıştırma burada commit\'i ve ' +
+        'puanlarıyla listelenir.</p></div>';
+    }
+
+    var rows = RUNS.map(function (r) {
+      return '<tr>' +
+        '<td class="num">' + r.date + '</td>' +
+        '<td><code>' + r.sha + '</code><small>' + esc(r.src) + ' · ' + esc(r.model) + '</small></td>' +
+        '<td>' + pill(STAGE, r.stage) + '</td>' +
+        '<td class="num">' + num(r.arc) + '</td>' +
+        '<td class="num">' + num(r.fr) + '</td>' +
+        '<td class="num">' + num(r.r1) + '</td>' +
+        '<td class="num">' + num(r.r10) + '</td>' +
+        '<td>' + (r.arc != null
+          ? '<button class="btn btn-sm btn-ghost" type="button">Resmi gönder</button>'
+          : '<span style="color:var(--dim)">—</span>') + '</td>' +
+        '<td>' + (r.replay
+          ? '<button class="btn btn-sm btn-ghost" type="button">İzle</button>'
+          : '<span style="color:var(--dim)">—</span>') + '</td>' +
+        '<td>' + (r.err
+          ? '<details><summary style="cursor:pointer;color:var(--dim)">Günlük</summary>' +
+            '<pre style="margin:8px 0 0;font-size:11px;white-space:pre-wrap;color:var(--bad)">' +
+            esc(r.err) + '</pre></details>'
+          : '<span style="color:var(--dim)">—</span>') + '</td>' +
+      '</tr>';
+    }).join('');
+
+    return kaggle + '<div class="tablewrap"><table class="h-table">' +
+      '<thead><tr><th>Tarih</th><th>Commit</th><th>Durum</th>' +
+        '<th lang="en">ARC-AGI-3</th><th lang="en">Frontier</th>' +
+        '<th>RAM 1 ot.</th><th>RAM 10 ot.</th>' +
+        '<th lang="en">Official Kaggle</th><th>Tekrar</th><th>Günlük</th></tr></thead>' +
+      '<tbody>' + rows + '</tbody></table></div>';
+  }
+
+  /* ----------------------------------------------------- instructions tab */
+  var DOCS = [
+    {id:'nasil', t:'Nasıl çalışır', h:
+      '<p>Takımınız bir AI ajanı oluşturur ve onu bir kez gönderir. Aynı gönderim üç skor ' +
+      'tablosunda da puanlanır: <b lang="en">ARC-AGI-3</b>, <b lang="en">Frontier-bench</b> ' +
+      've <b lang="en">RAM-bench</b>.</p>' +
+      '<p>Repo herkese açık olmalı ve bağlantı <code>https://github.com/</code> ile ' +
+      'başlamalıdır. Herhangi bir takım üyesi tüm takım adına gönderebilir. Aynı anda ' +
+      'yalnızca bir çalıştırma devam edebilir. En iyi puanınız her skor tablosunda dikkate ' +
+      'alınır; RAM-bench için en düşük değer sayılır.</p>'},
+    {id:'repo', t:'Repo yapısı', h:
+      '<p>Deponuzda iki ajan bulunmalıdır: biri <span lang="en">ARC-AGI-3</span> için, ' +
+      'diğeri <span lang="en">Frontier-bench</span> için. Depoyu klonlayıp tam otomatik ' +
+      'olarak çalıştırıyoruz; yapıya uymayan bir gönderim puanlanmadan başarısız olur.</p>' +
+      '<pre lang="en">takim-repo/\n├── agent/\n│   ├── my_agent.py       # ARC-AGI-3: class MyAgent(Agent)\n' +
+      '│   ├── harbor_agent.py   # Frontier-bench: class HarborAgent(BaseAgent)\n' +
+      '│   └── ...               # geri kalanı size kalmış\n├── main.py               # RAM-bench giriş noktası\n' +
+      '└── requirements.txt      # bağımlılıklar</pre>' +
+      '<p><code>main.py</code> ajanınızın bağımsız RAM oturumudur. Standart prompt\'u ' +
+      'stdin\'den okur, stdout\'a boş olmayan bir yanıt yazar ve 10 saniyelik sert sınır ' +
+      'içinde başarıyla çıkar.</p>'},
+    {id:'ram', t:'RAM-bench', h:
+      '<p><span lang="en">RAM-bench</span> kendi başına bir benchmark\'tır ve diğer ikisiyle ' +
+      'hiçbir ilgisi yoktur. <code>main.py</code>\'yi önce 1 oturum, ardından 10 eşzamanlı ' +
+      'oturum olarak aynı sabit prompt ile çalıştırıyoruz. Her senaryo en fazla 10 saniye ' +
+      'sürer. Tek konteyner cgroup\'undaki tüm alt süreçlerin toplam belleğini ' +
+      '(<span lang="en">PSS</span>) 20 ms\'de bir örnekliyoruz; zirve değer puanınızdır. ' +
+      'Daha düşük olması daha iyidir.</p>'},
+    {id:'arc', t:'agent/my_agent.py — ARC-AGI-3', h:
+      '<p>Bu dosya <span lang="en">ARC-AGI-3</span> oyun motorunun içinde çalışır. Sınıfınızın ' +
+      'adı <code>MyAgent</code> olmalıdır, her adımda bir eylem seçer ve ne zaman biteceğine ' +
+      'karar verir.</p>' +
+      '<pre lang="en">from agents.templates.llm_agents import LLM\n\nclass MyAgent(LLM):\n' +
+      '    MODEL = os.environ["HARNESS_LLM_MODEL"]\n    MODEL_REQUIRES_TOOLS = True\n' +
+      '    DO_OBSERVATION = False\n\n    def build_user_prompt(self, latest_frame) -> str:\n' +
+      '        return "..."   # asıl kaldıraç burada</pre>' +
+      '<p>Yerel puan, sabitlenmiş <code>arc-agi==0.9.9</code> public veri setindeki 13 oyunun ' +
+      'paralel çalıştırılan ortalamasıdır. Harness eylem sayısına yapay bir sınır koymaz.</p>' +
+      '<p><b>Token maliyeti:</b> varsayılan çerçeve kodlaması her satırı bir Python listesi ' +
+      'olarak yazdırır ve bu, çağrı başına yaklaşık 52 bin token\'a mal olur. ' +
+      '<code>pretty_print_3d</code>\'yi hücre başına bir karakter yazacak şekilde geçersiz ' +
+      'kılmak bunu kabaca beş kat azaltır.</p>' +
+      '<p><b>Hız hedefi:</b> tüm aktif oyunlar birlikte 30 saniyede 100 tamamlanmış ajan turunu ' +
+      'hedefler. İki ardışık düşük pencere gönderimi cezalandırmaz, çalıştırmayı altyapı ' +
+      'hatası olarak işaretler.</p>'},
+    {id:'frontier', t:'agent/harbor_agent.py — Frontier Sprint', h:
+      '<p>Bu dosya <span lang="en">Frontier Sprint (Harbor)</span> ortamının içinde çalışır. ' +
+      'Her görevi, yalıtılmış bir konteyner içinde kabuk komutları çalıştırarak çözer.</p>' +
+      '<pre lang="en">from harbor.agents.terminus_2 import Terminus2\n\n' +
+      'class HarborAgent(Terminus2):\n    def __init__(self, *args, **kwargs):\n' +
+      '        kwargs.setdefault("max_turns", 40)\n        kwargs.setdefault("temperature", 0.0)\n' +
+      '        super().__init__(*args, **kwargs)</pre>' +
+      '<p>Önemli: bu dosya <span lang="en">Harbor</span>\'ın kendi Python\'unda çalışır, yani ' +
+      '<code>requirements.txt</code> onun için <b>yüklenmez</b>.</p>'},
+    {id:'llm', t:'LLM erişimi', h:
+      '<p>Tüm LLM çağrıları AWS Bedrock üzerinden, harness\'ın yerel OpenAI uyumlu geçidiyle ' +
+      'gider. AWS kimlik bilgileri konteynere verilmez. API anahtarlarını asla deponuza koymayın.</p>' +
+      '<table><tr><th>Değişken</th><th>Açıklama</th></tr>' +
+      '<tr><td><code>HARNESS_LLM_BASE</code></td><td>OpenAI uyumlu API adresi</td></tr>' +
+      '<tr><td><code>HARNESS_LLM_KEY</code></td><td>API anahtarı</td></tr>' +
+      '<tr><td><code>HARNESS_LLM_MODEL</code></td><td>Model adı</td></tr></table>'},
+    {id:'kurallar', t:'Kurallar', h:
+      '<ul><li>Tüm bağımlılıklar <code>requirements.txt</code> dosyasında listelenmelidir.</li>' +
+      '<li>Ajanın başsız çalışması gerekir: GUI penceresi ve etkileşimli bilgi istemi yok.</li>' +
+      '<li>RAM, ARC ve Frontier bağımsız sonuç verir. Biri başarısız olsa bile biten ' +
+      'benchmark\'ın puanı korunur. Tüm yerel çalıştırma en fazla 10 dakikadır.</li>' +
+      '<li><code>requirements.txt</code> doğrudan URL, git, yerel dosya veya pip seçeneği ' +
+      'içeremez; repo 100 MiB, tek dosya 10 MiB ile sınırlıdır.</li></ul>'},
+    {id:'kaggle', t:'Official Kaggle', h:
+      '<p>Geçmiş sekmesinden takımınızın Kaggle kullanıcı adı ve API tokenını şifreli olarak ' +
+      'kaydedebilirsiniz. Yalnızca açıkça “Resmi gönder” düğmesine bastığınızda, yerelde ' +
+      'puanlanan tam commit official yarışma notebook\'una paketlenir. Token hiçbir zaman ' +
+      'ajan konteynerine girmez.</p>'},
+    {id:'ornek', t:'Örnek repo ve bağlantılar', h:
+      '<ul lang="en"><li><a href="#">harness-mockup-agent — reference example</a></li>' +
+      '<li><a href="#">ARC Prize 2026 SDK docs</a></li>' +
+      '<li><a href="#">Frontier-bench run instructions</a></li>' +
+      '<li><a href="#">Harbor — BaseAgent docs</a></li></ul>'}
+  ];
+
+  function instructionsTab() {
+    var index = '<nav class="doc-index">' + DOCS.map(function (d, i) {
+      return '<a class="' + (i === 0 ? 'on' : '') + '" href="#' + d.id + '">' + d.t + '</a>';
+    }).join('') + '</nav>';
+    var body = '<div class="doc-body">' + DOCS.map(function (d) {
+      return '<section class="doc-sec" id="' + d.id + '"><h2>' + d.t + '</h2>' + d.h + '</section>';
+    }).join('') + '</div>';
+    return '<div class="doc">' + index + body + '</div>';
+  }
+
+  /* ------------------------------------------------------------- assembly */
+  var SUBS = {
+    main:         '10 dakikalık sürümlenmiş koşuda üç bağımsız benchmark.',
+    live:         '13 ARC-AGI-3 oyunu canlı — bir tahtaya tıkla, büyüt ve hamleleri izle.',
+    history:      'Hangi commit hangi puanı aldı — yerel ve resmi gönderimler burada.',
+    instructions: 'Gönderim kuralları — repo yapısı ve değerlendirme süreci.'
+  };
+
+  var stage = document.getElementById('stage');
+  var design = '1', tab = 'main', state = 'idle';
+
+  function telemetry() {
+    if (state !== 'running') return '';
+    return '<div class="h-strip">' +
+      '<div class="h-readout"><span>Durum</span><b style="color:var(--run)">RUNNING</b></div>' +
+      '<div class="h-readout"><span>Tur / 30s</span><b style="color:var(--bad)">75 / 100</b></div>' +
+      '<div class="h-readout"><span>Aktif oyun</span><b>13</b></div>' +
+      '<div class="h-readout"><span>Sert sınır</span><b style="color:var(--warn)">7:12</b></div>' +
+    '</div>';
+  }
+
+  function render() {
+    var body = tab === 'main'    ? mainTab(design, state)
+             : tab === 'live'    ? liveTab(design, state)
+             : tab === 'history' ? historyTab(design, state)
+             :                     instructionsTab();
+
+    stage.dataset.design = design;
+    stage.innerHTML = '<div class="h-inner">' +
+      header(design, SUBS[tab], telemetry()) +
+      tabs(tab) +
+      '<div class="h-body">' + body + '</div>' +
+    '</div>';
+
+    // Tiles are built exactly the way arc.js:78-96 builds them — a <button> whose direct
+    // children are the canvas, .arc-name and .arc-meta. No wrapper div: any CSS written
+    // against a wrapper here would not port to the real page.
+    stage.querySelectorAll('[data-boards]').forEach(function (host) {
+      var seq = order();
+      if (host.dataset.boards === 'rail') seq = seq.slice(0, 8);
+      seq.forEach(function (i) {
+        var game = GAMES[i], st = stateOf(i);
+        var human = 180 + i * 11;
+        var used = st === 'NOT_PLAYED' ? 0
+                 : st === 'NOT_FINISHED' ? 20 + i * 3
+                 : human - 4 + (i % 7);
+        var btn = document.createElement('button');
+        btn.className = 'arc-tile';
+        btn.type = 'button';
+        btn.dataset.game = game;
+        btn.dataset.state = st;
+        btn.setAttribute('aria-pressed', game === FOCUS ? 'true' : 'false');
+        var cv = document.createElement('canvas');
+        cv.width = 64; cv.height = 64;
+        cv.setAttribute('role', 'img');
+        cv.setAttribute('aria-label', game + ' oyun tahtası');
+        btn.appendChild(cv);
+        var name = document.createElement('span');
+        name.className = 'arc-name';
+        name.textContent = game;
+        btn.appendChild(name);
+        var meta = document.createElement('span');
+        meta.className = 'arc-meta';
+        meta.textContent = 'Seviye ' + (st === 'NOT_PLAYED' ? 0 : 1 + (i % 3)) +
+          ' · ' + used + '/' + human + ' hamle · ' + STATE_TR[st];
+        btn.appendChild(meta);
+        host.appendChild(btn);
+        if (st !== 'NOT_PLAYED') paint(cv, board(game, i));
+      });
+    });
+
+    animated = [].slice.call(stage.querySelectorAll('[data-play]'));
+    animated.forEach(function (cv) { paint(cv, board(FOCUS, frame)); });
+  }
+
+  /* Rail order: the five live games first, then finished, then not started — so a
+     student never has to scroll to find what is actually playing. */
+  function order() {
+    var rank = {NOT_FINISHED: 0, WIN: 1, GAME_OVER: 1, NOT_PLAYED: 2};
+    var idx = GAMES.map(function (_, i) { return i; });
+    return idx.sort(function (a, b) {
+      return rank[stateOf(a)] - rank[stateOf(b)] || a - b;
+    });
+  }
+
+  // arc.js plays the focused game's frame buffer at FRAME_MS = 250 (arc.js:11, :288).
+  // Only the focused board animates there, so only the focused board animates here.
+  var animated = [], frame = 0;
+  setInterval(function () {
+    if (!animated.length) return;
+    frame = (frame + 1) % 24;
+    var grid = board(FOCUS, frame);
+    animated.forEach(function (cv) { paint(cv, grid); });
+  }, 250);
+
+  function press(attr, value) {
+    document.querySelectorAll('[' + attr + ']').forEach(function (b) {
+      b.setAttribute('aria-pressed', b.getAttribute(attr) === value ? 'true' : 'false');
+    });
+  }
+
+  document.addEventListener('click', function (event) {
+    var el = event.target.closest('[data-set-design],[data-set-tab],[data-set-state]');
+    if (!el) return;
+    if (el.dataset.setDesign) { design = el.dataset.setDesign; press('data-set-design', design); }
+    if (el.dataset.setTab)    { tab    = el.dataset.setTab;    press('data-set-tab', tab); }
+    if (el.dataset.setState)  { state  = el.dataset.setState;  press('data-set-state', state); }
+    render();
+  });
+
+  // the live preview on the main tab is a link into the Canlı tab, focused on that game
+  document.addEventListener('click', function (event) {
+    if (!event.target.closest('[data-goto-live]')) return;
+    tab = 'live'; press('data-set-tab', 'live'); render();
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>
