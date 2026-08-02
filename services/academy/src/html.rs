@@ -3,8 +3,8 @@
 
 use crate::model::*;
 use benchmark_protocol::{
-    BEDROCK_MODEL_IDS, BUILTIN_HARNESSES, DEFAULT_BEDROCK_MODEL, bedrock_model_supports_images,
-    builtin_harness_label,
+    BEDROCK_MODEL_IDS, BUILTIN_HARNESSES, CEREBRAS_MODEL_IDS, DEFAULT_BEDROCK_MODEL,
+    DEFAULT_CEREBRAS_MODEL, ModelProvider, builtin_harness_label,
 };
 use uuid::Uuid;
 
@@ -702,8 +702,13 @@ fn harness_stepper(run: &HarnessRun) -> String {
         "RAM-bench",
         "1 ve 10 oturum · 10 sn · cgroup PSS",
     );
+    let cards = match run.benchmark_kind.as_str() {
+        "arc" => format!("{arc}{ram}"),
+        "frontier" => format!("{frontier}{ram}"),
+        _ => format!("{arc}{frontier}{ram}"),
+    };
     format!(
-        r##"<div class="harness-live" id="harness-live" data-active="true" data-run="{run_id}" data-deadline="{deadline}">
+        r##"<div class="harness-live" id="harness-live" data-active="true" data-run="{run_id}" data-kind="{kind}" data-deadline="{deadline}">
   <div class="harness-live-head">
     <span id="harness-run-status" class="substatus {stage_class}">{stage_label}</span>
     <div class="harness-live-actions">
@@ -712,11 +717,13 @@ fn harness_stepper(run: &HarnessRun) -> String {
     </div>
   </div>
   <p class="fieldnote harness-repo">{repo} · <code id="harness-commit">{sha}</code></p>
-  <p class="harness-run-meta"><span lang="en">{version}</span> · Bedrock: <span id="harness-profile">{profile}</span></p>
-  <div class="harness-benchmark-grid">{arc}{frontier}{ram}</div>
+  <p class="harness-run-meta"><span lang="en">{version}</span> · {provider}: <span id="harness-profile">{profile}</span></p>
+  <div class="harness-benchmark-grid">{cards}</div>
 </div>"##,
         deadline = esc(&deadline),
         run_id = run.id,
+        kind = esc(&run.benchmark_kind),
+        provider = esc(&run.provider),
         repo = harness_source_label(&run.repo_url),
         version = esc(&run.benchmark_version),
         stop = harness_stop_form(run.id),
@@ -726,22 +733,27 @@ fn harness_stepper(run: &HarnessRun) -> String {
 /// Main tab: submit panel on the left, the switchable leaderboards on the right.
 /// `rows` carries ARC/Frontier standings, `ram_rows` the RAM ones — whichever
 /// matches `bench` is populated, the other is empty.
-fn bedrock_model_options() -> String {
-    BEDROCK_MODEL_IDS
+fn provider_model_options(provider: ModelProvider, select_default: bool) -> String {
+    let (models, default) = match provider {
+        ModelProvider::Cerebras => (CEREBRAS_MODEL_IDS, DEFAULT_CEREBRAS_MODEL),
+        ModelProvider::Bedrock => (BEDROCK_MODEL_IDS, DEFAULT_BEDROCK_MODEL),
+    };
+    models
         .iter()
         .map(|model| {
-            let selected = if *model == DEFAULT_BEDROCK_MODEL {
+            let selected = if select_default && *model == default {
                 " selected"
             } else {
                 ""
             };
-            let image = if bedrock_model_supports_images(model) {
+            let image = if provider.supports_images(model) {
                 r#" data-image="true""#
             } else {
                 ""
             };
             format!(
-                r#"<option value="{model}"{selected}{image}>{model}</option>"#,
+                r#"<option value="{model}" data-provider="{provider}"{selected}{image}>{model}</option>"#,
+                provider = provider.as_str(),
                 model = esc(model)
             )
         })
@@ -808,26 +820,46 @@ pub fn agentic_harness_main(
                     let builtin_picker = if user.is_admin {
                         format!(
                             r#"<label>agent:
-      <select name="builtin_harness" onchange="const m=this.form.elements.model_id;for(const o of m.options)o.disabled=this.value&amp;&amp;o.dataset.image!=='true';if(m.selectedOptions[0]?.disabled)m.value='xai.grok-4.3'">{}</select>
+      <select name="builtin_harness">{}</select>
     </label>"#,
                             builtin_harness_options()
                         )
                     } else {
                         String::new()
                     };
+                    let provider_picker = if user.is_admin {
+                        r#"<label>provider:
+      <select name="provider" onchange="const m=this.form.elements.model_id;for(const o of m.options)o.disabled=o.dataset.provider!==this.value;const first=[...m.options].find(o=>!o.disabled);if(m.selectedOptions[0]?.disabled&amp;&amp;first)m.value=first.value">
+        <option value="cerebras" selected>Cerebras</option><option value="bedrock">Bedrock</option>
+      </select>
+    </label>"#
+                    } else {
+                        ""
+                    };
+                    let model_options = if user.is_admin {
+                        format!(
+                            "{}{}",
+                            provider_model_options(ModelProvider::Cerebras, true),
+                            provider_model_options(ModelProvider::Bedrock, false)
+                        )
+                    } else {
+                        provider_model_options(ModelProvider::Cerebras, true)
+                    };
                     let repo_required = if user.is_admin { "" } else { " required" };
                     format!(
                         r##"<form method="post" action="/agentic-harness/submit" class="subform">
+    <input type="hidden" name="benchmark_kind" value="{bench}">
     <input name="repo_url" type="url" placeholder="https://github.com/..."{repo_required}>
     {builtin_picker}
+    {provider_picker}
     <label>model:
       <select name="model_id" required>{model_options}</select>
     </label>
     <button class="btn-dark">Ajanı Gönder →</button>
   </form>
-  <p class="fieldnote">Herhangi bir takım üyesi gönderebilir. Aynı anda tek çalıştırma.
+  <p class="fieldnote">Herhangi bir takım üyesi gönderebilir. Her benchmark için aynı anda tek çalıştırma.
   Kurallar için <a href="/agentic-harness?tab=instructions" lang="en">Instructions</a> sekmesine bak.</p>"##,
-                        model_options = bedrock_model_options()
+                        model_options = model_options,
                     )
                 }
             };
@@ -841,10 +873,18 @@ pub fn agentic_harness_main(
             )
         }
     };
-    let bench_chips: String = HARNESS_BENCHES.iter().map(|(k, label)| {
-        let active = if bench == *k { "active" } else { "" };
-        format!(r#"<a class="chip {active}" href="/agentic-harness?bench={k}" lang="en">{label}</a>"#)
-    }).collect();
+    let bench_chips: String = HARNESS_BENCHES
+        .iter()
+        .map(|(k, label)| {
+            let active = if bench == *k { "active" } else { "" };
+            let href = match *k {
+                "arc" => "/agentic-harness/arc",
+                "frontier" => "/agentic-harness/frontier",
+                _ => "/agentic-harness?bench=ram",
+            };
+            format!(r#"<a class="chip {active}" href="{href}" lang="en">{label}</a>"#)
+        })
+        .collect();
     let my_team_id = team.map(|t| t.id);
     let empty_note =
         "<p class='muted'>Henüz tamamlanmış çalıştırma yok — ilk gönderen takım siz olun.</p>";
@@ -966,7 +1006,7 @@ pub fn agentic_harness_main(
     // the Canlı tab. data-poll slows the heartbeat to 5s, because each poll returns all
     // 25 grids (~100KB) and the preview only needs the focused one.
     let preview = match active_run {
-        Some(run) => format!(
+        Some(run) if matches!(run.benchmark_kind.as_str(), "arc" | "bundled") => format!(
             r##"<div id="arc-live" class="arc-live" data-active="true" data-run="" data-current-run="{run_id}" data-replay="false" data-poll="5000" hidden>
   <div class="arc-focus" id="arc-focus" hidden></div>
 </div>
@@ -993,7 +1033,7 @@ pub fn agentic_harness_main(
 <script src="/static/arc.js?v=4" defer></script>"##,
             run_id = run.id
         ),
-        None => String::new(),
+        _ => String::new(),
     };
     let inner = format!(
         r##"<div class="harnesswrap">
@@ -1170,7 +1210,12 @@ pub fn agentic_harness_history(
                 }
                 _ => "—".into(),
             };
-            let commit = format!("{commit}<small>{}</small>", esc(&r.model_id));
+            let commit = format!(
+                "{commit}<small>{} · {} · {}</small>",
+                esc(&r.benchmark_kind),
+                esc(&r.provider),
+                esc(&r.model_id)
+            );
             let log = r.error_log.as_deref().filter(|l| !l.trim().is_empty())
                 .map(|l| format!(r#"<details class="plan-details"><summary>Günlük</summary><pre class="plan-pre">{}</pre></details>"#, esc(l)))
                 .unwrap_or_else(|| "—".into());
@@ -3132,7 +3177,7 @@ mod tests {
     }
 
     #[test]
-    fn harness_submission_lists_each_bedrock_model() {
+    fn harness_submission_lists_only_cerebras_models_for_students() {
         let user = User {
             id: Uuid::nil(),
             display_name: "A".into(),
@@ -3146,13 +3191,15 @@ mod tests {
         let html = agentic_harness_main(&user, "arc", Some(&team), &[], None, &[], &[]);
         assert!(html.contains("<label>model:"));
         assert!(html.contains(r#"<select name="model_id" required>"#));
+        assert!(html.contains(r#"name="benchmark_kind" value="arc""#));
         assert!(html.contains(
             r#"name="repo_url" type="url" placeholder="https://github.com/..." required"#
         ));
         assert!(!html.contains(r#"name="builtin_harness""#));
-        assert_eq!(html.matches("<option ").count(), BEDROCK_MODEL_IDS.len());
+        assert!(!html.contains(r#"<select name="provider""#));
+        assert_eq!(html.matches("<option ").count(), CEREBRAS_MODEL_IDS.len());
         assert!(html.contains(&format!(
-            r#"<option value="{DEFAULT_BEDROCK_MODEL}" selected data-image="true">"#
+            r#"<option value="{DEFAULT_CEREBRAS_MODEL}" data-provider="cerebras" selected data-image="true">"#
         )));
     }
 
@@ -3170,11 +3217,22 @@ mod tests {
         };
         let html = agentic_harness_main(&admin, "arc", Some(&team), &[], None, &[], &[]);
         assert!(html.contains("<label>agent:"));
+        assert!(html.contains(r#"<select name="provider""#));
+        assert!(html.contains(r#"<option value="cerebras" selected>Cerebras</option>"#));
+        assert!(html.contains(r#"<option value="bedrock">Bedrock</option>"#));
         assert!(html.contains(r#"<select name="builtin_harness""#));
         assert!(html.contains(r#"<option value="forge">Forge</option>"#));
         assert!(html.contains(r#"<option value="reki">Reki</option>"#));
-        assert!(html.contains(r#"value="google.gemma-4-31b" data-image="true""#));
-        assert!(!html.contains(r#"value="openai.gpt-oss-120b" data-image="true""#));
+        assert!(
+            html.contains(
+                r#"value="google.gemma-4-31b" data-provider="bedrock" data-image="true""#
+            )
+        );
+        assert!(
+            !html.contains(
+                r#"value="openai.gpt-oss-120b" data-provider="bedrock" data-image="true""#
+            )
+        );
         assert!(!html.contains(r#"placeholder="https://github.com/..." required"#));
     }
 
@@ -3284,6 +3342,8 @@ mod tests {
             id: Uuid::from_u128(7),
             repo_url: "forge".into(),
             model_id: "google.gemma-4-31b".into(),
+            provider: "bedrock".into(),
+            benchmark_kind: "bundled".into(),
             commit_sha: Some("be0f06c1d2e3f4a5".into()),
             stage: "running".into(),
             benchmark_version: "v2".into(),

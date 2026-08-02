@@ -13,11 +13,11 @@ use axum::{
 };
 use benchmark_protocol::{
     ARC_GAMES, ArcFrame as HarnessArcFrame, ArcFramesRequest as HarnessArcFramesReq, BenchmarkKind,
-    DEFAULT_BEDROCK_MODEL, HarnessCapacity, HarnessClaim, HarnessLeaseRequest as HarnessLeaseReq,
-    HarnessProgressRequest as HarnessProgressReq, HarnessResultRequest as HarnessResultReq,
-    HarnessStageRequest as HarnessStageReq, KaggleClaim,
+    DEFAULT_BEDROCK_MODEL, DEFAULT_CEREBRAS_MODEL, HarnessCapacity, HarnessClaim,
+    HarnessLeaseRequest as HarnessLeaseReq, HarnessProgressRequest as HarnessProgressReq,
+    HarnessResultRequest as HarnessResultReq, HarnessStageRequest as HarnessStageReq, KaggleClaim,
     KaggleResultRequest as HarnessKaggleResultReq, ModelProvider, RUN_DEADLINE_SECONDS,
-    bedrock_model_supports_images, builtin_harness_uri, is_bedrock_model, is_builtin_harness,
+    builtin_harness_uri, is_builtin_harness,
 };
 use chacha20poly1305::{
     XChaCha20Poly1305, XNonce,
@@ -55,6 +55,31 @@ pub async fn agentic_harness(
     headers: HeaderMap,
     Query(q): Query<HarnessQ>,
 ) -> Result<Html<String>, Response> {
+    agentic_harness_page(app, headers, q, None).await
+}
+
+pub async fn agentic_harness_arc(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Query(q): Query<HarnessQ>,
+) -> Result<Html<String>, Response> {
+    agentic_harness_page(app, headers, q, Some(BenchmarkKind::Arc)).await
+}
+
+pub async fn agentic_harness_frontier(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Query(q): Query<HarnessQ>,
+) -> Result<Html<String>, Response> {
+    agentic_harness_page(app, headers, q, Some(BenchmarkKind::Frontier)).await
+}
+
+async fn agentic_harness_page(
+    app: App,
+    headers: HeaderMap,
+    q: HarnessQ,
+    page_kind: Option<BenchmarkKind>,
+) -> Result<Html<String>, Response> {
     let user = require_onboarded(current_user(&app, &headers).await)?;
     // unknown values fall back to defaults, same as /demos?lang=
     let tab = match q.tab.as_deref() {
@@ -70,13 +95,15 @@ pub async fn agentic_harness(
         // Team-scoped exactly like harness_arc_live below: a ?run= belonging to another
         // team matches no row, so the page renders empty instead of their boards.
         let run: Option<HarnessRun> = sqlx::query_as(
-            "select r.id, r.repo_url, r.model_id, r.commit_sha, r.stage, r.benchmark_version,
+            "select r.id, r.repo_url, r.model_id, r.provider, r.benchmark_kind,
+                    r.commit_sha, r.stage, r.benchmark_version,
                     r.benchmark_state, r.bedrock_profile, r.deadline_at, r.score_arc,
                     r.score_frontier, r.ram_1session_mb, r.ram_10session_mb,
                     r.error_log, r.created_at
              from harness_runs_exposure_academy r
              join harness_team_members_exposure_academy tm on tm.team_id = r.team_id
              where tm.user_id = $1 and ($2::uuid is null or r.id = $2)
+               and ($2::uuid is not null or r.benchmark_kind in ('arc', 'bundled'))
              order by r.created_at desc limit 1",
         )
         .bind(user.id)
@@ -94,7 +121,8 @@ pub async fn agentic_harness(
     if tab == "history" {
         let runs: Vec<HarnessRun> = match &team {
             Some(t) => sqlx::query_as(
-                "select id, repo_url, model_id, commit_sha, stage, benchmark_version,
+                "select id, repo_url, model_id, provider, benchmark_kind,
+                        commit_sha, stage, benchmark_version,
                         benchmark_state, bedrock_profile, deadline_at, score_arc,
                         score_frontier, ram_1session_mb, ram_10session_mb,
                         error_log, created_at
@@ -136,10 +164,14 @@ pub async fn agentic_harness(
             &official,
         )));
     }
-    let bench = match q.bench.as_deref() {
-        Some("frontier") => "frontier",
-        Some("ram") => "ram",
-        _ => "arc",
+    let bench = match page_kind {
+        Some(BenchmarkKind::Frontier) => "frontier",
+        Some(BenchmarkKind::Arc) => "arc",
+        _ => match q.bench.as_deref() {
+            Some("frontier") => "frontier",
+            Some("ram") => "ram",
+            _ => "arc",
+        },
     };
     // Kid names shown next to each team, real names per the leaderboard convention.
     // One query for all teams; html filters per row in memory, same as board() does
@@ -158,14 +190,19 @@ pub async fn agentic_harness(
     .unwrap();
     let active_run: Option<HarnessRun> = match &team {
         Some(t) => sqlx::query_as(
-            "select id, repo_url, model_id, commit_sha, stage, benchmark_version,
+            "select id, repo_url, model_id, provider, benchmark_kind,
+                    commit_sha, stage, benchmark_version,
                     benchmark_state, bedrock_profile, deadline_at, score_arc,
                     score_frontier, ram_1session_mb, ram_10session_mb,
                     error_log, created_at
              from harness_runs_exposure_academy
-             where team_id = $1 and stage not in ('done','partial','failed','infra_failed','cancelled')",
+             where team_id = $1
+               and ($2::text = 'ram' or benchmark_kind in ($2, 'bundled'))
+               and stage not in ('done','partial','failed','infra_failed','cancelled')
+             order by created_at desc limit 1",
         )
         .bind(t.id)
+        .bind(bench)
         .fetch_optional(&app.pool)
         .await
         .unwrap(),
@@ -184,6 +221,7 @@ pub async fn agentic_harness(
                join harness_runs_exposure_academy r
                  on r.team_id = t.id and r.benchmark_version = $1
                     and r.ram_10session_mb is not null
+                    and r.stage <> 'cancelled'
                order by t.id, r.ram_10session_mb asc, r.created_at desc
              ) best order by ram_10session_mb asc, lower(name)",
             )
@@ -199,6 +237,7 @@ pub async fn agentic_harness(
              join harness_runs_exposure_academy r
                on r.team_id = t.id and r.benchmark_version = $1
                   and r.score_frontier is not null
+                  and r.stage <> 'cancelled'
              group by t.id, t.name order by best desc, lower(t.name)"
         } else {
             "select t.id, t.name, max(r.score_arc) as best
@@ -206,6 +245,7 @@ pub async fn agentic_harness(
              join harness_runs_exposure_academy r
                on r.team_id = t.id and r.benchmark_version = $1
                   and r.score_arc is not null
+                  and r.stage <> 'cancelled'
              group by t.id, t.name order by best desc, lower(t.name)"
         };
         (
@@ -234,6 +274,10 @@ pub struct HarnessSubmitForm {
     repo_url: String,
     #[serde(default)]
     model_id: String,
+    #[serde(default)]
+    provider: String,
+    #[serde(default)]
+    benchmark_kind: String,
     #[serde(default)]
     builtin_harness: String,
 }
@@ -273,13 +317,26 @@ fn github_repo_url(raw: &str) -> Option<String> {
     Some(format!("https://github.com/{}/{repo}", parts[0]))
 }
 
-fn submitted_model_id(raw: &str, requires_images: bool) -> Option<&str> {
+fn submitted_provider(is_admin: bool, raw: &str) -> Option<ModelProvider> {
+    let raw = raw.trim();
+    if !is_admin {
+        return matches!(raw, "" | "cerebras").then_some(ModelProvider::Cerebras);
+    }
+    if raw.is_empty() {
+        Some(ModelProvider::Cerebras)
+    } else {
+        raw.parse().ok()
+    }
+}
+
+fn submitted_model_id(provider: ModelProvider, raw: &str, requires_images: bool) -> Option<&str> {
     let model_id = match raw.trim() {
+        "" if provider == ModelProvider::Cerebras => Some(DEFAULT_CEREBRAS_MODEL),
         "" => Some(DEFAULT_BEDROCK_MODEL),
-        model_id if is_bedrock_model(model_id) => Some(model_id),
+        model_id if provider.supports_model(model_id) => Some(model_id),
         _ => None,
     }?;
-    (!requires_images || bedrock_model_supports_images(model_id)).then_some(model_id)
+    (!requires_images || provider.supports_images(model_id)).then_some(model_id)
 }
 
 fn submission_source(is_admin: bool, repo_url: &str, builtin_harness: &str) -> Option<String> {
@@ -303,6 +360,18 @@ pub async fn harness_submit(
         // the form isn't rendered for team-less students; this catches hand-rolled POSTs
         return Err(bad("Bir takımda değilsin — eğitmenine yaz."));
     };
+    let Some(benchmark_kind) = f
+        .benchmark_kind
+        .trim()
+        .parse::<BenchmarkKind>()
+        .ok()
+        .filter(|kind| matches!(kind, BenchmarkKind::Arc | BenchmarkKind::Frontier))
+    else {
+        return Err(bad("ARC veya Frontier çalıştırması seç."));
+    };
+    let Some(provider) = submitted_provider(user.is_admin, &f.provider) else {
+        return Err(bad("Bu sağlayıcıyı kullanma iznin yok."));
+    };
     let Some(repo_url) = submission_source(user.is_admin, &f.repo_url, &f.builtin_harness) else {
         return Err(bad(if user.is_admin {
             "GitHub bağlantısı gir veya bir hazır harness seç."
@@ -310,40 +379,50 @@ pub async fn harness_submit(
             "Repo bağlantısı https://github.com/ ile başlamalı."
         }));
     };
-    let Some(model_id) = submitted_model_id(&f.model_id, is_builtin_harness(&repo_url)) else {
+    let requires_images = benchmark_kind == BenchmarkKind::Arc && is_builtin_harness(&repo_url);
+    let Some(model_id) = submitted_model_id(provider, &f.model_id, requires_images) else {
         return Err(bad(
             "Bu agent için görüntü destekleyen geçerli bir model seç.",
         ));
     };
-    let in_flight = "Takımının devam eden bir çalıştırması var — bitmesini bekleyin.";
+    let in_flight = "Takımının bu benchmark için devam eden bir çalıştırması var.";
     let active: Option<Uuid> = sqlx::query_scalar(
         "select id from harness_runs_exposure_academy where team_id = $1
+         and benchmark_kind in ($2, 'bundled')
          and stage not in ('done','partial','failed','infra_failed','cancelled')",
     )
     .bind(team.id)
+    .bind(benchmark_kind.as_str())
     .fetch_optional(&app.pool)
     .await
-    .unwrap();
+    .map_err(worker_db_unavailable)?;
     if active.is_some() {
         return Err(bad(in_flight));
     }
-    // The one-active-run partial unique index backstops the pre-check above, so a
+    // The one-active-kind partial unique index backstops the pre-check above, so a
     // double-click race lands here as a constraint error, not a second run — map it
     // to the same friendly message instead of unwrap-panicking into a 500.
     sqlx::query(
         "insert into harness_runs_exposure_academy
-           (team_id, submitted_by, repo_url, model_id, benchmark_version)
-         values ($1,$2,$3,$4,$5)",
+           (team_id, submitted_by, repo_url, model_id, provider, benchmark_kind,
+            benchmark_version)
+         values ($1,$2,$3,$4,$5,$6,$7)",
     )
     .bind(team.id)
     .bind(user.id)
     .bind(&repo_url)
     .bind(model_id)
+    .bind(provider.as_str())
+    .bind(benchmark_kind.as_str())
     .bind(HARNESS_VERSION)
     .execute(&app.pool)
     .await
     .map_err(|_| bad(in_flight))?;
-    Ok(Redirect::to("/agentic-harness"))
+    Ok(Redirect::to(match benchmark_kind {
+        BenchmarkKind::Arc => "/agentic-harness/arc",
+        BenchmarkKind::Frontier => "/agentic-harness/frontier",
+        BenchmarkKind::Bundled => unreachable!(),
+    }))
 }
 
 /// Team-scoped cancellation. Clearing the lease makes the controller's next frame,
@@ -378,11 +457,26 @@ pub async fn harness_stop(
 
 /// Tiny JSON the stepper polls. The server resolves "my team's latest run" from the
 /// session — no run id in the URL, so nothing cross-team is addressable.
+#[derive(Deserialize)]
+pub struct HarnessStatusQ {
+    kind: Option<String>,
+}
+
 pub async fn harness_status(
     State(app): State<App>,
     headers: HeaderMap,
+    Query(q): Query<HarnessStatusQ>,
 ) -> Result<Json<serde_json::Value>, Response> {
     let user = require(current_user(&app, &headers).await)?;
+    let kind = match q.kind.as_deref() {
+        None => None,
+        Some(value) => Some(
+            value
+                .parse::<BenchmarkKind>()
+                .ok()
+                .ok_or_else(|| StatusCode::BAD_REQUEST.into_response())?,
+        ),
+    };
     let row: Option<(
         Uuid,
         String,
@@ -391,27 +485,36 @@ pub async fn harness_status(
         Option<DateTime<Utc>>,
         String,
         Option<String>,
+        String,
+        String,
     )> = sqlx::query_as(
         "select r.id, r.stage, r.commit_sha, r.benchmark_state, r.deadline_at,
-                r.benchmark_version, r.bedrock_profile
+                r.benchmark_version, r.bedrock_profile, r.provider, r.benchmark_kind
          from harness_runs_exposure_academy r
          join harness_team_members_exposure_academy tm on tm.team_id = r.team_id
-         where tm.user_id = $1 order by r.created_at desc limit 1",
+         where tm.user_id = $1
+           and ($2::text is null or r.benchmark_kind in ($2, 'bundled'))
+         order by r.created_at desc limit 1",
     )
     .bind(user.id)
+    .bind(kind.map(BenchmarkKind::as_str))
     .fetch_optional(&app.pool)
     .await
     .map_err(worker_db_unavailable)?;
     Ok(Json(match row {
-        Some((run, stage, sha, benchmarks, deadline, version, profile)) => serde_json::json!({
-            "run": run,
-            "stage": stage,
-            "commit_sha": sha,
-            "benchmarks": benchmarks,
-            "deadline_at": deadline,
-            "benchmark_version": version,
-            "bedrock_profile": profile,
-        }),
+        Some((run, stage, sha, benchmarks, deadline, version, profile, provider, kind)) => {
+            serde_json::json!({
+                "run": run,
+                "stage": stage,
+                "commit_sha": sha,
+                "benchmarks": benchmarks,
+                "deadline_at": deadline,
+                "benchmark_version": version,
+                "bedrock_profile": profile,
+                "provider": provider,
+                "benchmark_kind": kind,
+            })
+        }
         None => serde_json::json!({"run": null, "stage": null}),
     }))
 }
@@ -438,6 +541,7 @@ pub async fn harness_arc_live(
          from harness_runs_exposure_academy r
          join harness_team_members_exposure_academy tm on tm.team_id = r.team_id
          where tm.user_id = $1 and ($2::uuid is null or r.id = $2)
+           and ($2::uuid is not null or r.benchmark_kind in ('arc', 'bundled'))
          order by r.created_at desc limit 1",
     )
     .bind(user.id)
@@ -891,11 +995,23 @@ pub async fn worker_harness_capacity(
     }))
 }
 
+#[derive(Deserialize)]
+pub struct HarnessClaimQ {
+    kind: Option<String>,
+}
+
 pub async fn worker_harness_claim(
     State(app): State<App>,
     headers: HeaderMap,
+    Query(q): Query<HarnessClaimQ>,
 ) -> Result<Json<Option<HarnessClaim>>, Response> {
     check_worker(&app, &headers)?;
+    let benchmark_kind = q
+        .kind
+        .as_deref()
+        .unwrap_or("bundled")
+        .parse::<BenchmarkKind>()
+        .map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
     sqlx::query(
         "update harness_runs_exposure_academy
          set stage = 'infra_failed', error_log = 'Worker missed the deadline result grace period.',
@@ -918,10 +1034,10 @@ pub async fn worker_harness_claim(
     .map_err(worker_db_unavailable)?;
 
     let lease = Uuid::new_v4();
-    let row: Option<(Uuid, String, DateTime<Utc>, String)> = sqlx::query_as(
+    let row: Option<(Uuid, String, DateTime<Utc>, String, String, String)> = sqlx::query_as(
         "with candidate as (
            select id from harness_runs_exposure_academy
-           where benchmark_version = $3 and (
+           where benchmark_version = $3 and benchmark_kind = $4 and (
              stage = 'queued'
              or (stage in ('preparing','running') and lease_expires_at < now()
                  and deadline_at > now() and claim_attempts < 3)
@@ -939,26 +1055,32 @@ pub async fn worker_harness_claim(
              deadline_at = coalesce(r.deadline_at, now() + $2::bigint * interval '1 second'),
              claim_attempts = claim_attempts + 1, updated_at = now()
          from candidate where r.id = candidate.id
-         returning r.id, r.repo_url, r.deadline_at, r.model_id",
+         returning r.id, r.repo_url, r.deadline_at, r.model_id,
+                   r.provider, r.benchmark_kind",
     )
     .bind(lease)
     .bind(RUN_DEADLINE_SECONDS)
     .bind(HARNESS_VERSION)
+    .bind(benchmark_kind.as_str())
     .fetch_optional(&app.pool)
     .await
     .map_err(worker_db_unavailable)?;
-    Ok(Json(row.map(|(id, repo_url, deadline_at, model_id)| {
-        HarnessClaim {
-            id,
-            repo_url,
-            provider: ModelProvider::Bedrock,
-            benchmark_kind: BenchmarkKind::Bundled,
-            model_id,
-            lease_token: lease,
-            deadline_at,
-            benchmark_version: HARNESS_VERSION.into(),
-        }
-    })))
+    Ok(Json(row.map(
+        |(id, repo_url, deadline_at, model_id, provider, benchmark_kind)| {
+            HarnessClaim {
+                id,
+                repo_url,
+                provider: provider.parse().expect("database provider constraint"),
+                benchmark_kind: benchmark_kind
+                    .parse()
+                    .expect("database benchmark kind constraint"),
+                model_id,
+                lease_token: lease,
+                deadline_at,
+                benchmark_version: HARNESS_VERSION.into(),
+            }
+        },
+    )))
 }
 
 pub async fn worker_harness_heartbeat(
@@ -1375,18 +1497,46 @@ mod tests {
     use super::*;
 
     #[test]
-    fn submitted_model_is_allowlisted_with_legacy_default() {
-        assert_eq!(submitted_model_id("", false), Some(DEFAULT_BEDROCK_MODEL));
+    fn submitted_model_is_scoped_to_its_provider() {
         assert_eq!(
-            submitted_model_id("  xai.grok-4.3  ", false),
+            submitted_model_id(ModelProvider::Cerebras, "", false),
+            Some(DEFAULT_CEREBRAS_MODEL)
+        );
+        assert_eq!(
+            submitted_model_id(ModelProvider::Bedrock, "", false),
             Some(DEFAULT_BEDROCK_MODEL)
         );
-        assert_eq!(submitted_model_id("attacker.model", false), None);
         assert_eq!(
-            submitted_model_id("google.gemma-4-31b", true),
+            submitted_model_id(ModelProvider::Bedrock, "  xai.grok-4.3  ", false),
+            Some(DEFAULT_BEDROCK_MODEL)
+        );
+        assert_eq!(
+            submitted_model_id(ModelProvider::Cerebras, "xai.grok-4.3", false),
+            None
+        );
+        assert_eq!(
+            submitted_model_id(ModelProvider::Bedrock, "google.gemma-4-31b", true),
             Some("google.gemma-4-31b")
         );
-        assert_eq!(submitted_model_id("openai.gpt-oss-120b", true), None);
+        assert_eq!(
+            submitted_model_id(ModelProvider::Cerebras, "zai-glm-4.7", true),
+            None
+        );
+    }
+
+    #[test]
+    fn bedrock_provider_is_admin_only() {
+        assert_eq!(submitted_provider(false, ""), Some(ModelProvider::Cerebras));
+        assert_eq!(
+            submitted_provider(false, "cerebras"),
+            Some(ModelProvider::Cerebras)
+        );
+        assert_eq!(submitted_provider(false, "bedrock"), None);
+        assert_eq!(
+            submitted_provider(true, "bedrock"),
+            Some(ModelProvider::Bedrock)
+        );
+        assert_eq!(submitted_provider(true, "unknown"), None);
     }
 
     #[test]

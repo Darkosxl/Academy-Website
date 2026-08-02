@@ -18,6 +18,3 @@ alter table harness_runs_exposure_academy
     (stage in ('queued','preparing','running','done','partial','failed','infra_failed','cancelled'));
 
 drop index if exists harness_runs_one_active_per_team;
-create unique index if not exists harness_runs_one_active_per_team
-  on harness_runs_exposure_academy (team_id)
-  where stage not in ('done','partial','failed','infra_failed','cancelled');

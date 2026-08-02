@@ -93,7 +93,9 @@
   }
 
   function tick() {
-    fetch('/agentic-harness/status', {headers: {'Accept': 'application/json'}})
+    var kind = live.dataset.kind;
+    var url = '/agentic-harness/status' + (kind ? '?kind=' + encodeURIComponent(kind) : '');
+    fetch(url, {headers: {'Accept': 'application/json'}})
       .then(function (response) {
         if (!response.ok) throw new Error('status ' + response.status);
         return response.json();

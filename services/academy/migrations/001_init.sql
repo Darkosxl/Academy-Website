@@ -204,10 +204,7 @@ create table if not exists harness_runs_exposure_academy (
 );
 create index if not exists harness_runs_team_idx
   on harness_runs_exposure_academy (team_id, created_at desc);
--- double-submit guard: at most ONE in-flight run per team, enforced by the DB so a
--- submit race can't slip past the handler's friendly pre-check.
-create unique index if not exists harness_runs_one_active_per_team
-  on harness_runs_exposure_academy (team_id) where stage not in ('done','failed');
+-- The active-run guard is created after provider/run-kind columns are available.
 -- live progress blob written by the runner mid-stage (JSON: done/total/score/detail),
 -- shown under the active stepper step; cleared when the run reaches a terminal state.
 alter table harness_runs_exposure_academy add column if not exists progress text;
