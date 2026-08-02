@@ -596,7 +596,7 @@ fn harness_shell(user: &User, tab: &str, sub: &str, inner: &str) -> String {
         // byte-identical output for every other page — <link rel=stylesheet> is body-ok.
         &format!(
             r##"<div class="arcade">
-<link rel="stylesheet" href="/static/harness.css?v=2">
+<link rel="stylesheet" href="/static/harness.css?v=3">
 <h1 class="pagetitle" lang="en">Agentic Harness</h1>
 <p class="muted">{sub}</p>
 <div class="chips">{chips}</div>
@@ -846,9 +846,9 @@ pub fn agentic_harness_main(
     team: Option<&HarnessTeam>,
     members: &[TeamMemberRow],
     active_run: Option<&HarnessRun>,
-    // who started active_run; `busy` = this student just tried to submit under it
+    // who started active_run, and what just happened (?msg= — see HarnessQ)
     submitter: Option<&str>,
-    busy: bool,
+    msg: Option<&str>,
     rows: &[HarnessLeaderRow],
     ram_rows: &[HarnessRamRow],
 ) -> String {
@@ -885,7 +885,7 @@ pub fn agentic_harness_main(
             // the stepper replaces the form while a run is in flight — this is the
             // visible half of the double-submit guard (the DB index is the other)
             let action = match active_run {
-                Some(run) => harness_stepper(run, submitter, busy),
+                Some(run) => harness_stepper(run, submitter, msg == Some("busy")),
                 None => format!(
                     r##"<form method="post" action="/agentic-harness/submit" class="subform">
     <input type="hidden" name="benchmark_kind" value="{bench}">
@@ -900,13 +900,31 @@ pub fn agentic_harness_main(
                     model_options = provider_model_options(ModelProvider::Cerebras, true),
                 ),
             };
+            // The name IS the input — no edit button, no modal. A one-field form submits
+            // on Enter with no JS at all; harness.js adds save-on-blur on top. Kids
+            // rename as often as they like, so the only feedback needed is a clash.
+            let note = match msg {
+                Some("named") => r#"<p class="teamname-note ok">Takım adı güncellendi ✓</p>"#,
+                Some("name-taken") => {
+                    r#"<p class="teamname-note bad">Bu isim başka bir takımda kullanılıyor.</p>"#
+                }
+                Some("name-long") => {
+                    r#"<p class="teamname-note bad">Takım adı boş olamaz, en fazla 40 karakter.</p>"#
+                }
+                _ => "",
+            };
             format!(
                 r##"<section class="harness-left">
-  <h2>{name}</h2>
+  <form method="post" action="/agentic-harness/team/name" class="teamname">
+    <input name="name" value="{name}" maxlength="{max}" required spellcheck="false"
+           aria-label="Takım adı" title="Takım adını değiştirmek için buraya yaz">
+  </form>
+  {note}
   <div class="chips interest-names">{member_chips}</div>
   {action}
 </section>"##,
-                name = esc(&t.name)
+                name = esc(&t.name),
+                max = HARNESS_TEAM_NAME_MAX
             )
         }
     };
@@ -1083,7 +1101,7 @@ pub fn agentic_harness_main(
 </div>
 </div>
 {preview}
-<script src="/static/harness.js?v=5" defer></script>"##
+<script src="/static/harness.js?v=6" defer></script>"##
     );
     harness_shell(
         user,
@@ -1145,7 +1163,7 @@ pub fn admin_harness_page(
     let content = match team {
         None => format!(
             r##"<div class="arcade">
-<link rel="stylesheet" href="/static/harness.css?v=2">
+<link rel="stylesheet" href="/static/harness.css?v=3">
 <h1 class="pagetitle" lang="en">Agentic Harness — Admin</h1>
 <section class="harness-left">
   <div class="gate-lock">{lock}</div>
@@ -1176,7 +1194,7 @@ pub fn admin_harness_page(
                 .collect();
             format!(
                 r##"<div class="arcade">
-<link rel="stylesheet" href="/static/harness.css?v=2">
+<link rel="stylesheet" href="/static/harness.css?v=3">
 <h1 class="pagetitle" lang="en">Agentic Harness — Admin</h1>
 <p class="muted">Takım adına doğrudan çalıştırma gönder.</p>
 <section class="harness-left">
@@ -4065,8 +4083,7 @@ mod tests {
             id: Uuid::nil(),
             name: "Test".into(),
         };
-        let html =
-            agentic_harness_main(&user, "arc", Some(&team), &[], None, None, false, &[], &[]);
+        let html = agentic_harness_main(&user, "arc", Some(&team), &[], None, None, None, &[], &[]);
         assert!(html.contains("<label>model:"));
         assert!(html.contains(r#"<select name="model_id" required>"#));
         assert!(html.contains(r#"name="benchmark_kind" value="arc""#));
@@ -4097,7 +4114,7 @@ mod tests {
         // where they now live — and assert the student page no longer carries them.
         let html = admin_harness_page(&admin, "arc", Some(&team), &[], None);
         assert!(
-            !agentic_harness_main(&admin, "arc", Some(&team), &[], None, None, false, &[], &[])
+            !agentic_harness_main(&admin, "arc", Some(&team), &[], None, None, None, &[], &[])
                 .contains("<label>agent:")
         );
         assert!(html.contains("<label>agent:"));
@@ -4243,6 +4260,65 @@ mod tests {
     }
 
     #[test]
+    fn the_team_name_is_the_input_with_no_button_to_press() {
+        let user = User {
+            id: Uuid::nil(),
+            display_name: "Kid".into(),
+            nickname: None,
+            is_admin: false,
+        };
+        let team = team_at(1, "Neural Ninjas");
+        let html = agentic_harness_main(&user, "arc", Some(&team), &[], None, None, None, &[], &[]);
+        assert!(html.contains(r#"action="/agentic-harness/team/name""#));
+        assert!(html.contains(r#"value="Neural Ninjas""#));
+        assert!(html.contains(&format!(r#"maxlength="{HARNESS_TEAM_NAME_MAX}""#)));
+        // exactly one field and no submit button is what makes Enter submit it
+        let form = &html[html.find(r#"class="teamname""#).unwrap()..];
+        let form = &form[..form.find("</form>").unwrap()];
+        assert_eq!(form.matches("<input").count(), 1);
+        assert!(!form.contains("<button"));
+        // nothing to say until something happened
+        assert!(!html.contains("teamname-note"));
+    }
+
+    #[test]
+    fn a_name_clash_is_explained_next_to_the_field() {
+        let user = User {
+            id: Uuid::nil(),
+            display_name: "Kid".into(),
+            nickname: None,
+            is_admin: false,
+        };
+        let team = team_at(1, "Neural Ninjas");
+        let taken = agentic_harness_main(
+            &user,
+            "arc",
+            Some(&team),
+            &[],
+            None,
+            None,
+            Some("name-taken"),
+            &[],
+            &[],
+        );
+        assert!(taken.contains("başka bir takımda kullanılıyor"));
+        let ok = agentic_harness_main(
+            &user,
+            "arc",
+            Some(&team),
+            &[],
+            None,
+            None,
+            Some("named"),
+            &[],
+            &[],
+        );
+        assert!(ok.contains("Takım adı güncellendi"));
+        // a rename note must never be mistaken for the busy warning and vice versa
+        assert!(!ok.contains("harness-busy"));
+    }
+
+    #[test]
     fn a_team_less_student_is_told_submission_is_blocked() {
         let user = User {
             id: Uuid::nil(),
@@ -4250,7 +4326,7 @@ mod tests {
             nickname: None,
             is_admin: false,
         };
-        let html = agentic_harness_main(&user, "arc", None, &[], None, None, false, &[], &[]);
+        let html = agentic_harness_main(&user, "arc", None, &[], None, None, None, &[], &[]);
         assert!(html.contains("gönderim yapamazsın"));
         assert!(!html.contains(r#"action="/agentic-harness/submit""#));
     }
@@ -4751,7 +4827,7 @@ mod tests {
             leader(3, "Uc", 70.0),
             leader(4, "Dort", 60.0),
         ];
-        let html = agentic_harness_main(&viewer(), "arc", None, &[], None, None, false, &rows, &[]);
+        let html = agentic_harness_main(&viewer(), "arc", None, &[], None, None, None, &rows, &[]);
         assert_eq!(html.matches(r#"<div class="pod p"#).count(), 3);
         assert_eq!(html.matches(r#"<div class="lbrow "#).count(), 1);
         assert!(html.contains(r#"<span class="lbrank">4</span>"#));
@@ -4772,7 +4848,7 @@ mod tests {
             leader(4, "Dort", 70.0), // both render 70.0 -> both rank 3
             leader(5, "Bes", 60.0),
         ];
-        let html = agentic_harness_main(&viewer(), "arc", None, &[], None, None, false, &rows, &[]);
+        let html = agentic_harness_main(&viewer(), "arc", None, &[], None, None, None, &rows, &[]);
         assert_eq!(html.matches(r#"<div class="pod p"#).count(), 4);
         assert!(html.contains(r#"<span class="lbrank">4</span>"#));
         assert!(!html.contains(r#"<span class="lbrank">3</span>"#));
@@ -4782,7 +4858,7 @@ mod tests {
     #[test]
     fn harness_podium_is_skipped_for_a_short_board() {
         let rows = [leader(1, "Bir", 90.0), leader(2, "Iki", 80.0)];
-        let html = agentic_harness_main(&viewer(), "arc", None, &[], None, None, false, &rows, &[]);
+        let html = agentic_harness_main(&viewer(), "arc", None, &[], None, None, None, &rows, &[]);
         assert!(!html.contains(r#"class="pod p"#));
         assert!(html.contains(r#"<span class="lbrank">1</span>"#));
     }
@@ -4858,7 +4934,7 @@ mod tests {
                     &members,
                     None,
                     None,
-                    false,
+                    None,
                     &rows,
                     &[],
                 ),
@@ -4872,14 +4948,14 @@ mod tests {
                     &members,
                     Some(&run),
                     Some("Ada"),
-                    true,
+                    Some("busy"),
                     &rows,
                     &[],
                 ),
             ),
             (
                 "main-empty",
-                agentic_harness_main(&user, "arc", None, &[], None, None, false, &[], &[]),
+                agentic_harness_main(&user, "arc", None, &[], None, None, None, &[], &[]),
             ),
             (
                 "live-running",

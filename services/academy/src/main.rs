@@ -164,6 +164,7 @@ async fn main() {
         .route("/agentic-harness/arc", get(agentic_harness_arc))
         .route("/agentic-harness/frontier", get(agentic_harness_frontier))
         .route("/agentic-harness/submit", post(harness_submit))
+        .route("/agentic-harness/team/name", post(harness_team_rename))
         .route("/agentic-harness/stop", post(harness_stop))
         .route("/agentic-harness/status", get(harness_status))
         .route("/agentic-harness/arc/live", get(harness_arc_live))

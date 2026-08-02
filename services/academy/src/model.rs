@@ -502,6 +502,10 @@ pub struct HarnessTeam {
     pub name: String,
 }
 
+/// Long enough for a real team name, short enough that it can't blow out the
+/// leaderboard column or the podium card. Enforced server-side and as `maxlength`.
+pub const HARNESS_TEAM_NAME_MAX: usize = 40;
+
 /// New submissions are one benchmark plus RAM; legacy bundled rows keep all three results.
 #[derive(FromRow)]
 pub struct HarnessRun {

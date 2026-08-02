@@ -42,13 +42,14 @@ pub async fn teams_page(
             .await
             .unwrap();
     // Left join, not the inner join /admin used: a kid on no team is exactly what the
-    // board has to show, and `nickname` is what they are called everywhere else.
+    // board has to show. Real names, not nicknames — you assign the person in front of
+    // you, and this matches the teammate chips on the harness page.
     let kids: Vec<FormationKid> = sqlx::query_as(
-        "select u.id, coalesce(u.nickname, u.display_name) as display_name, tm.team_id
+        "select u.id, u.display_name, tm.team_id
          from users_exposure_academy u
          left join harness_team_members_exposure_academy tm on tm.user_id = u.id
          where not u.is_admin
-         order by lower(coalesce(u.nickname, u.display_name))",
+         order by lower(u.display_name)",
     )
     .fetch_all(&app.pool)
     .await

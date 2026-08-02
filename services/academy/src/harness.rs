@@ -35,9 +35,10 @@ pub struct HarnessQ {
     bench: Option<String>,
     /// `?tab=live&run=` — a finished run to replay. Absent means "watch the latest one".
     run: Option<Uuid>,
-    /// Set by harness_submit when a teammate is already running. The page then explains
-    /// that inline instead of the submit handler dead-ending on a plain-text 400.
-    busy: Option<String>,
+    /// What just happened, so the page can say it inline instead of a handler
+    /// dead-ending on a plain-text 400: `busy` (a teammate is already running),
+    /// `named` / `name-taken` / `name-long` (team rename).
+    msg: Option<String>,
 }
 
 /// The team the student belongs to, if any. Teams are admin-assigned for now.
@@ -284,7 +285,7 @@ async fn agentic_harness_page(
         &members,
         active_run.as_ref(),
         submitter.as_deref(),
-        q.busy.is_some(),
+        q.msg.as_deref(),
         &rows,
         &ram_rows,
     )))
@@ -467,8 +468,8 @@ pub async fn harness_submit(
     // only difference from the success redirect below.
     let busy = || {
         Redirect::to(match benchmark_kind {
-            BenchmarkKind::Arc => "/agentic-harness/arc?busy=1",
-            BenchmarkKind::Frontier => "/agentic-harness/frontier?busy=1",
+            BenchmarkKind::Arc => "/agentic-harness/arc?msg=busy",
+            BenchmarkKind::Frontier => "/agentic-harness/frontier?msg=busy",
             BenchmarkKind::Bundled => unreachable!(),
         })
     };
@@ -510,6 +511,51 @@ pub async fn harness_submit(
         BenchmarkKind::Arc => "/agentic-harness/arc",
         BenchmarkKind::Frontier => "/agentic-harness/frontier",
         BenchmarkKind::Bundled => unreachable!(),
+    }))
+}
+
+#[derive(Deserialize)]
+pub struct TeamNameForm {
+    name: String,
+}
+
+/// Teams name themselves. Any member can, same rule as submitting — and there is no
+/// budget on it: the name is only a label, runs and scores are keyed on team id, so
+/// the worst case is an admin renaming them back from /admin/takimlar.
+///
+/// No team id in the form on purpose: the session decides which team gets renamed, so
+/// a hand-rolled POST can't touch anyone else's.
+pub async fn harness_team_rename(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Form(f): Form<TeamNameForm>,
+) -> Result<Redirect, Response> {
+    let user = require_onboarded(current_user(&app, &headers).await)?;
+    let Some(team) = harness_team_of(&app, user.id).await else {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Takımın olmadığı için isim değiştiremezsin.".to_string(),
+        )
+            .into_response());
+    };
+    let name = f.name.trim();
+    // chars(), not len(): "Yapay Zekâ Kâşifleri" is fewer letters than bytes
+    if name.is_empty() || name.chars().count() > HARNESS_TEAM_NAME_MAX {
+        return Ok(Redirect::to("/agentic-harness?msg=name-long"));
+    }
+    if name == team.name {
+        return Ok(Redirect::to("/agentic-harness"));
+    }
+    // unique on lower(name) — a clash is the only way this fails
+    let done = sqlx::query("update harness_teams_exposure_academy set name = $2 where id = $1")
+        .bind(team.id)
+        .bind(name)
+        .execute(&app.pool)
+        .await;
+    Ok(Redirect::to(if done.is_err() {
+        "/agentic-harness?msg=name-taken"
+    } else {
+        "/agentic-harness?msg=named"
     }))
 }
 

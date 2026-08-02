@@ -161,6 +161,24 @@
 .portal .arcade .harness-left h2 {
   font-size:1rem; font-weight:650; letter-spacing:-0.01em; color:var(--text); margin-bottom:12px;
 }
+/* Takım adı bir başlık gibi görünür ama input'tur: çocuk üstüne yazıp Enter'a basar
+   ya da başka yere tıklar. Ayrı bir "değiştir" butonu yok. */
+.portal .arcade .teamname { margin:0 0 12px; }
+.portal .arcade .teamname input {
+  width:100%; margin:0; padding:4px 8px; margin-left:-8px;
+  font-size:1rem; font-weight:650; letter-spacing:-0.01em; color:var(--text);
+  background:transparent; border:1px solid transparent; border-radius:8px;
+  cursor:text; transition:background 150ms, border-color 150ms;
+  text-overflow:ellipsis;
+}
+/* hover alone has to hint it is editable — there is no button to give that away */
+.portal .arcade .teamname input:hover { border-color:var(--line); background:rgba(255,255,255,0.03); }
+.portal .arcade .teamname input:focus {
+  outline:none; border-color:var(--accent); background:var(--surface2);
+}
+.portal .arcade .teamname-note { margin:-8px 0 12px; font-size:0.75rem; font-weight:600; }
+.portal .arcade .teamname-note.ok { color:var(--ok); }
+.portal .arcade .teamname-note.bad { color:var(--bad); }
 .portal .arcade .harness-left .subform { gap:12px; }
 /* the shipped overlap bug: .fieldnote carries margin:-10px (style.css:806) while
    the submit button is width:100% (style.css:851), so the helper text lands on
