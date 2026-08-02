@@ -700,7 +700,9 @@ def run_ram_scenario(run_id: str, sessions: int, repo: Path, venv: Path, gateway
         "sleep 0.1 && "
         f"exec /venv/bin/python /opt/harness/ram_session.py --sessions {sessions}",
     ]
-    run_checked(command, timeout=bounded_timeout(deadline, 5))
+    # First use may initialize persistent Podman storage before returning the container ID.
+    # The measured scenario still has its separate strict ten-second deadline below.
+    run_checked(command, timeout=30)
     peak = 0
     memory_peak = 0
     try:
