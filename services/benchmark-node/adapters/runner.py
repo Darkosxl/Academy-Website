@@ -499,7 +499,7 @@ def ensure_image() -> None:
         return
     log(f"building sandbox image {HARNESS_IMAGE}")
     run_checked([
-        "podman", "build", "--label", f"academy.harness.version={HARNESS_VERSION}",
+        "podman", "build", "--network=host", "--label", f"academy.harness.version={HARNESS_VERSION}",
         "-t", HARNESS_IMAGE, "-f", str(SANDBOX_CONTAINERFILE), str(ARC_STARTER),
     ], timeout=900)
 
