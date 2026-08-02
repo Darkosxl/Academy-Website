@@ -193,9 +193,9 @@ Resources:
               - systemctl enable --now snap.amazon-ssm-agent.amazon-ssm-agent.service || true
               - sh -c 'grep -q "^exposure-executor:" /etc/subuid || echo "exposure-executor:100000:65536" >> /etc/subuid'
               - sh -c 'grep -q "^exposure-executor:" /etc/subgid || echo "exposure-executor:100000:65536" >> /etc/subgid'
-              - install -d -m 0750 -o root -g exposure-benchmark /var/lib/exposure-benchmark
+              - install -d -m 0751 -o root -g exposure-benchmark /var/lib/exposure-benchmark
               - install -d -m 0700 -o exposure-controller -g exposure-controller /var/lib/exposure-benchmark/controller
-              - install -d -m 0700 -o exposure-executor -g exposure-executor /var/lib/exposure-benchmark/executor
+              - install -d -m 0701 -o exposure-executor -g exposure-executor /var/lib/exposure-benchmark/executor
               - install -d -m 0700 -o exposure-executor -g exposure-executor /var/lib/exposure-benchmark/cache
               - install -d -m 0700 -o exposure-executor -g exposure-executor /var/lib/exposure-benchmark/runs
               - install -d -m 0750 -o root -g exposure-benchmark /etc/exposure-benchmark

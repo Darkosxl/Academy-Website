@@ -115,6 +115,7 @@ build {
   provisioner "shell" {
     timeout = "120m"
     inline = [
+      "cd /",
       "sudo cloud-init status --wait",
       "sudo install -d -m 0755 -o root -g root /var/tmp/exposure-source",
       "sudo tar -xzf /tmp/exposure-source.tar.gz -C /var/tmp/exposure-source",

@@ -40,7 +40,7 @@ cp -a "$bundle/infra/." /opt/exposure-benchmark/infra/
 cp -a "$bundle/sandbox/." /opt/exposure-benchmark/sandbox/
 chown -R root:root /opt/exposure-benchmark
 
-install -d -m 0750 -o root -g exposure-benchmark /var/lib/exposure-benchmark
+install -d -m 0751 -o root -g exposure-benchmark /var/lib/exposure-benchmark
 python3.12 -m venv --clear /var/lib/exposure-benchmark/venv
 /var/lib/exposure-benchmark/venv/bin/python -m pip install \
   --disable-pip-version-check --no-index --no-deps --require-hashes \
