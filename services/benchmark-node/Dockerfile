@@ -118,6 +118,9 @@ RUN set -eux; \
     # Docker Buildx asks Podman's Docker-compatible API for an init process and
     # that code path still looks up Podman's compiled-in location on Debian.
     install -D -m 0755 /usr/bin/catatonit /usr/libexec/podman/catatonit; \
+    # Podman's CNI firewall helper resolves iptables through PATH. Keep the
+    # Debian binary reachable for its stripped helper environment as well.
+    ln -sf /usr/sbin/iptables /usr/bin/iptables; \
     install -m 0755 -d /etc/apt/keyrings; \
     curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc; \
     chmod a+r /etc/apt/keyrings/docker.asc; \
