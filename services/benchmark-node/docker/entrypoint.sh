@@ -17,6 +17,7 @@ readonly CONTROLLER_HOME="$STATE_DIRECTORY/controller"
 readonly SEED_DIRECTORY=/opt/exposure-benchmark/seed
 readonly SANDBOX_REVISION=/opt/exposure-benchmark/sandbox.sha256
 readonly SANDBOX_IMAGE="${BENCHMARK_SANDBOX_IMAGE:-localhost/exposure-harness-arc:0.9.9}"
+readonly DNS_RESOLVER="${BENCHMARK_DNS_RESOLVER:-}"
 
 log() {
   printf '%s benchmark-container: %s\n' "$(date -u +%FT%TZ)" "$*" >&2
@@ -33,6 +34,10 @@ die() {
 if [[ -r /proc/sys/kernel/unprivileged_userns_clone ]] \
   && [[ $(< /proc/sys/kernel/unprivileged_userns_clone) != 1 ]]; then
   die "set kernel.unprivileged_userns_clone=1 on the EC2 host before deploying"
+fi
+if [[ -n $DNS_RESOLVER ]]; then
+  [[ $DNS_RESOLVER =~ ^[0-9A-Fa-f:.]+$ ]] || die "BENCHMARK_DNS_RESOLVER must be an IP address"
+  printf 'nameserver %s\noptions timeout:2 attempts:3\n' "$DNS_RESOLVER" > /etc/resolv.conf
 fi
 
 controller_uid=$(id -u "$CONTROLLER_USER")

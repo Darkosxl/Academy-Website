@@ -144,6 +144,8 @@ async fn run_adapter(
     // the benchmark mode require.
     let environment = std::env::var("ENVIRONMENT").unwrap_or_else(|_| "PROD".into());
     let podman_rootful = std::env::var("HARNESS_PODMAN_ROOTFUL").unwrap_or_default();
+    let containers_conf = std::env::var("CONTAINERS_CONF").ok();
+    let containers_storage_conf = std::env::var("CONTAINERS_STORAGE_CONF").ok();
     let xdg_runtime_dir = std::env::var("XDG_RUNTIME_DIR")
         .ok()
         .filter(|value| !value.trim().is_empty());
@@ -183,6 +185,12 @@ async fn run_adapter(
         .kill_on_drop(true);
     if let Some(xdg_runtime_dir) = xdg_runtime_dir {
         child.env("XDG_RUNTIME_DIR", xdg_runtime_dir);
+    }
+    if let Some(containers_conf) = containers_conf {
+        child.env("CONTAINERS_CONF", containers_conf);
+    }
+    if let Some(containers_storage_conf) = containers_storage_conf {
+        child.env("CONTAINERS_STORAGE_CONF", containers_storage_conf);
     }
     let mut child = child.spawn().context("start Python benchmark adapter")?;
     let mut child_input = child.stdin.take().context("adapter stdin")?;

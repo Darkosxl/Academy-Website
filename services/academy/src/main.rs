@@ -18,7 +18,7 @@ use axum::{
     routing::{get, post},
 };
 use rand::RngCore;
-use sqlx::PgPool;
+use sqlx::{PgPool, postgres::PgPoolOptions};
 use uuid::Uuid;
 
 use admin::*;
@@ -68,7 +68,13 @@ async fn main() {
     let db_url = std::env::var("DATABASE_URL").expect("DATABASE_URL missing (.env)");
     // NOTE: use Supabase's SESSION pooler (port 5432), not transaction pooler (6543) —
     // transaction mode can't do prepared statements, which sqlx relies on.
-    let pool = PgPool::connect(&db_url).await.expect("db connect failed");
+    // Supabase session mode allows 15 clients. Five per instance leaves room for a
+    // rolling deploy's old and new containers without starving worker heartbeats.
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&db_url)
+        .await
+        .expect("db connect failed");
 
     // idempotent schema + seed admin
     sqlx::raw_sql(include_str!("../migrations/001_init.sql"))

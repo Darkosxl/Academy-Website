@@ -697,6 +697,7 @@ def run_ram_scenario(run_id: str, sessions: int, repo: Path, venv: Path, gateway
         HARNESS_IMAGE, "sh", "-lc",
         "mkdir -p /tmp/home && "
         "socat TCP-LISTEN:8000,bind=127.0.0.1,reuseaddr,fork UNIX-CONNECT:/run/harness/bedrock.sock & "
+        "sleep 0.1 && "
         f"exec /venv/bin/python /opt/harness/ram_session.py --sessions {sessions}",
     ]
     run_checked(command, timeout=bounded_timeout(deadline, 5))

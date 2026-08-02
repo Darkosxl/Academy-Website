@@ -105,8 +105,8 @@ RUN printf '%s\n' \
       > /seed/.cache-version
 
 # A single Compose service owns both trusted processes. The service needs privileged
-# runtime settings in compose.yaml for nested *rootless* Podman; never mount the host
-# Docker socket into it.
+# runtime settings in compose.yaml for nested Podman; never mount the host Docker
+# socket into it.
 FROM python:3.12.11-slim-bookworm AS production
 ENV DEBIAN_FRONTEND=noninteractive
 RUN set -eux; \

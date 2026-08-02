@@ -5,9 +5,8 @@ services:
       dockerfile: services/benchmark-node/Dockerfile
       target: production
     restart: unless-stopped
-    init: true
-    # Rootless Podman runs the untrusted benchmark sandboxes. These are runtime
-    # settings, so they belong in Compose rather than the Dockerfile.
+    # Rootful Podman runs the untrusted benchmark sandboxes inside this dedicated
+    # worker. These are runtime settings, so they belong in Compose.
     privileged: true
     cgroup: host
     userns_mode: host
@@ -28,6 +27,7 @@ services:
       AWS_REGION: ${AWS_REGION:-us-east-1}
       BENCHMARK_SECRET_ID: ${BENCHMARK_SECRET_ID:?Set the AWS Secrets Manager secret id in Dokploy}
       BENCHMARK_METRICS_BIND: 127.0.0.1:9108
+      BENCHMARK_DNS_RESOLVER: 169.254.169.253
     # The worker keeps the public hostname for TLS and token authentication, but
     # reaches the Academy origin directly so Cloudflare does not challenge its
     # non-browser claim requests.
