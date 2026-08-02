@@ -52,7 +52,12 @@ seed_if_missing venv
 seed_if_missing cache
 seed_if_missing executor/.local/share/uv/tools/harbor
 install -d -m 0700 -o "$EXECUTOR_USER" -g "$EXECUTOR_USER" \
-  "$EXECUTOR_HOME" "$EXECUTOR_HOME/.config/containers" "$STATE_DIRECTORY/runs"
+  "$EXECUTOR_HOME" \
+  "$EXECUTOR_HOME/.config/containers" \
+  "$EXECUTOR_HOME/.local" \
+  "$EXECUTOR_HOME/.local/share" \
+  "$EXECUTOR_HOME/.local/share/containers" \
+  "$STATE_DIRECTORY/runs"
 install -d -m 0700 -o "$CONTROLLER_USER" -g "$CONTROLLER_USER" "$CONTROLLER_HOME"
 install -d -m 0751 -o root -g "$SHARED_GROUP" "$RUNTIME_DIRECTORY"
 install -d -m 2750 -o "$EXECUTOR_USER" -g "$SHARED_GROUP" "$EXECUTOR_DIRECTORY"
