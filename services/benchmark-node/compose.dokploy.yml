@@ -1,0 +1,36 @@
+services:
+  benchmark-worker:
+    build:
+      context: ../..
+      dockerfile: services/benchmark-node/Dockerfile
+      target: production
+    restart: unless-stopped
+    init: true
+    # Rootless Podman runs the untrusted benchmark sandboxes. These are runtime
+    # settings, so they belong in Compose rather than the Dockerfile.
+    privileged: true
+    cgroup: host
+    userns_mode: host
+    devices:
+      - /dev/fuse:/dev/fuse:rwm
+    security_opt:
+      - seccomp=unconfined
+      - apparmor=unconfined
+    stop_grace_period: 2m
+    environment:
+      ENVIRONMENT: PROD
+      ACADEMY_BASE_URL: ${ACADEMY_BASE_URL:?Set the public Academy URL in Dokploy}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      BENCHMARK_SECRET_ID: ${BENCHMARK_SECRET_ID:?Set the AWS Secrets Manager secret id in Dokploy}
+      BENCHMARK_METRICS_BIND: 127.0.0.1:9108
+    volumes:
+      - benchmark-state:/var/lib/exposure-benchmark
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9108/healthz"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15m
+      retries: 3
+
+volumes:
+  benchmark-state:

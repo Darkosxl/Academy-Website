@@ -139,6 +139,15 @@ async fn run_adapter(
         ExecutorRequest::Kaggle { .. } => "--executor-kaggle-ndjson",
         _ => unreachable!(),
     };
+    // The adapter runs with a deliberately scrubbed environment so it cannot inherit
+    // controller credentials. Keep only the non-secret runtime settings that rootless
+    // Podman and the benchmark mode require.
+    let environment = std::env::var("ENVIRONMENT").unwrap_or_else(|_| "PROD".into());
+    let xdg_runtime_dir = std::env::var("XDG_RUNTIME_DIR")
+        .ok()
+        .filter(|value| !value.trim().is_empty());
+    let harbor_user =
+        std::env::var("HARNESS_HARBOR_USER").unwrap_or_else(|_| "exposure-executor".into());
     let mut child = Command::new(&config.python);
     child
         .arg(&config.adapter)
@@ -149,6 +158,8 @@ async fn run_adapter(
         .env("LANG", "C.UTF-8")
         .env("LC_ALL", "C.UTF-8")
         .env("HOME", config.state_directory.join("executor"))
+        .env("ENVIRONMENT", environment)
+        .env("HARNESS_HARBOR_USER", harbor_user)
         .env("PYTHONUNBUFFERED", "1")
         .env("HARNESS_ENV", "executor")
         .env(
@@ -165,6 +176,9 @@ async fn run_adapter(
         .stderr(Stdio::piped())
         .process_group(0)
         .kill_on_drop(true);
+    if let Some(xdg_runtime_dir) = xdg_runtime_dir {
+        child.env("XDG_RUNTIME_DIR", xdg_runtime_dir);
+    }
     let mut child = child.spawn().context("start Python benchmark adapter")?;
     let mut child_input = child.stdin.take().context("adapter stdin")?;
     ndjson::write(&mut child_input, &request, MAX_NDJSON_BYTES).await?;
