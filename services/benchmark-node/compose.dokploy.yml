@@ -23,6 +23,11 @@ services:
       AWS_REGION: ${AWS_REGION:-us-east-1}
       BENCHMARK_SECRET_ID: ${BENCHMARK_SECRET_ID:?Set the AWS Secrets Manager secret id in Dokploy}
       BENCHMARK_METRICS_BIND: 127.0.0.1:9108
+    # The worker keeps the public hostname for TLS and token authentication, but
+    # reaches the Academy origin directly so Cloudflare does not challenge its
+    # non-browser claim requests.
+    extra_hosts:
+      - "${ACADEMY_ORIGIN_HOST:-student.exposureai.org}:${ACADEMY_ORIGIN_IP:?Set the Academy origin IP in Dokploy}"
     volumes:
       - benchmark-state:/var/lib/exposure-benchmark
     healthcheck:
