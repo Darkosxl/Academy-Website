@@ -86,7 +86,7 @@ chmod 0600 "$EXECUTOR_HOME/.config/containers/containers.conf" "$EXECUTOR_HOME/.
 
 as_executor() {
   env -i \
-      PATH=/usr/local/bin:/usr/bin:/bin \
+      PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
       HOME="$EXECUTOR_HOME" \
       XDG_RUNTIME_DIR="$EXECUTOR_RUNTIME" \
       XDG_CONFIG_HOME="$EXECUTOR_HOME/.config" \
@@ -116,7 +116,7 @@ fi
 
 start_executor() {
   env -i \
-      PATH=/usr/local/bin:/usr/bin:/bin \
+      PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
       HOME="$EXECUTOR_HOME" \
       XDG_RUNTIME_DIR="$EXECUTOR_RUNTIME" \
       XDG_CONFIG_HOME="$EXECUTOR_HOME/.config" \
