@@ -140,9 +140,10 @@ async fn run_adapter(
         _ => unreachable!(),
     };
     // The adapter runs with a deliberately scrubbed environment so it cannot inherit
-    // controller credentials. Keep only the non-secret runtime settings that rootless
-    // Podman and the benchmark mode require.
+    // controller credentials. Keep only the non-secret runtime settings that Podman and
+    // the benchmark mode require.
     let environment = std::env::var("ENVIRONMENT").unwrap_or_else(|_| "PROD".into());
+    let podman_rootful = std::env::var("HARNESS_PODMAN_ROOTFUL").unwrap_or_default();
     let xdg_runtime_dir = std::env::var("XDG_RUNTIME_DIR")
         .ok()
         .filter(|value| !value.trim().is_empty());
@@ -154,12 +155,16 @@ async fn run_adapter(
         .arg(mode)
         .current_dir(&work)
         .env_clear()
-        .env("PATH", "/usr/local/bin:/usr/bin:/bin")
+        .env(
+            "PATH",
+            "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        )
         .env("LANG", "C.UTF-8")
         .env("LC_ALL", "C.UTF-8")
         .env("HOME", config.state_directory.join("executor"))
         .env("ENVIRONMENT", environment)
         .env("HARNESS_HARBOR_USER", harbor_user)
+        .env("HARNESS_PODMAN_ROOTFUL", podman_rootful)
         .env("PYTHONUNBUFFERED", "1")
         .env("HARNESS_ENV", "executor")
         .env(
