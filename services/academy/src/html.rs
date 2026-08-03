@@ -484,7 +484,7 @@ pub fn profile(user: &User, p: &Profile, msg: Option<&str>, error: Option<&str>)
 /// (query key, label) for the bench switcher chips. Benchmark names stay English.
 const HARNESS_BENCHES: [(&str, &str); 3] = [
     ("arc", "ARC-AGI-3"),
-    ("frontier", "Frontier Sprint"),
+    ("frontier", "Terminal Sprint"),
     ("ram", "RAM-bench"),
 ];
 
@@ -730,10 +730,10 @@ fn harness_stepper(run: &HarnessRun, submitter: Option<&str>, busy: bool) -> Str
         .map(esc)
         .unwrap_or_else(|| esc(&run.model_id));
     let arc = harness_benchmark_card(run, "arc", "ARC-AGI-3", "25 public oyun · aynı anda 5 oyun");
-    let frontier = harness_benchmark_card(
+    let terminal = harness_benchmark_card(
         run,
         "frontier",
-        "Frontier Sprint",
+        "Terminal Sprint",
         "5 görev · görev başına 120 sn",
     );
     let ram = harness_benchmark_card(
@@ -744,8 +744,8 @@ fn harness_stepper(run: &HarnessRun, submitter: Option<&str>, busy: bool) -> Str
     );
     let cards = match run.benchmark_kind.as_str() {
         "arc" => format!("{arc}{ram}"),
-        "frontier" => format!("{frontier}{ram}"),
-        _ => format!("{arc}{frontier}{ram}"),
+        "frontier" => format!("{terminal}{ram}"),
+        _ => format!("{arc}{terminal}{ram}"),
     };
     // Shown whenever a run is live, not only after a blocked submit: a teammate who just
     // opens the page wants the same button. The live tab resolves the team's latest run
@@ -794,7 +794,7 @@ fn harness_stepper(run: &HarnessRun, submitter: Option<&str>, busy: bool) -> Str
 }
 
 /// Main tab: submit panel on the left, the switchable leaderboards on the right.
-/// `rows` carries ARC/Frontier standings, `ram_rows` the RAM ones — whichever
+/// `rows` carries ARC/Terminal standings, `ram_rows` the RAM ones — whichever
 /// matches `bench` is populated, the other is empty.
 fn provider_model_options(provider: ModelProvider, select_default: bool) -> String {
     let (models, default) = match provider {
@@ -1181,7 +1181,7 @@ pub fn admin_harness_page(
                 Some(run) => harness_stepper(run, None, false),
                 None => admin_harness_form(bench),
             };
-            let bench_chips: String = [("arc", "ARC-AGI-3"), ("frontier", "Frontier Sprint")]
+            let bench_chips: String = [("arc", "ARC-AGI-3"), ("frontier", "Terminal Sprint")]
                 .iter()
                 .map(|(k, label)| {
                     let active = if bench == *k { "active" } else { "" };
@@ -1420,15 +1420,15 @@ pub fn agentic_harness_history(
             };
             format!(
                 "<tr><td>{date}</td><td>{commit}</td><td><span class=\"substatus {class}\">{label}</span></td>\
-                 <td>{arc}</td><td>{frontier}</td><td>{r1}</td><td>{r10}</td><td>{official_cell}</td><td>{replay}</td><td>{log}</td></tr>",
+                 <td>{arc}</td><td>{terminal}</td><td>{r1}</td><td>{r10}</td><td>{official_cell}</td><td>{replay}</td><td>{log}</td></tr>",
                 date = r.created_at.format("%d.%m.%Y %H:%M"),
-                arc = fmt(r.score_arc), frontier = fmt(r.score_frontier),
+                arc = fmt(r.score_arc), terminal = fmt(r.score_frontier),
                 r1 = fmt(r.ram_1session_mb), r10 = fmt(r.ram_10session_mb),
             )
         }).collect();
         format!(
             r##"<section class="panel wide">
-  <table><tr><th>Tarih</th><th>Commit</th><th>Durum</th><th lang="en">ARC-AGI-3</th><th lang="en">Frontier Sprint</th><th>RAM 1 oturum (MB)</th><th>RAM 10 oturum (MB)</th><th>Official Kaggle</th><th>Tekrar</th><th></th></tr>{table_rows}</table>
+  <table><tr><th>Tarih</th><th>Commit</th><th>Durum</th><th lang="en">ARC-AGI-3</th><th lang="en">Terminal Sprint</th><th>RAM 1 oturum (MB)</th><th>RAM 10 oturum (MB)</th><th>Official Kaggle</th><th>Tekrar</th><th></th></tr>{table_rows}</table>
 </section>"##
         )
     };
@@ -1448,7 +1448,7 @@ pub fn agentic_harness_instructions(user: &User) -> String {
 <section class="panel">
   <h2>Nasıl çalışır</h2>
   <p>Takımınız bir AI ajanı oluşturur ve onu bir kez gönderir. Aynı gönderim üç skor tablosunda da
-  puanlanır: <b lang="en">ARC-AGI-3</b>, <b lang="en">Frontier-bench</b> ve <b lang="en">RAM-bench</b>.</p>
+  puanlanır: <b lang="en">ARC-AGI-3</b>, <b lang="en">Terminal-Bench</b> ve <b lang="en">RAM-bench</b>.</p>
   <p>Repo herkese açık olmalı ve bağlantı <code>https://github.com/</code> ile başlamalıdır.
   Herhangi bir takım üyesi tüm takım adına gönderebilir. Aynı anda yalnızca bir çalıştırma devam edebilir.
   En iyi puanınız her skor tablosunda dikkate alınır; RAM-bench için en düşük değer sayılır.</p>
@@ -1456,12 +1456,12 @@ pub fn agentic_harness_instructions(user: &User) -> String {
 <section class="panel">
   <h2>Repo yapısı</h2>
   <p>Deponuzda iki ajan bulunmalıdır: biri <span lang="en">ARC-AGI-3</span> için, diğeri
-  <span lang="en">Frontier-bench</span> için. Depoyu klonlayıp tam otomatik olarak çalıştırıyoruz;
+  <span lang="en">Terminal-Bench</span> için. Depoyu klonlayıp tam otomatik olarak çalıştırıyoruz;
   yapıya uymayan bir gönderim puanlanmadan başarısız olur.</p>
   <pre class="plan-pre" lang="en">takim-repo/
 ├── agent/
 │   ├── my_agent.py       # ARC-AGI-3: class MyAgent(Agent)
-│   ├── harbor_agent.py   # Frontier-bench: class HarborAgent(BaseAgent)
+│   ├── harbor_agent.py   # Terminal-Bench: class HarborAgent(BaseAgent)
 │   └── ...               # geri kalanı size kalmış
 ├── main.py               # RAM-bench oturum giriş noktası
 └── requirements.txt      # bağımlılıklar</pre>
@@ -1516,8 +1516,8 @@ class MyAgent(LLM):
   çalıştırmayı iptal etmez; oyunlar bitene, ajan durana veya siz koşuyu durdurana kadar devam eder.</p>
 </section>
 <section class="panel">
-  <h2 lang="en">agent/harbor_agent.py — Frontier Sprint</h2>
-  <p>Bu dosya <span lang="en">Frontier Sprint (Harbor)</span> ortamının içinde çalışır. Her görevi,
+  <h2 lang="en">agent/harbor_agent.py — Terminal Sprint</h2>
+  <p>Bu dosya <span lang="en">Terminal Sprint (Harbor)</span> ortamının içinde çalışır. Her görevi,
   yalıtılmış bir konteyner içinde kabuk komutları çalıştırarak çözer.</p>
   <p>En kolay yol, <span lang="en">Harbor</span> içinde hazır gelen referans terminal ajanı
   <span lang="en">Terminus 2</span>'yi devralmaktır: konteynerde bir <span lang="en">tmux</span>
@@ -1543,7 +1543,7 @@ class HarborAgent(Terminus2):
   Model, çalıştırıcı tarafından verilir; deponuzda hiçbir anahtar durmaz. Kendi
   <span lang="en">HTTP</span> çağrınızı <code>urllib</code> ile yazarsanız bir
   <code lang="en">User-Agent</code> başlığı ekleyin — varsayılan başlık 403 ile reddedilir.</p>
-  <p>Sprint tam Frontier-bench değildir: sürümlenmiş beş görev aynı anda başlar. Her ajanın
+  <p>Sprint tam Terminal-Bench değildir: sürümlenmiş beş görev aynı anda başlar. Her ajanın
   sert süresi 120 saniye, doğrulayıcının süresi 60 saniyedir. İki dakika bilinçli bir sprint
   bütçesidir; derin görevler zaman aşımına uğrayabilir ve bu puanın parçasıdır. Konteyner
   çalıştırması 15 dakikalık toplam bütçeye ulaştığında durdurulur ve ardından temizlenir.</p>
@@ -1570,9 +1570,9 @@ class HarborAgent(Terminus2):
     <li>Tüm bağımlılıklar <code>requirements.txt</code> dosyasında listelenmelidir.</li>
     <li>Ajanın başsız (<span lang="en">headless</span>) çalışması gerekir: GUI penceresi ve
     etkileşimli bilgi istemi yok.</li>
-    <li><span lang="en">Frontier Sprint</span>, sürümlenmiş 5 görevi paralel ve görev başına
+    <li><span lang="en">Terminal Sprint</span>, sürümlenmiş 5 görevi paralel ve görev başına
     tek denemeyle çalıştırır. Puan, doğrulayıcı ödüllerinin 0–100 ortalamasıdır.</li>
-    <li>RAM, ARC ve Frontier bağımsız sonuç verir. Biri başarısız olsa bile biten benchmark'ın
+    <li>RAM, ARC ve Terminal bağımsız sonuç verir. Biri başarısız olsa bile biten benchmark'ın
     puanı korunur. Tüm yerel çalıştırma hazırlık dahil en fazla 9 saattir ve elle durdurulabilir.</li>
     <li><code>requirements.txt</code> doğrudan URL, git, yerel dosya veya pip seçeneği içeremez;
     repo 100 MiB, tek dosya 10 MiB ile sınırlıdır.</li>
@@ -1592,7 +1592,7 @@ class HarborAgent(Terminus2):
     <li><a href="https://github.com/Darkosxl/harness-mockup-agent" target="_blank" rel="noopener">harness-mockup-agent — reference example</a></li>
     <li><a href="https://docs.arcprize.org/arc-prize-2026" target="_blank" rel="noopener">ARC Prize 2026 SDK docs</a></li>
     <li><a href="https://arcprize.org/arc-agi/3" target="_blank" rel="noopener">ARC-AGI-3 — what it tests</a></li>
-    <li><a href="https://www.frontierbench.ai/run" target="_blank" rel="noopener">Frontier-bench run instructions</a></li>
+    <li><a href="https://www.tbench.ai/" target="_blank" rel="noopener">Terminal-Bench — official site</a></li>
     <li><a href="https://harborframework.com/" target="_blank" rel="noopener">Harbor — BaseAgent docs</a></li>
   </ul>
 </section>

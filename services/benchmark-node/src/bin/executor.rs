@@ -119,9 +119,9 @@ async fn run_adapter(
     tokio::fs::set_permissions(&work, std::fs::Permissions::from_mode(0o700))
         .await
         .context("protect run work directory")?;
-    // Harbor creates detached Compose containers without our run label. Only Frontier can
-    // own those containers, and the controller admits one Frontier run at a time; ARC cleanup
-    // therefore remains label-scoped and cannot remove the concurrent Frontier environment.
+    // Harbor creates detached Compose containers without our run label. Only Terminal-Bench can
+    // own those containers, and the controller admits one Terminal-Bench run at a time; ARC cleanup
+    // therefore remains label-scoped and cannot remove the concurrent Terminal-Bench environment.
     let baseline_containers = if matches!(
         &request,
         ExecutorRequest::Run {
@@ -670,13 +670,13 @@ mod tests {
         let current = HashSet::from([
             "existing".to_string(),
             "old-run".to_string(),
-            "frontier-main".to_string(),
-            "frontier-sidecar".to_string(),
+            "terminal-main".to_string(),
+            "terminal-sidecar".to_string(),
         ]);
         let labelled = HashSet::from(["old-run".to_string(), "arc".to_string()]);
         assert_eq!(
             containers_to_remove(Some(&baseline), Some(current), Some(labelled)),
-            ["arc", "frontier-main", "frontier-sidecar", "old-run"]
+            ["arc", "old-run", "terminal-main", "terminal-sidecar"]
         );
     }
 }

@@ -56,19 +56,19 @@ executor_runtime=/run/exposure-benchmark/executor-runtime
 artifacts=/var/tmp/exposure-artifacts-$deploy_sha
 arc=$cache/arc-starter
 agents=$arc/vendor/ARC-AGI-3-Agents
-frontier_root=$cache/terminal-bench
-frontier_repo=$frontier_root/repo
-frontier_dataset=$frontier_root/terminal-bench
+terminal_root=$cache/terminal-bench
+terminal_repo=$terminal_root/repo
+terminal_dataset=$terminal_root/terminal-bench
 harbor=$executor_home/.local/share/uv/tools/harbor
 
 arc_sha=eeb1535404f321d280a8f9194bbc1d7aca5f05fc
 agents_sha=10213de83f01df0ef4f0149ee9f8408dcc3772fb
-frontier_sha=2fd12b88aafdd04a52c298e3940bcb189f9766d6
+terminal_sha=2fd12b88aafdd04a52c298e3940bcb189f9766d6
 games=(
   bp35 m0r0 ft09 ar25 s5i5 sp80 g50t lp85 r11l sc25 tn36 sk48 re86
   wa30 cn04 tu93 tr87 sb26 su15 ls20 ka59 cd82 dc22 vc33 lf52
 )
-frontier_tasks=(
+terminal_tasks=(
   fix-git
   cobol-modernization
   overfull-hbox
@@ -77,7 +77,7 @@ frontier_tasks=(
 )
 
 [[ ! -e $artifacts ]] || { echo "STOP: artifact path already exists: $artifacts" >&2; exit 1; }
-[[ ! -e $arc && ! -e $frontier_root && ! -e $harbor ]] || {
+[[ ! -e $arc && ! -e $terminal_root && ! -e $harbor ]] || {
   echo "STOP: benchmark caches already exist; use a fresh dedicated builder" >&2
   exit 1
 }
@@ -150,17 +150,17 @@ for game in os.environ["ARC_GAMES"].split(","):
     print(f"ARC READY: {game}")
 PY
 
-install -d -m 0700 -o exposure-executor -g exposure-executor "$frontier_root"
+install -d -m 0700 -o exposure-executor -g exposure-executor "$terminal_root"
 clone_exact \
   https://github.com/harbor-framework/terminal-bench-2.git \
-  "$frontier_repo" "$frontier_sha"
-run_executor ln -s repo "$frontier_dataset"
-for task in "${frontier_tasks[@]}"; do
-  [[ -f $frontier_dataset/$task/task.toml ]] || {
-    echo "STOP: Frontier task is missing: $task" >&2
+  "$terminal_repo" "$terminal_sha"
+run_executor ln -s repo "$terminal_dataset"
+for task in "${terminal_tasks[@]}"; do
+  [[ -f $terminal_dataset/$task/task.toml ]] || {
+    echo "STOP: Terminal task is missing: $task" >&2
     exit 1
   }
-  echo "FRONTIER READY: $task"
+  echo "TERMINAL READY: $task"
 done
 
 # Rootless OCI runtimes enter a subordinate user namespace. Execute-only
@@ -182,7 +182,7 @@ run_executor "$harbor/bin/harbor" --help >/dev/null
 
 install -d -m 0755 -o root -g root /etc/exposure-benchmark
 cat >/etc/exposure-benchmark/image-build.json <<EOF
-{"source_commit":"$deploy_sha","arc_commit":"$arc_sha","agents_commit":"$agents_sha","frontier_commit":"$frontier_sha","harbor_version":"0.20.0"}
+{"source_commit":"$deploy_sha","arc_commit":"$arc_sha","agents_commit":"$agents_sha","terminal_commit":"$terminal_sha","harbor_version":"0.20.0"}
 EOF
 chmod 0644 /etc/exposure-benchmark/image-build.json
 

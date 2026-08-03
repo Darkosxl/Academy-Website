@@ -6,7 +6,7 @@ maximum of five. Each worker is an `r8i.4xlarge` (16 vCPU, 128 GiB) with an encr
 of one. Place the group in a private subnet with NAT or the required VPC endpoints;
 operators connect through SSM, never SSH.
 
-One instance runs one ARC and one Frontier submission concurrently. Legacy bundled and
+One instance runs one ARC and one Terminal submission concurrently. Legacy bundled and
 Kaggle work waits for both lanes. Academy's authenticated capacity API counts claimable
 and leased harness/Kaggle work. Every controller publishes the same
 `Demand = queued + active` snapshot to `Exposure/Benchmark`; CloudWatch uses `Maximum`, so
@@ -60,7 +60,7 @@ sudo infra/ec2/prepare-worker-image.sh "$(pwd)"
 ```
 
 It verifies the exact source commit, builds and checksums the host artifacts, recreates
-the pinned ARC/Frontier/Harbor caches, installs the services without enabling them, builds
+the pinned ARC/Terminal/Harbor caches, installs the services without enabling them, builds
 the rootless sandbox image, and runs the complete offline canary. Existing caches make it
 stop instead of silently reusing mutable state.
 
@@ -132,7 +132,7 @@ automatic.
 Five `r8i.4xlarge` workers require 80 On-Demand standard-instance vCPUs and 640 GiB of
 aggregate RAM. The current 16-vCPU regional quota permits one worker; request at least 80
 before raising the fleet maximum to five. One run has roughly 20 vCPU of configured ARC and
-Frontier ceilings, so the one-node canary must confirm the 16-vCPU worker meets benchmark
+Terminal ceilings, so the one-node canary must confirm the 16-vCPU worker meets benchmark
 timeouts. Its 128 GiB leaves ample memory headroom for the configured workload limits.
 
 Five controllers can expose up to 160 simultaneous model calls with the default

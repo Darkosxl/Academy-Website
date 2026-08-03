@@ -516,7 +516,7 @@ table.h-table { width:100%; border-collapse:collapse; font-size:12.5px; min-widt
 /* per-benchmark colour identity */
 [data-design="2"] .bench { border-radius:18px; border-width:2px; }
 [data-design="2"] .bench[data-benchmark="arc"]      { border-color:#1E93FF; background:linear-gradient(180deg,rgba(30,147,255,.11),var(--surface)); }
-[data-design="2"] .bench[data-benchmark="frontier"] { border-color:#E53AA3; background:linear-gradient(180deg,rgba(229,58,163,.11),var(--surface)); }
+[data-design="2"] .bench[data-benchmark="terminal"] { border-color:#E53AA3; background:linear-gradient(180deg,rgba(229,58,163,.11),var(--surface)); }
 [data-design="2"] .bench[data-benchmark="ram"]      { border-color:#4FCC30; background:linear-gradient(180deg,rgba(79,204,48,.11),var(--surface)); }
 [data-design="2"] .runbar { border-radius:18px; }
 
@@ -907,7 +907,7 @@ table.h-table { width:100%; border-collapse:collapse; font-size:12.5px; min-widt
     var benches = [
       {k:'arc', t:'ARC-AGI-3', rule:'13 public oyun · doğal bitiş koşulları',
        status:'running', prog:'0/13 · 13 aktif · 75 tur / 30 sn (hedef 100)', g:[75,100]},
-      {k:'frontier', t:'Frontier Sprint', rule:'5 görev · görev başına 120 sn',
+      {k:'terminal', t:'Terminal Sprint', rule:'5 görev · görev başına 120 sn',
        status:'running', prog:'2/5 · 3 aktif · 96 tur / 30 sn (hedef 60)', g:[96,60]},
       {k:'ram', t:'RAM-bench', rule:'1 ve 10 oturum · 10 sn · cgroup PSS',
        status:'done', prog:'2/2 · 1 oturum 72.7 MB · 10 oturum 515.3 MB', g:null}
@@ -992,7 +992,7 @@ table.h-table { width:100%; border-collapse:collapse; font-size:12.5px; min-widt
   }
 
   function leaderboard(design, empty) {
-    var filters = [['arc','ARC-AGI-3'],['frontier','Frontier Sprint'],['ram','RAM-bench']];
+    var filters = [['arc','ARC-AGI-3'],['terminal','Terminal Sprint'],['ram','RAM-bench']];
     var head = '<div class="h-filters">' + filters.map(function (f, i) {
       return '<button class="h-filter ' + (i === 0 ? 'on' : '') + '" lang="en">' + f[1] + '</button>';
     }).join('') + '</div>';
@@ -1019,7 +1019,7 @@ table.h-table { width:100%; border-collapse:collapse; font-size:12.5px; min-widt
         '<span class="lbrank">' + e.rank + '</span>' +
         '<span class="lbav">' + initial(e.t.name) + '</span>' +
         '<span class="lbname">' + esc(e.t.name) + '<small>' + esc(e.t.kids) + '</small></span>' +
-        '<span class="lbmeta">Frontier ' + num(e.t.fr) + '</span>' +
+        '<span class="lbmeta">Terminal ' + num(e.t.fr) + '</span>' +
         '<span class="lbpts">' + num(e.t.arc) + '<small>p</small></span></div>';
     }).join('');
 
@@ -1146,7 +1146,7 @@ table.h-table { width:100%; border-collapse:collapse; font-size:12.5px; min-widt
 
     return kaggle + '<div class="tablewrap"><table class="h-table">' +
       '<thead><tr><th>Tarih</th><th>Commit</th><th>Durum</th>' +
-        '<th lang="en">ARC-AGI-3</th><th lang="en">Frontier</th>' +
+        '<th lang="en">ARC-AGI-3</th><th lang="en">Terminal</th>' +
         '<th>RAM 1 ot.</th><th>RAM 10 ot.</th>' +
         '<th lang="en">Official Kaggle</th><th>Tekrar</th><th>Günlük</th></tr></thead>' +
       '<tbody>' + rows + '</tbody></table></div>';
@@ -1156,7 +1156,7 @@ table.h-table { width:100%; border-collapse:collapse; font-size:12.5px; min-widt
   var DOCS = [
     {id:'nasil', t:'Nasıl çalışır', h:
       '<p>Takımınız bir AI ajanı oluşturur ve onu bir kez gönderir. Aynı gönderim üç skor ' +
-      'tablosunda da puanlanır: <b lang="en">ARC-AGI-3</b>, <b lang="en">Frontier-bench</b> ' +
+      'tablosunda da puanlanır: <b lang="en">ARC-AGI-3</b>, <b lang="en">Terminal-Bench</b> ' +
       've <b lang="en">RAM-bench</b>.</p>' +
       '<p>Repo herkese açık olmalı ve bağlantı <code>https://github.com/</code> ile ' +
       'başlamalıdır. Herhangi bir takım üyesi tüm takım adına gönderebilir. Aynı anda ' +
@@ -1164,10 +1164,10 @@ table.h-table { width:100%; border-collapse:collapse; font-size:12.5px; min-widt
       'alınır; RAM-bench için en düşük değer sayılır.</p>'},
     {id:'repo', t:'Repo yapısı', h:
       '<p>Deponuzda iki ajan bulunmalıdır: biri <span lang="en">ARC-AGI-3</span> için, ' +
-      'diğeri <span lang="en">Frontier-bench</span> için. Depoyu klonlayıp tam otomatik ' +
+      'diğeri <span lang="en">Terminal-Bench</span> için. Depoyu klonlayıp tam otomatik ' +
       'olarak çalıştırıyoruz; yapıya uymayan bir gönderim puanlanmadan başarısız olur.</p>' +
       '<pre lang="en">takim-repo/\n├── agent/\n│   ├── my_agent.py       # ARC-AGI-3: class MyAgent(Agent)\n' +
-      '│   ├── harbor_agent.py   # Frontier-bench: class HarborAgent(BaseAgent)\n' +
+      '│   ├── harbor_agent.py   # Terminal-Bench: class HarborAgent(BaseAgent)\n' +
       '│   └── ...               # geri kalanı size kalmış\n├── main.py               # RAM-bench giriş noktası\n' +
       '└── requirements.txt      # bağımlılıklar</pre>' +
       '<p><code>main.py</code> ajanınızın bağımsız RAM oturumudur. Standart prompt\'u ' +
@@ -1197,8 +1197,8 @@ table.h-table { width:100%; border-collapse:collapse; font-size:12.5px; min-widt
       '<p><b>Hız hedefi:</b> tüm aktif oyunlar birlikte 30 saniyede 100 tamamlanmış ajan turunu ' +
       'hedefler. İki ardışık düşük pencere gönderimi cezalandırmaz, çalıştırmayı altyapı ' +
       'hatası olarak işaretler.</p>'},
-    {id:'frontier', t:'agent/harbor_agent.py — Frontier Sprint', h:
-      '<p>Bu dosya <span lang="en">Frontier Sprint (Harbor)</span> ortamının içinde çalışır. ' +
+    {id:'terminal', t:'agent/harbor_agent.py — Terminal Sprint', h:
+      '<p>Bu dosya <span lang="en">Terminal Sprint (Harbor)</span> ortamının içinde çalışır. ' +
       'Her görevi, yalıtılmış bir konteyner içinde kabuk komutları çalıştırarak çözer.</p>' +
       '<pre lang="en">from harbor.agents.terminus_2 import Terminus2\n\n' +
       'class HarborAgent(Terminus2):\n    def __init__(self, *args, **kwargs):\n' +
@@ -1216,7 +1216,7 @@ table.h-table { width:100%; border-collapse:collapse; font-size:12.5px; min-widt
     {id:'kurallar', t:'Kurallar', h:
       '<ul><li>Tüm bağımlılıklar <code>requirements.txt</code> dosyasında listelenmelidir.</li>' +
       '<li>Ajanın başsız çalışması gerekir: GUI penceresi ve etkileşimli bilgi istemi yok.</li>' +
-      '<li>RAM, ARC ve Frontier bağımsız sonuç verir. Biri başarısız olsa bile biten ' +
+      '<li>RAM, ARC ve Terminal bağımsız sonuç verir. Biri başarısız olsa bile biten ' +
       'benchmark\'ın puanı korunur. Tüm yerel çalıştırma en fazla 10 dakikadır.</li>' +
       '<li><code>requirements.txt</code> doğrudan URL, git, yerel dosya veya pip seçeneği ' +
       'içeremez; repo 100 MiB, tek dosya 10 MiB ile sınırlıdır.</li></ul>'},
@@ -1228,7 +1228,7 @@ table.h-table { width:100%; border-collapse:collapse; font-size:12.5px; min-widt
     {id:'ornek', t:'Örnek repo ve bağlantılar', h:
       '<ul lang="en"><li><a href="#">harness-mockup-agent — reference example</a></li>' +
       '<li><a href="#">ARC Prize 2026 SDK docs</a></li>' +
-      '<li><a href="#">Frontier-bench run instructions</a></li>' +
+      '<li><a href="#">Terminal-Bench run instructions</a></li>' +
       '<li><a href="#">Harbor — BaseAgent docs</a></li></ul>'}
   ];
 

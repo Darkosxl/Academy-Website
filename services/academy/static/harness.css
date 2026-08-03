@@ -384,7 +384,7 @@
    arcprize.org frames a task as a pink handheld, so the focused board does too.
    All CSS on the DOM arc.js already builds: no image, so it scales with the
    board instead of pixelating next to it, and there is no asset to bust.
-   Scoped to .arc-live — Frontier, RAM and the leaderboard never see any of it. */
+   Scoped to .arc-live — Terminal, RAM and the leaderboard never see any of it. */
 .portal .arcade .arc-live {
   /* the only place the pixel face is used. Swap the first name for a self-hosted
      @font-face and the whole cabinet follows. */

@@ -1,1 +1,1 @@
-"""Terminus-2 Frontier harness package."""
+"""Terminus-2 Terminal-Bench harness package."""

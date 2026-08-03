@@ -58,7 +58,7 @@ timeout.
 
 Seventy tasks at 41 minutes each would take about 48 hours serially. The runner uses
 four-way concurrency, so the idealized projection is approximately 12 hours, almost
-exactly equal to the runner's global Frontier timeout.
+exactly equal to the runner's global Terminal-Bench timeout.
 
 This is still unsafe:
 

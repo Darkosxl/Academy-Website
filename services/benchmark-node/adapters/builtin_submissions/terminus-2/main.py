@@ -1,4 +1,4 @@
-"""Minimal RAM-bench entrypoint for the Frontier-only Terminus-2 harness."""
+"""Minimal RAM-bench entrypoint for the Terminal Sprint-only Terminus-2 harness."""
 import os
 import sys
 
