@@ -657,6 +657,23 @@ def validate_submission(repo: Path) -> None:
             raise RunFailed(f"requirements.txt line {number} uses a forbidden direct source or option")
 
 
+# socat binds asynchronously, so `sleep 0.1` was a bet that it wins a race against the
+# submission's very first request. Under load it loses, and the submission sees
+# `APIConnectionError: Connection error` -- which reads like a broken gateway rather than
+# a listener that is 20ms late. Wait for the listener instead of guessing at it; this
+# normally costs one attempt, and the scenario's own 10.5s budget bounds the rest.
+GATEWAY_READY_PROBE = (
+    "/venv/bin/python -c 'import socket,time\n"
+    "deadline = time.monotonic() + 2\n"
+    "while time.monotonic() < deadline:\n"
+    "    try:\n"
+    '        socket.create_connection(("127.0.0.1", 8000), 0.2).close()\n'
+    "        break\n"
+    "    except OSError:\n"
+    "        time.sleep(0.02)' && "
+)
+
+
 def gateway_env(gateway: Gateway) -> dict[str, str]:
     return {
         "OPENAI_BASE_URL": "http://127.0.0.1:8000/v1",
@@ -717,7 +734,7 @@ def run_ram_scenario(run_id: str, sessions: int, repo: Path, venv: Path, gateway
         HARNESS_IMAGE, "sh", "-lc",
         "mkdir -p /tmp/home && "
         "socat TCP-LISTEN:8000,bind=127.0.0.1,reuseaddr,fork UNIX-CONNECT:/run/harness/bedrock.sock & "
-        "sleep 0.1 && "
+        + GATEWAY_READY_PROBE +
         f"exec /venv/bin/python /opt/harness/ram_session.py --sessions {sessions}",
     ]
     # First use may initialize persistent Podman storage before returning the container ID.
