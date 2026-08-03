@@ -60,9 +60,23 @@ else
   nvm use default
 fi
 
-corepack enable
-corepack prepare pnpm@latest --activate
-corepack prepare yarn@stable --activate   # ponytail: delete this block if you don't want yarn
+# --- corepack: whether this needs sudo depends entirely on where the node above
+# came from (nvm = user-owned bin dir, pre-existing system install = often root-owned),
+# so decide it once from node's actual bin dir and reuse it for every corepack call ---
+corepack_cmd() {
+  local bin_dir
+  bin_dir="$(dirname "$(command -v node)")"
+  if [ -w "$bin_dir" ]; then
+    corepack "$@"
+  else
+    echo "corepack needs to write into $bin_dir, which $(whoami) doesn't own — using sudo."
+    sudo corepack "$@"
+  fi
+}
+
+corepack_cmd enable
+corepack_cmd prepare pnpm@latest --activate
+corepack_cmd prepare yarn@stable --activate   # ponytail: delete this block if you don't want yarn
 
 # --- Self-check: everything must resolve on PATH right now, in this same shell ---
 echo
