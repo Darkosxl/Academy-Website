@@ -11,6 +11,8 @@ readonly GATEWAY_DIRECTORY="${BENCHMARK_GATEWAY_DIRECTORY:-$RUNTIME_DIRECTORY/ga
 readonly EXECUTOR_RUNTIME="$RUNTIME_DIRECTORY/executor-runtime"
 readonly PODMAN_STORAGE="$STATE_DIRECTORY/rootful-podman"
 readonly PODMAN_RUNTIME="$RUNTIME_DIRECTORY/rootful-podman"
+readonly PODMAN_API_DIRECTORY=/tmp/exposure-benchmark-podman
+readonly PODMAN_API_SOCKET="$PODMAN_API_DIRECTORY/podman.sock"
 readonly EXECUTOR_SOCKET="${BENCHMARK_EXECUTOR_SOCKET:-$EXECUTOR_DIRECTORY/executor.sock}"
 readonly EXECUTOR_HOME="$STATE_DIRECTORY/executor"
 readonly CONTROLLER_HOME="$STATE_DIRECTORY/controller"
@@ -64,6 +66,8 @@ install -d -m 0700 -o "$EXECUTOR_USER" -g "$EXECUTOR_USER" \
   "$EXECUTOR_HOME/.local/share/containers" \
   "$STATE_DIRECTORY/runs"
 install -d -m 0700 -o root -g root "$PODMAN_STORAGE" "$PODMAN_RUNTIME"
+install -d -m 0700 -o root -g root "$PODMAN_API_DIRECTORY"
+rm -f "$PODMAN_API_SOCKET"
 install -d -m 0700 -o "$CONTROLLER_USER" -g "$CONTROLLER_USER" "$CONTROLLER_HOME"
 install -d -m 0751 -o root -g "$SHARED_GROUP" "$RUNTIME_DIRECTORY"
 install -d -m 2750 -o "$EXECUTOR_USER" -g "$SHARED_GROUP" "$EXECUTOR_DIRECTORY"
@@ -152,6 +156,22 @@ start_executor() {
   executor_pid=$!
 }
 
+start_podman_api() {
+  as_executor podman --cgroup-manager=cgroupfs system service --time=0 "unix://$PODMAN_API_SOCKET" &
+  podman_service_pid=$!
+  for _ in $(seq 1 50); do
+    [[ -S $PODMAN_API_SOCKET ]] && break
+    if ! kill -0 "$podman_service_pid" 2>/dev/null; then
+      wait "$podman_service_pid" || true
+      die "rootful Podman API exited before opening its socket"
+    fi
+    sleep 0.1
+  done
+  [[ -S $PODMAN_API_SOCKET ]] || die "rootful Podman API did not open $PODMAN_API_SOCKET"
+  as_executor env "DOCKER_HOST=unix://$PODMAN_API_SOCKET" docker version --format '{{.Server.Version}}' >/dev/null \
+    || die "rootful Podman API is not reachable through Docker"
+}
+
 start_controller() {
   setpriv --reuid="$controller_uid" --regid="$(id -g "$CONTROLLER_USER")" --init-groups -- \
     env \
@@ -163,6 +183,7 @@ start_controller() {
   controller_pid=$!
 }
 
+start_podman_api
 start_executor
 for _ in $(seq 1 100); do
   [[ -S $EXECUTOR_SOCKET ]] && break
@@ -177,14 +198,15 @@ done
 start_controller
 stop() {
   log "stopping benchmark worker"
-  kill -TERM "$controller_pid" "$executor_pid" 2>/dev/null || true
+  kill -TERM "$controller_pid" "$executor_pid" "$podman_service_pid" 2>/dev/null || true
   wait "$controller_pid" 2>/dev/null || true
   wait "$executor_pid" 2>/dev/null || true
+  wait "$podman_service_pid" 2>/dev/null || true
 }
 trap 'stop; exit 0' INT TERM
 
 set +e
-wait -n "$controller_pid" "$executor_pid"
+wait -n "$controller_pid" "$executor_pid" "$podman_service_pid"
 status=$?
 set -e
 stop

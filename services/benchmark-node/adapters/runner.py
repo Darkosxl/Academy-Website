@@ -1186,10 +1186,20 @@ def run_frontier(run_id: str, repo: Path, work: Path, gateway: Gateway, reporter
     dataset = sprint_dataset(work)
     jobs = work / "frontier-jobs"
     jobs.mkdir()
-    # AF_UNIX paths are limited to 107 bytes on Linux. Run work directories include a
-    # UUID and can exceed that locally, so keep the private Podman API socket short.
-    socket_directory = Path(tempfile.mkdtemp(prefix=f"exposure-hb-{run_id[:8]}-", dir="/tmp"))
-    socket_path = socket_directory / "podman.sock"
+    # Production keeps one rootful Podman API alive in the worker entrypoint. Reusing it
+    # avoids the Podman/Buildx init-path race seen when a short-lived API starts per run.
+    # Local development retains the old private service fallback.
+    shared_socket = Path("/tmp/exposure-benchmark-podman/podman.sock")
+    if shared_socket.is_socket():
+        socket_path = shared_socket
+        socket_directory = Path(tempfile.mkdtemp(
+            prefix=f"exposure-hb-{run_id[:8]}-", dir=shared_socket.parent
+        ))
+    else:
+        # AF_UNIX paths are limited to 107 bytes on Linux. Run work directories include a
+        # UUID and can exceed that locally, so keep the private Podman API socket short.
+        socket_directory = Path(tempfile.mkdtemp(prefix=f"exposure-hb-{run_id[:8]}-", dir="/tmp"))
+        socket_path = socket_directory / "podman.sock"
     docker_config = socket_directory / "docker"
     builder_name = f"exposure-harbor-{run_id[:8]}-{secrets.token_hex(3)}"
     builder_env = os.environ.copy()
@@ -1203,30 +1213,31 @@ def run_frontier(run_id: str, repo: Path, work: Path, gateway: Gateway, reporter
     stage_timed_out = False
     log_file = work / "frontier.log"
     try:
-        service = subprocess.Popen(
-            ["podman", "system", "service", "--time=0", f"unix://{socket_path}"],
-            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
-        )
-        service_ready_deadline = min(deadline, time.monotonic() + 5)
-        while (not socket_path.exists() and service.poll() is None
-               and time.monotonic() < service_ready_deadline):
-            time.sleep(0.05)
-        if not socket_path.exists():
-            if service.poll() is None:
-                service.terminate()
-                with contextlib.suppress(subprocess.TimeoutExpired):
-                    service.wait(timeout=2)
-            if service.poll() is None:
-                service.kill()
-                with contextlib.suppress(subprocess.TimeoutExpired):
-                    service.wait(timeout=2)
-            detail = ""
-            if service.stderr:
-                with contextlib.suppress(OSError):
-                    os.set_blocking(service.stderr.fileno(), False)
-                with contextlib.suppress(OSError, BlockingIOError):
-                    detail = (service.stderr.read() or "")[-1000:]
-            raise InfrastructureFailed(f"rootless Podman API did not start: {detail}")
+        if not socket_path.is_socket():
+            service = subprocess.Popen(
+                ["podman", "system", "service", "--time=0", f"unix://{socket_path}"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
+            )
+            service_ready_deadline = min(deadline, time.monotonic() + 5)
+            while (not socket_path.exists() and service.poll() is None
+                   and time.monotonic() < service_ready_deadline):
+                time.sleep(0.05)
+            if not socket_path.exists():
+                if service.poll() is None:
+                    service.terminate()
+                    with contextlib.suppress(subprocess.TimeoutExpired):
+                        service.wait(timeout=2)
+                if service.poll() is None:
+                    service.kill()
+                    with contextlib.suppress(subprocess.TimeoutExpired):
+                        service.wait(timeout=2)
+                detail = ""
+                if service.stderr:
+                    with contextlib.suppress(OSError):
+                        os.set_blocking(service.stderr.fileno(), False)
+                    with contextlib.suppress(OSError, BlockingIOError):
+                        detail = (service.stderr.read() or "")[-1000:]
+                raise InfrastructureFailed(f"Podman API did not start: {detail}")
         docker_config.mkdir(mode=0o700)
         buildkit_config = socket_directory / "buildkitd.toml"
         buildkit_config.write_text(
