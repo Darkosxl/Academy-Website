@@ -60,34 +60,42 @@ else
   nvm use default
 fi
 
-# --- corepack: pin it to the active node explicitly. Plain `corepack` on PATH can
-# resolve to an unrelated, older install (e.g. Node >=25 no longer bundles corepack,
-# so PATH falls through to a leftover system corepack) even when `node` itself
-# correctly resolves to the one we just picked above. ---
+# --- pnpm / yarn, resolved against the node we settled on above ---
+# Three traps on machines that already have tooling installed:
+#   1. Node >=25 doesn't bundle corepack, so a bare `corepack` falls through PATH to
+#      an unrelated install — often root-owned, from an old Node .pkg -> EACCES.
+#   2. `corepack enable` picks its target dir from which('corepack'), a PATH lookup,
+#      so invoking it by absolute path is NOT enough; pass --install-directory too.
+#   3. `npm i -g corepack` collides (EEXIST) with an existing standalone pnpm/yarn.
+# So: use corepack only when it ships with the active node, else install directly.
 NODE_BIN_DIR="$(dirname "$(command -v node)")"
-if [ ! -x "$NODE_BIN_DIR/corepack" ]; then
-  echo "No corepack bundled with $(command -v node) — installing it for this node via npm."
-  npm install -g corepack
-fi
+export PATH="$NODE_BIN_DIR:$PATH"
 
-corepack_cmd() {
+# A system node (e.g. /usr/local from a .pkg) has a root-owned bin dir; nvm's doesn't.
+node_run() {
   if [ -w "$NODE_BIN_DIR" ]; then
-    "$NODE_BIN_DIR/corepack" "$@"
+    "$@"
   else
-    echo "corepack needs to write into $NODE_BIN_DIR, which $(whoami) doesn't own — using sudo."
-    sudo "$NODE_BIN_DIR/corepack" "$@"
+    echo "Writing into $NODE_BIN_DIR needs privileges $(whoami) lacks — using sudo."
+    sudo "$@"
   fi
 }
 
-corepack_cmd enable
-corepack_cmd prepare pnpm@latest --activate
-corepack_cmd prepare yarn@stable --activate   # ponytail: delete this block if you don't want yarn
+if [ -x "$NODE_BIN_DIR/corepack" ]; then
+  node_run "$NODE_BIN_DIR/corepack" enable --install-directory "$NODE_BIN_DIR"
+  node_run "$NODE_BIN_DIR/corepack" prepare pnpm@latest --activate
+  node_run "$NODE_BIN_DIR/corepack" prepare yarn@stable --activate   # ponytail: delete this line if you don't want yarn
+else
+  echo "No corepack ships with $(node -v) — installing package managers with npm instead."
+  [ -x "$NODE_BIN_DIR/pnpm" ] || node_run "$NODE_BIN_DIR/npm" install -g pnpm
+  [ -x "$NODE_BIN_DIR/yarn" ] || node_run "$NODE_BIN_DIR/npm" install -g yarn   # ponytail: delete this line if you don't want yarn
+fi
 
 # --- Self-check: everything must resolve on PATH right now, in this same shell ---
 echo
 echo "Checking PATH..."
 ok=1
-for cmd in "git --version" "node -v" "corepack -v" "pnpm -v" "yarn -v"; do
+for cmd in "git --version" "node -v" "pnpm -v" "yarn -v"; do
   if out=$(eval "$cmd" 2>&1); then
     echo "  OK   $cmd -> $out"
   else
