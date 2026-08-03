@@ -60,17 +60,22 @@ else
   nvm use default
 fi
 
-# --- corepack: whether this needs sudo depends entirely on where the node above
-# came from (nvm = user-owned bin dir, pre-existing system install = often root-owned),
-# so decide it once from node's actual bin dir and reuse it for every corepack call ---
+# --- corepack: pin it to the active node explicitly. Plain `corepack` on PATH can
+# resolve to an unrelated, older install (e.g. Node >=25 no longer bundles corepack,
+# so PATH falls through to a leftover system corepack) even when `node` itself
+# correctly resolves to the one we just picked above. ---
+NODE_BIN_DIR="$(dirname "$(command -v node)")"
+if [ ! -x "$NODE_BIN_DIR/corepack" ]; then
+  echo "No corepack bundled with $(command -v node) — installing it for this node via npm."
+  npm install -g corepack
+fi
+
 corepack_cmd() {
-  local bin_dir
-  bin_dir="$(dirname "$(command -v node)")"
-  if [ -w "$bin_dir" ]; then
-    corepack "$@"
+  if [ -w "$NODE_BIN_DIR" ]; then
+    "$NODE_BIN_DIR/corepack" "$@"
   else
-    echo "corepack needs to write into $bin_dir, which $(whoami) doesn't own — using sudo."
-    sudo corepack "$@"
+    echo "corepack needs to write into $NODE_BIN_DIR, which $(whoami) doesn't own — using sudo."
+    sudo "$NODE_BIN_DIR/corepack" "$@"
   fi
 }
 
