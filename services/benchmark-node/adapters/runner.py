@@ -1100,7 +1100,7 @@ def bubblewrap_harbor(
         f"-m openai/{BEDROCK_PROFILE_NAME} -n {FRONTIER_CONCURRENCY} -o {shlex.quote(str(jobs_mount))} "
         "-y --no-force-build "
         "--ak enable_summarize=false --ak proactive_summarization_threshold=0 "
-        f"--ak max_turns={FRONTIER_MAX_TURNS} --ak temperature=0 "
+        f"--ak max_turns={FRONTIER_MAX_TURNS} --ak temperature=0.7 "
         "--ak api_base=http://127.0.0.1:8000/v1 "
         f"--ak {shlex.quote(f'llm_call_kwargs={llm_call_kwargs}')}",
     ]

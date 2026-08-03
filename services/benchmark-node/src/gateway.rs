@@ -778,6 +778,13 @@ fn sanitize_chat(body: Value, model_id: &str, reasoning_effort: &str) -> Result<
         .unwrap_or(MAX_OUTPUT_TOKENS)
         .clamp(1, MAX_OUTPUT_TOKENS);
     result.insert("max_completion_tokens".into(), Value::from(requested));
+    if let Some(value) = object.get("temperature") {
+        let temperature = value.as_f64().context("temperature must be a number")?;
+        if !(0.0..=2.0).contains(&temperature) {
+            bail!("temperature must be between 0 and 2");
+        }
+        result.insert("temperature".into(), Value::from(temperature));
+    }
     if model_supports_reasoning_effort(model_id) {
         result.insert(
             "reasoning_effort".into(),
@@ -982,7 +989,7 @@ mod tests {
     }
 
     #[test]
-    fn sanitization_pins_model_and_drops_sampling_and_old_turns() {
+    fn sanitization_pins_model_keeps_bounded_sampling_and_task_context() {
         let mut messages = vec![json!({"role":"system","content":"rules"})];
         for index in 0..20 {
             messages.push(json!({"role":"user","content":format!("question {index}")}));
@@ -1003,7 +1010,7 @@ mod tests {
         assert_eq!(result["model"], "xai.grok-4.3");
         assert_eq!(result["reasoning_effort"], "none");
         assert_eq!(result["max_completion_tokens"], MAX_OUTPUT_TOKENS);
-        assert!(result.get("temperature").is_none());
+        assert_eq!(result["temperature"].as_f64(), Some(2.0));
         assert!(result["messages"].as_array().unwrap().len() <= MAX_MESSAGES + 1);
         assert_eq!(result["messages"][0]["role"], "system");
         assert_eq!(result["messages"][1]["role"], "user");
