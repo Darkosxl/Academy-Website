@@ -2540,6 +2540,13 @@ pub fn beginner_track(user: &User, subs: &[BeginnerSubmission]) -> String {
         &format!(
             r##"<h1 class="pagetitle">Beginner Track</h1>
 <p class="muted">Başlangıç seviyesindeki 5 proje. Her biri için brifi indir, projeni yap, sonra GitHub ve Vercel bağlantılarını kaydet.</p>
+<div class="taskcard">
+  <div class="taskhead"><h3>Vibe Coding Cheat Sheet</h3></div>
+  <p class="desc">Tüm beginner track projelerinde işine yarayacak hızlı referans rehberi.</p>
+  <div class="cardactions">
+    <a class="btn-outline small" href="/static/beginner-projects/vibe-coding-cheat-sheet.pdf" target="_blank" rel="noopener">Cheat sheet indir ⬇</a>
+  </div>
+</div>
 <div class="tasks">{cards}</div>"##
         ),
     )
@@ -4207,6 +4214,21 @@ mod tests {
         // both are still reachable as links, and the nicknames are shown
         assert!(html.contains(r#"href="https://bloke.vercel.app""#));
         assert!(html.contains("<h3>canli</h3>") && html.contains("<h3>bloke</h3>"));
+    }
+
+    #[test]
+    fn beginner_track_links_cheat_sheet() {
+        let user = User {
+            id: Uuid::nil(),
+            display_name: "A".into(),
+            nickname: Some("a".into()),
+            is_admin: false,
+        };
+        let html = beginner_track(&user, &[]);
+        assert!(
+            html.contains(r#"href="/static/beginner-projects/vibe-coding-cheat-sheet.pdf""#),
+            "beginner track should link the vibe coding cheat sheet"
+        );
     }
 
     #[test]
