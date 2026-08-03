@@ -41,21 +41,21 @@ HARBOR_CLI = HARBOR_ROOT / "bin" / "harbor"
 HARNESS_VERSION = "harness-2026-sprint-v3"
 POLL_SECONDS = 2
 ARC_CONCURRENCY = 5
-# Frontier tasks retain their own benchmark-defined timeouts.  Running two at a
+# Terminal-Bench tasks retain their own benchmark-defined timeouts.  Running two at a
 # time leaves the Docker-compatible runtime enough headroom for agent and
 # verifier commands without stretching the total sprint past its deadline.
-FRONTIER_CONCURRENCY = 2
+TERMINAL_CONCURRENCY = 2
 # Turns, not seconds, are what bound the agent: measured Cerebras latency is about
 # 1.2 s per request, so 180 turns needs roughly ten minutes of wall clock, not 80
-# seconds. FRONTIER_AGENT_SECONDS is what rewrite_timeouts stamps into each task.
-FRONTIER_MAX_TURNS = 180
+# seconds. TERMINAL_AGENT_SECONDS is what rewrite_timeouts stamps into each task.
+TERMINAL_MAX_TURNS = 180
 # Terminal-Bench 2.0 grants its own agents 750-900s. Stamping anything lower just
 # reintroduces the wall that made every task time out; 900 matches the dataset.
-FRONTIER_AGENT_SECONDS = 900.0
+TERMINAL_AGENT_SECONDS = 900.0
 RUN_DEADLINE_SECONDS = 9 * 60 * 60
-# Five tasks at FRONTIER_CONCURRENCY=2 is three waves, so the stage budget has to
-# clear 3 * FRONTIER_AGENT_SECONDS with room left for image pulls and verifiers.
-FRONTIER_DEADLINE_SECONDS = 60 * 60
+# Five tasks at TERMINAL_CONCURRENCY=2 is three waves, so the stage budget has to
+# clear 3 * TERMINAL_AGENT_SECONDS with room left for image pulls and verifiers.
+TERMINAL_DEADLINE_SECONDS = 60 * 60
 TERMINUS_RESPONSE_FORMAT = {
     "type": "json_schema",
     "json_schema": {
@@ -98,7 +98,7 @@ ARC_GAMES = (
 ARC_GAME_ERROR_CHARS = 200
 # Terminal-Bench 2.0's four `easy` tasks plus one concrete medium. The sprint scores a
 # five-task subset, so it is chosen for a reachable signal rather than for coverage.
-FRONTIER_TASKS = (
+TERMINAL_TASKS = (
     "fix-git",
     "cobol-modernization",
     "overfull-hbox",
@@ -156,7 +156,7 @@ DEFAULT_CACHE = (
 )
 CACHE = Path(CONFIG.get("HARNESS_CACHE_DIRECTORY", DEFAULT_CACHE))
 ARC_STARTER = CACHE / "arc-starter"
-FRONTIER_SOURCE = CACHE / "terminal-bench" / "terminal-bench"
+TERMINAL_SOURCE = CACHE / "terminal-bench" / "terminal-bench"
 ARC_PYTHON = ARC_STARTER / ".venv" / "bin" / "python"
 KAGGLE_CLI = ARC_STARTER / ".venv" / "bin" / "kaggle"
 HARNESS_IMAGE = CONFIG.get("HARNESS_IMAGE", "localhost/exposure-harness-arc:0.9.9")
@@ -503,7 +503,7 @@ def ensure_host() -> None:
                 "production worker must run as the dedicated HARNESS_HARBOR_USER account"
             )
     for path in (
-        KAGGLE_CLI, ARC_STARTER / "scripts" / "build_notebook.py", FRONTIER_SOURCE,
+        KAGGLE_CLI, ARC_STARTER / "scripts" / "build_notebook.py", TERMINAL_SOURCE,
         HARBOR_CLI,
     ):
         if not path.exists():
@@ -997,16 +997,16 @@ def rewrite_timeouts(path: Path) -> None:
         if match:
             section = match.group(1)
         if line.strip().startswith("timeout_sec") and section == "agent":
-            line = f"timeout_sec = {FRONTIER_AGENT_SECONDS}"
+            line = f"timeout_sec = {TERMINAL_AGENT_SECONDS}"
         output.append(line)
     path.write_text("\n".join(output) + "\n")
 
 
 def sprint_dataset(work: Path) -> Path:
-    target = work / "frontier-sprint"
+    target = work / "terminal-sprint"
     target.mkdir()
-    for task in FRONTIER_TASKS:
-        source = FRONTIER_SOURCE / task
+    for task in TERMINAL_TASKS:
+        source = TERMINAL_SOURCE / task
         destination = target / task
         # Work directories may live on a different filesystem from the pinned cache.
         shutil.copytree(source, destination, copy_function=shutil.copy2, symlinks=True)
@@ -1016,14 +1016,14 @@ def sprint_dataset(work: Path) -> Path:
     return target
 
 
-def scan_frontier(jobs: Path) -> tuple[dict[str, dict[str, Any]], int]:
+def scan_terminal_bench(jobs: Path) -> tuple[dict[str, dict[str, Any]], int]:
     results: dict[str, dict[str, Any]] = {}
     active = 0
     if not jobs.exists():
-        return results, len(FRONTIER_TASKS)
+        return results, len(TERMINAL_TASKS)
     job = next((path for path in jobs.iterdir() if path.is_dir()), None)
     if job is None:
-        return results, len(FRONTIER_TASKS)
+        return results, len(TERMINAL_TASKS)
     for trial in job.iterdir():
         if not trial.is_dir():
             continue
@@ -1052,7 +1052,7 @@ def scan_frontier(jobs: Path) -> tuple[dict[str, dict[str, Any]], int]:
             "reward": reward,
             "error": str(exception.get("exception_message") or "")[:1000] or None,
         }
-    active += max(0, len(FRONTIER_TASKS) - len(results) - active)
+    active += max(0, len(TERMINAL_TASKS) - len(results) - active)
     return results, active
 
 
@@ -1071,7 +1071,7 @@ def bubblewrap_harbor(
         dataset.resolve().relative_to(sandbox_root)
         jobs.resolve().relative_to(sandbox_root)
     except ValueError as exc:
-        raise InfrastructureFailed("Frontier paths must share the run work directory") from exc
+        raise InfrastructureFailed("Terminal-Bench paths must share the run work directory") from exc
     repo_mount = repo.resolve()
     dataset_mount = dataset.resolve()
     jobs_mount = jobs.resolve()
@@ -1103,6 +1103,9 @@ def bubblewrap_harbor(
         # Podman's Docker-compatible API handles Docker's classic build endpoint but
         # cannot start Buildx's init-enabled helper container on this Debian image.
         "--setenv", "DOCKER_BUILDKIT", "0",
+        # Compose v2 routes `build` through `buildx bake` unless told not to, which walks
+        # straight past DOCKER_BUILDKIT=0 and back into the builder Podman cannot boot.
+        "--setenv", "COMPOSE_BAKE", "false",
         "--setenv", "PYTHONPATH", str(repo_mount), "--setenv", "OPENAI_API_KEY", gateway.token,
         "--setenv", "OPENAI_API_BASE", "http://127.0.0.1:8000/v1",
         "--setenv", "OPENAI_BASE_URL", "http://127.0.0.1:8000/v1",
@@ -1112,10 +1115,10 @@ def bubblewrap_harbor(
         f"exec {shlex.quote(str(HARBOR_ROOT / 'bin/python'))} "
         f"{shlex.quote(str(HARBOR_CLI))} run -p {shlex.quote(str(dataset_mount))} "
         "-a agent.harbor_agent:HarborAgent "
-        f"-m openai/{BEDROCK_PROFILE_NAME} -n {FRONTIER_CONCURRENCY} -o {shlex.quote(str(jobs_mount))} "
+        f"-m openai/{BEDROCK_PROFILE_NAME} -n {TERMINAL_CONCURRENCY} -o {shlex.quote(str(jobs_mount))} "
         "-y --no-force-build "
         "--ak enable_summarize=false --ak proactive_summarization_threshold=0 "
-        f"--ak max_turns={FRONTIER_MAX_TURNS} --ak temperature=0.7 "
+        f"--ak max_turns={TERMINAL_MAX_TURNS} --ak temperature=0.7 "
         "--ak api_base=http://127.0.0.1:8000/v1 "
         f"--ak {shlex.quote(f'llm_call_kwargs={llm_call_kwargs}')}",
     ]
@@ -1131,14 +1134,25 @@ def install_harbor_docker_shim(docker_config: Path) -> None:
         """#!/usr/bin/env bash
 set -euo pipefail
 
-if [[ "${1:-}" == "buildx" && "${2:-}" == "build" ]]; then
+if [[ "${1:-}" == "buildx" ]]; then
+    if [[ "${2:-}" != "build" ]]; then
+        # create/inspect/use/rm and friends must never reach a real builder: bootstrapping
+        # one pulls moby/buildkit and asks Podman for an init-enabled container it cannot
+        # create on this image. Nothing downstream reads their output, so a silent success
+        # is enough, and the build itself is rewritten below to the classic API anyway.
+        exit 0
+    fi
     shift 2
     arguments=()
     image=""
+    skip_next=0
     for argument in "$@"; do
+        if (( skip_next )); then skip_next=0; continue; fi
         case "$argument" in
             --output=type=docker,name=*) image="${argument#--output=type=docker,name=}" ;;
-            --platform=*) ;;
+            # classic build rejects every one of these outright
+            --platform=*|--builder=*|--progress=*|--load) ;;
+            --platform|--builder|--progress) skip_next=1 ;;
             *) arguments+=("$argument") ;;
         esac
     done
@@ -1155,14 +1169,14 @@ exec /usr/bin/docker "$@"
     shim.chmod(0o700)
 
 
-def frontier_cutoff(global_deadline: float, now: float | None = None) -> float:
+def terminal_cutoff(global_deadline: float, now: float | None = None) -> float:
     started = time.monotonic() if now is None else now
-    return min(global_deadline, started + FRONTIER_DEADLINE_SECONDS)
+    return min(global_deadline, started + TERMINAL_DEADLINE_SECONDS)
 
 
-def run_frontier(run_id: str, repo: Path, work: Path, gateway: Gateway, reporter: Reporter, deadline: float) -> float:
+def run_terminal_bench(run_id: str, repo: Path, work: Path, gateway: Gateway, reporter: Reporter, deadline: float) -> float:
     dataset = sprint_dataset(work)
-    jobs = work / "frontier-jobs"
+    jobs = work / "terminal-jobs"
     jobs.mkdir()
     # Production keeps one rootful Podman API alive in the worker entrypoint. Reusing it
     # avoids the Podman/Buildx init-path race seen when a short-lived API starts per run.
@@ -1182,7 +1196,7 @@ def run_frontier(run_id: str, repo: Path, work: Path, gateway: Gateway, reporter
     service: subprocess.Popen | None = None
     process: subprocess.Popen | None = None
     stage_timed_out = False
-    log_file = work / "frontier.log"
+    log_file = work / "terminal.log"
     try:
         if not socket_path.is_socket():
             service = subprocess.Popen(
@@ -1212,11 +1226,11 @@ def run_frontier(run_id: str, repo: Path, work: Path, gateway: Gateway, reporter
         docker_config.mkdir(mode=0o700)
         install_harbor_docker_shim(docker_config)
         reporter.update(
-            "frontier", status="running", done=0, total=len(FRONTIER_TASKS),
-            tasks={}, rate=0, max_seconds=FRONTIER_DEADLINE_SECONDS,
+            "frontier", status="running", done=0, total=len(TERMINAL_TASKS),
+            tasks={}, rate=0, max_seconds=TERMINAL_DEADLINE_SECONDS,
         )
         with log_file.open("w") as output:
-            frontier_deadline = frontier_cutoff(deadline)
+            terminal_deadline = terminal_cutoff(deadline)
             process = subprocess.Popen(
                 bubblewrap_harbor(
                     repo, dataset, jobs, gateway, socket_path, docker_config,
@@ -1225,19 +1239,19 @@ def run_frontier(run_id: str, repo: Path, work: Path, gateway: Gateway, reporter
             )
         next_rate_check = time.monotonic() + 30
         while process.poll() is None:
-            if time.monotonic() >= frontier_deadline:
+            if time.monotonic() >= terminal_deadline:
                 stage_timed_out = True
                 with contextlib.suppress(ProcessLookupError):
                     os.killpg(process.pid, signal.SIGTERM)
                 break
-            results, active = scan_frontier(jobs)
-            reporter.update("frontier", status="running", done=len(results), total=len(FRONTIER_TASKS),
+            results, active = scan_terminal_bench(jobs)
+            reporter.update("frontier", status="running", done=len(results), total=len(TERMINAL_TASKS),
                             tasks=results, active=active)
             now = time.monotonic()
             if active and now >= next_rate_check:
                 metrics = gateway.metrics()
                 completed = int(metrics["completed_last_30s"])
-                reporter.update("frontier", status="running", done=len(results), total=len(FRONTIER_TASKS),
+                reporter.update("frontier", status="running", done=len(results), total=len(TERMINAL_TASKS),
                                 tasks=results, active=active, rate=completed)
                 next_rate_check = now + 5
             time.sleep(2)
@@ -1264,14 +1278,14 @@ def run_frontier(run_id: str, repo: Path, work: Path, gateway: Gateway, reporter
                     service.wait(timeout=2)
         cleanup_harbor_containers(jobs)
         shutil.rmtree(socket_directory, ignore_errors=True)
-    results, _ = scan_frontier(jobs)
+    results, _ = scan_terminal_bench(jobs)
     assert process is not None
     if not stage_timed_out and process.returncode not in (0, -signal.SIGTERM) and not results:
-        raise RunFailed("Frontier Sprint could not start:\n" + log_file.read_text(errors="replace")[-3000:])
-    for task in FRONTIER_TASKS:
+        raise RunFailed("Terminal Sprint could not start:\n" + log_file.read_text(errors="replace")[-3000:])
+    for task in TERMINAL_TASKS:
         results.setdefault(task, {"status": "timeout", "reward": 0.0})
-    score = round(100 * sum(float(results[task]["reward"]) for task in FRONTIER_TASKS) / len(FRONTIER_TASKS), 1)
-    reporter.update("frontier", status="done", done=len(FRONTIER_TASKS), total=len(FRONTIER_TASKS),
+    score = round(100 * sum(float(results[task]["reward"]) for task in TERMINAL_TASKS) / len(TERMINAL_TASKS), 1)
+    reporter.update("frontier", status="done", done=len(TERMINAL_TASKS), total=len(TERMINAL_TASKS),
                     tasks=results, score=score, gateway=gateway.metrics())
     return score
 
@@ -1314,8 +1328,8 @@ def process_claim(claim: dict[str, Any]) -> None:
             gateways.append(ram_gateway)
             arc_gateway = Gateway("arc", work)
             gateways.append(arc_gateway)
-            frontier_gateway = Gateway("frontier", work)
-            gateways.append(frontier_gateway)
+            terminal_gateway = Gateway("terminal", work)
+            gateways.append(terminal_gateway)
 
             try:
                 with ram_lane(deadline):
@@ -1351,22 +1365,22 @@ def process_claim(claim: dict[str, Any]) -> None:
                 args=("arc", lambda: run_arc(run_id, repo, venv, arc_gateway, reporter, deadline)),
                 name=f"arc-{run_id[:8]}",
             )
-            frontier_thread = threading.Thread(
+            terminal_thread = threading.Thread(
                 target=benchmark,
-                args=("frontier", lambda: run_frontier(run_id, repo, work, frontier_gateway, reporter, deadline)),
-                name=f"frontier-{run_id[:8]}",
+                args=("frontier", lambda: run_terminal_bench(run_id, repo, work, terminal_gateway, reporter, deadline)),
+                name=f"terminal-{run_id[:8]}",
             )
             arc_thread.start()
-            frontier_thread.start()
-            while arc_thread.is_alive() or frontier_thread.is_alive():
+            terminal_thread.start()
+            while arc_thread.is_alive() or terminal_thread.is_alive():
                 if lease.lost.is_set():
                     raise LeaseLost("worker lost its run lease")
                 if time.monotonic() >= deadline:
                     break
                 time.sleep(0.5)
             arc_thread.join(timeout=10)
-            frontier_thread.join(timeout=10)
-            if arc_thread.is_alive() or frontier_thread.is_alive():
+            terminal_thread.join(timeout=10)
+            if arc_thread.is_alive() or terminal_thread.is_alive():
                 raise InfrastructureFailed("benchmark threads did not stop at the global deadline")
             if outcomes.get("arc", (None,))[0] == "done":
                 scores["arc"] = float(outcomes["arc"][1])
@@ -1420,7 +1434,7 @@ def required_caches(benchmark_kind: str) -> tuple[Path, ...]:
     if benchmark_kind in {"arc", "bundled"}:
         paths += (ARC_PYTHON, ARC_STARTER / "environment_files")
     if benchmark_kind in {"frontier", "bundled"}:
-        paths += (FRONTIER_SOURCE, HARBOR_CLI)
+        paths += (TERMINAL_SOURCE, HARBOR_CLI)
     return paths
 
 
@@ -1499,10 +1513,10 @@ def process_executor_run(request: dict[str, Any]) -> None:
         if benchmark_kind in {"frontier", "bundled"}:
             threads.append(threading.Thread(
                 target=benchmark,
-                args=("frontier", lambda: run_frontier(
+                args=("frontier", lambda: run_terminal_bench(
                     run_id, repo, work, gateway, reporter, deadline
                 )),
-                name=f"frontier-{run_id[:8]}",
+                name=f"terminal-{run_id[:8]}",
             ))
         for thread in threads:
             thread.start()
@@ -1718,7 +1732,7 @@ def selfcheck() -> None:
         "version": HARNESS_VERSION,
         "image": HARNESS_IMAGE,
         "arc_games": list(ARC_GAMES),
-        "frontier_tasks": list(FRONTIER_TASKS),
+        "terminal_tasks": list(TERMINAL_TASKS),
         "bedrock_profile": BEDROCK_PROFILE_NAME,
     }, indent=2))
 

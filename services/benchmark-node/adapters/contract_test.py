@@ -7,6 +7,7 @@ import io
 import json
 import os
 import tempfile
+import subprocess
 import threading
 import time
 from types import SimpleNamespace
@@ -53,13 +54,13 @@ def main() -> None:
     }
     assert events[1]["type"] == "frames"
     assert len(events[1]["frames"][0]["grids"]) == 4096
-    frontier_reporter = runner.NdjsonReporter(
+    terminal_reporter = runner.NdjsonReporter(
         "018f0f65-9abc-7def-8123-456789abcdef", time.monotonic() + 30, "frontier",
     )
-    assert frontier_reporter.state["arc"] == {"status": "skipped"}
-    frontier_reporter.state["frontier"] = {"status": "done"}
-    frontier_reporter.state["ram"] = {"status": "done"}
-    assert runner.terminal_status(frontier_reporter.snapshot()) == "done"
+    assert terminal_reporter.state["arc"] == {"status": "skipped"}
+    terminal_reporter.state["frontier"] = {"status": "done"}
+    terminal_reporter.state["ram"] = {"status": "done"}
+    assert runner.terminal_status(terminal_reporter.snapshot()) == "done"
 
     with tempfile.TemporaryDirectory() as raw:
         previous_ram_lock = runner.CONFIG.get("HARNESS_RAM_LOCK")
@@ -94,21 +95,21 @@ def main() -> None:
     assert len(runner.ARC_GAMES) == 25
     assert len(set(runner.ARC_GAMES)) == 25
     assert runner.ARC_CONCURRENCY == 5
-    assert runner.FRONTIER_CONCURRENCY == 2
-    assert runner.FRONTIER_MAX_TURNS == 180
-    assert runner.FRONTIER_DEADLINE_SECONDS == 60 * 60
-    assert runner.frontier_cutoff(9000, now=100) == 100 + 60 * 60
-    assert runner.frontier_cutoff(500, now=100) == 500
+    assert runner.TERMINAL_CONCURRENCY == 2
+    assert runner.TERMINAL_MAX_TURNS == 180
+    assert runner.TERMINAL_DEADLINE_SECONDS == 60 * 60
+    assert runner.terminal_cutoff(9000, now=100) == 100 + 60 * 60
+    assert runner.terminal_cutoff(500, now=100) == 500
 
-    # buildkit_nameservers went away with b251b09 (classic builds for Frontier);
+    # buildkit_nameservers went away with b251b09 (classic builds for Terminal-Bench);
     # its assertions went with it.
 
     with tempfile.TemporaryDirectory(dir="/tmp") as raw:
         work = Path(raw) / "work"
         repo = work / "repo"
-        dataset = work / "frontier-sprint"
-        jobs = work / "frontier-jobs"
-        gateway = work / "frontier-gateway"
+        dataset = work / "terminal-sprint"
+        jobs = work / "terminal-jobs"
+        gateway = work / "terminal-gateway"
         socket_dir = Path(raw) / "socket"
         docker_config = socket_dir / "docker"
         for path in (repo, dataset, jobs, gateway, docker_config):
@@ -134,14 +135,40 @@ def main() -> None:
         shell = command[-1]
         assert str(runner.HARBOR_ROOT / "bin/python") in shell
         assert str(runner.HARBOR_CLI) in shell
-        assert f"-n {runner.FRONTIER_CONCURRENCY}" in shell
-        assert f"max_turns={runner.FRONTIER_MAX_TURNS}" in shell
+        assert f"-n {runner.TERMINAL_CONCURRENCY}" in shell
+        assert f"max_turns={runner.TERMINAL_MAX_TURNS}" in shell
         assert json.dumps(
             {"response_format": runner.TERMINUS_RESPONSE_FORMAT}, separators=(",", ":")
         ) in shell
         assert str(Path.home() / ".local/share/uv/python") not in command
 
-    # cleanup_buildx_builder went away with b251b09 too; nothing left to assert.
+    # cleanup_buildx_builder went away with b251b09 too, so the shim is the only thing
+    # standing between Harbor and a buildkit container Podman cannot create.
+    with tempfile.TemporaryDirectory() as raw:
+        docker_config = Path(raw) / "docker"
+        docker_config.mkdir()
+        runner.install_harbor_docker_shim(docker_config)
+        shim = docker_config.parent / "bin" / "docker"
+        fake_docker = docker_config.parent / "echo-args"
+        fake_docker.write_text('#!/usr/bin/env bash\necho "$@"\n')
+        fake_docker.chmod(0o700)
+        shim.write_text(shim.read_text().replace("/usr/bin/docker", str(fake_docker)))
+
+        def shim_run(*argv):
+            return subprocess.run([str(shim), *argv], capture_output=True, text=True)
+
+        # bootstrapping a builder is exactly what must never reach the real CLI
+        for subcommand in ("create", "inspect", "use", "rm"):
+            done = shim_run("buildx", subcommand, "--bootstrap", "somebuilder")
+            assert done.returncode == 0 and done.stdout == "", (subcommand, done)
+        built = shim_run(
+            "buildx", "build", "--builder", "somebuilder", "--platform=linux/amd64",
+            "--load", "--output=type=docker,name=task:latest", "-f", "Dockerfile", ".",
+        )
+        assert built.returncode == 0, built
+        assert built.stdout.split() == ["build", "-f", "Dockerfile", "--tag", "task:latest", "."], built
+        passed = shim_run("compose", "up")
+        assert passed.stdout.strip() == "compose up", passed
 
     with tempfile.TemporaryDirectory() as raw:
         jobs = Path(raw) / "jobs"
@@ -157,10 +184,10 @@ def main() -> None:
         )
         runner.rewrite_timeouts(task)
         rewritten = task.read_text()
-        assert f"timeout_sec = {runner.FRONTIER_AGENT_SECONDS}" in rewritten
+        assert f"timeout_sec = {runner.TERMINAL_AGENT_SECONDS}" in rewritten
         assert "timeout_sec = 300" in rewritten
         # three waves of agent time must still fit inside the stage budget
-        assert 3 * runner.FRONTIER_AGENT_SECONDS < runner.FRONTIER_DEADLINE_SECONDS
+        assert 3 * runner.TERMINAL_AGENT_SECONDS < runner.TERMINAL_DEADLINE_SECONDS
         assert 'network_mode = "public"' in rewritten
         assert 'network_mode = "no-network"' not in rewritten
 
@@ -313,10 +340,10 @@ def main() -> None:
 
     # A single-lane run must not require the other lane's dataset.
     arc_only = runner.required_caches("arc")
-    frontier_only = runner.required_caches("frontier")
-    assert runner.FRONTIER_SOURCE not in arc_only and runner.HARBOR_CLI not in arc_only
-    assert runner.ARC_PYTHON not in frontier_only
-    assert set(runner.required_caches("bundled")) == set(arc_only) | set(frontier_only)
+    terminal_only = runner.required_caches("frontier")
+    assert runner.TERMINAL_SOURCE not in arc_only and runner.HARBOR_CLI not in arc_only
+    assert runner.ARC_PYTHON not in terminal_only
+    assert set(runner.required_caches("bundled")) == set(arc_only) | set(terminal_only)
 
     # A progress post over 8000 bytes is rejected outright, and one shared failure mode
     # fails all 25 games with the same long error at once. That is the worst case.
