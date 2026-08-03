@@ -951,6 +951,11 @@ def run_arc(run_id: str, repo: Path, venv: Path, gateway: Gateway, reporter: Rep
                 score = result.get("score")
                 if not isinstance(score, (int, float)) or not math.isfinite(score) or not 0 <= score <= 100:
                     result = {"game": game, "status": "failed", "score": 0.0, "error": "invalid score"}
+                # Clamp here rather than at each producer: the sandbox reports its own
+                # tracebacks through this same slot, and one uncapped path is enough to
+                # push all 25 games past the progress size cap.
+                if isinstance(result.get("error"), str):
+                    result["error"] = result["error"][-ARC_GAME_ERROR_CHARS:]
                 results[game] = result
                 del processes[game]
                 completed = True
