@@ -96,8 +96,8 @@ def main() -> None:
     assert runner.ARC_CONCURRENCY == 5
     assert runner.FRONTIER_CONCURRENCY == 2
     assert runner.FRONTIER_MAX_TURNS == 180
-    assert runner.FRONTIER_DEADLINE_SECONDS == 45 * 60
-    assert runner.frontier_cutoff(9000, now=100) == 100 + 45 * 60
+    assert runner.FRONTIER_DEADLINE_SECONDS == 60 * 60
+    assert runner.frontier_cutoff(9000, now=100) == 100 + 60 * 60
     assert runner.frontier_cutoff(500, now=100) == 500
 
     # buildkit_nameservers went away with b251b09 (classic builds for Frontier);

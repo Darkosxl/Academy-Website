@@ -205,11 +205,11 @@ pub const ARC_GAMES: [&str; 25] = [
     "lf52",
 ];
 pub const FRONTIER_TASKS: [&str; 5] = [
-    "html-js-filter",
-    "vllm-deepseek-streaming",
-    "session-window-debug",
-    "mvcc-lsm-compaction",
-    "embedding-drift-monitor",
+    "fix-git",
+    "cobol-modernization",
+    "overfull-hbox",
+    "prove-plus-comm",
+    "openssl-selfsigned-cert",
 ];
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

@@ -44,7 +44,7 @@ LABEL org.opencontainers.image.title="Exposure benchmark-node deterministic arti
 FROM python:3.12.11-slim-bookworm AS cache-builder
 ARG ARC_STARTER_COMMIT=eeb1535404f321d280a8f9194bbc1d7aca5f05fc
 ARG ARC_AGENTS_COMMIT=10213de83f01df0ef4f0149ee9f8408dcc3772fb
-ARG FRONTIER_COMMIT=3d694e919871dbf21ea5ff618782c99a3cb3663f
+ARG TERMINAL_BENCH_COMMIT=2fd12b88aafdd04a52c298e3940bcb189f9766d6
 ARG HARBOR_VERSION=0.20.0
 WORKDIR /seed
 RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources \
@@ -71,10 +71,10 @@ RUN set -eux; \
     python -m venv /seed/cache/arc-starter/.venv; \
     /seed/cache/arc-starter/.venv/bin/python -m pip install --disable-pip-version-check --no-index --no-deps --require-hashes \
       --find-links /wheelhouse -r /requirements.lock; \
-    install -d -m 0700 /seed/cache/frontier-bench; \
-    clone_exact https://github.com/harbor-framework/frontier-bench.git \
-      /seed/cache/frontier-bench/repo "$FRONTIER_COMMIT"; \
-    ln -s repo/tasks /seed/cache/frontier-bench/frontier-bench; \
+    install -d -m 0700 /seed/cache/terminal-bench; \
+    clone_exact https://github.com/harbor-framework/terminal-bench-2.git \
+      /seed/cache/terminal-bench/repo "$TERMINAL_BENCH_COMMIT"; \
+    ln -s repo /seed/cache/terminal-bench/terminal-bench; \
     install -d -m 0700 /seed/executor/.local/share/uv/tools; \
     python -m venv /seed/executor/.local/share/uv/tools/harbor; \
     /seed/executor/.local/share/uv/tools/harbor/bin/python -m pip install --disable-pip-version-check --no-cache-dir \
@@ -100,7 +100,7 @@ PY
 RUN printf '%s\n' \
       "arc-starter=$ARC_STARTER_COMMIT" \
       "arc-agents=$ARC_AGENTS_COMMIT" \
-      "frontier=$FRONTIER_COMMIT" \
+      "terminal-bench=$TERMINAL_BENCH_COMMIT" \
       "harbor=$HARBOR_VERSION" \
       > /seed/.cache-version
 

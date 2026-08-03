@@ -56,24 +56,24 @@ executor_runtime=/run/exposure-benchmark/executor-runtime
 artifacts=/var/tmp/exposure-artifacts-$deploy_sha
 arc=$cache/arc-starter
 agents=$arc/vendor/ARC-AGI-3-Agents
-frontier_root=$cache/frontier-bench
+frontier_root=$cache/terminal-bench
 frontier_repo=$frontier_root/repo
-frontier_dataset=$frontier_root/frontier-bench
+frontier_dataset=$frontier_root/terminal-bench
 harbor=$executor_home/.local/share/uv/tools/harbor
 
 arc_sha=eeb1535404f321d280a8f9194bbc1d7aca5f05fc
 agents_sha=10213de83f01df0ef4f0149ee9f8408dcc3772fb
-frontier_sha=3d694e919871dbf21ea5ff618782c99a3cb3663f
+frontier_sha=2fd12b88aafdd04a52c298e3940bcb189f9766d6
 games=(
   bp35 m0r0 ft09 ar25 s5i5 sp80 g50t lp85 r11l sc25 tn36 sk48 re86
   wa30 cn04 tu93 tr87 sb26 su15 ls20 ka59 cd82 dc22 vc33 lf52
 )
 frontier_tasks=(
-  html-js-filter
-  vllm-deepseek-streaming
-  session-window-debug
-  mvcc-lsm-compaction
-  embedding-drift-monitor
+  fix-git
+  cobol-modernization
+  overfull-hbox
+  prove-plus-comm
+  openssl-selfsigned-cert
 )
 
 [[ ! -e $artifacts ]] || { echo "STOP: artifact path already exists: $artifacts" >&2; exit 1; }
@@ -152,9 +152,9 @@ PY
 
 install -d -m 0700 -o exposure-executor -g exposure-executor "$frontier_root"
 clone_exact \
-  https://github.com/harbor-framework/frontier-bench.git \
+  https://github.com/harbor-framework/terminal-bench-2.git \
   "$frontier_repo" "$frontier_sha"
-run_executor ln -s repo/tasks "$frontier_dataset"
+run_executor ln -s repo "$frontier_dataset"
 for task in "${frontier_tasks[@]}"; do
   [[ -f $frontier_dataset/$task/task.toml ]] || {
     echo "STOP: Frontier task is missing: $task" >&2

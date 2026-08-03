@@ -28,7 +28,10 @@ const MAX_TOOL_RESULT_BYTES: usize = 8 * 1024;
 const MAX_TEXT_BYTES: usize = 64 * 1024;
 const MAX_IMAGE_DATA_CHARS: usize = 384 * 1024;
 const MAX_IMAGE_PARTS: usize = 16;
-const MAX_OUTPUT_TOKENS: u64 = 2048;
+// GLM-4.7 and friends spend most of a response on `reasoning` before emitting the
+// action JSON Terminus has to parse, so 2048 truncated them mid-thought and the turn
+// was wasted. 8192 leaves room for the reasoning and the action.
+const MAX_OUTPUT_TOKENS: u64 = 16384;
 const CEREBRAS_API_URL: &str = "https://api.cerebras.ai/v1/chat/completions";
 const CEREBRAS_KEY_COUNT: usize = 4;
 const CEREBRAS_CONCURRENCY_PER_KEY: usize = 8;

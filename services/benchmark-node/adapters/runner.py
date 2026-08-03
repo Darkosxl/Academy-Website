@@ -49,11 +49,13 @@ FRONTIER_CONCURRENCY = 2
 # 1.2 s per request, so 180 turns needs roughly ten minutes of wall clock, not 80
 # seconds. FRONTIER_AGENT_SECONDS is what rewrite_timeouts stamps into each task.
 FRONTIER_MAX_TURNS = 180
-FRONTIER_AGENT_SECONDS = 600.0
+# Terminal-Bench 2.0 grants its own agents 750-900s. Stamping anything lower just
+# reintroduces the wall that made every task time out; 900 matches the dataset.
+FRONTIER_AGENT_SECONDS = 900.0
 RUN_DEADLINE_SECONDS = 9 * 60 * 60
 # Five tasks at FRONTIER_CONCURRENCY=2 is three waves, so the stage budget has to
-# clear 3 * FRONTIER_AGENT_SECONDS with room left for image builds and verifiers.
-FRONTIER_DEADLINE_SECONDS = 45 * 60
+# clear 3 * FRONTIER_AGENT_SECONDS with room left for image pulls and verifiers.
+FRONTIER_DEADLINE_SECONDS = 60 * 60
 TERMINUS_RESPONSE_FORMAT = {
     "type": "json_schema",
     "json_schema": {
@@ -89,12 +91,14 @@ ARC_GAMES = (
     "tn36", "sk48", "re86", "wa30", "cn04", "tu93", "tr87", "sb26", "su15", "ls20",
     "ka59", "cd82", "dc22", "vc33", "lf52",
 )
+# Terminal-Bench 2.0's four `easy` tasks plus one concrete medium. The sprint scores a
+# five-task subset, so it is chosen for a reachable signal rather than for coverage.
 FRONTIER_TASKS = (
-    "html-js-filter",
-    "vllm-deepseek-streaming",
-    "session-window-debug",
-    "mvcc-lsm-compaction",
-    "embedding-drift-monitor",
+    "fix-git",
+    "cobol-modernization",
+    "overfull-hbox",
+    "prove-plus-comm",
+    "openssl-selfsigned-cert",
 )
 REQUIRED_FILES = ("agent/my_agent.py", "agent/harbor_agent.py", "main.py", "requirements.txt")
 TERMINAL = {"done", "partial", "failed", "infra_failed"}
@@ -147,7 +151,7 @@ DEFAULT_CACHE = (
 )
 CACHE = Path(CONFIG.get("HARNESS_CACHE_DIRECTORY", DEFAULT_CACHE))
 ARC_STARTER = CACHE / "arc-starter"
-FRONTIER_SOURCE = CACHE / "frontier-bench" / "frontier-bench"
+FRONTIER_SOURCE = CACHE / "terminal-bench" / "terminal-bench"
 ARC_PYTHON = ARC_STARTER / ".venv" / "bin" / "python"
 KAGGLE_CLI = ARC_STARTER / ".venv" / "bin" / "kaggle"
 HARNESS_IMAGE = CONFIG.get("HARNESS_IMAGE", "localhost/exposure-harness-arc:0.9.9")

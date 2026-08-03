@@ -36,8 +36,8 @@ require_arc_cache() {
 
 require_full_cache() {
     require_arc_cache
-    [[ -d "$cache_dir/frontier-bench/frontier-bench" ]] ||
-        die "Frontier cache missing at $cache_dir/frontier-bench/frontier-bench"
+    [[ -d "$cache_dir/terminal-bench/terminal-bench" ]] ||
+        die "Terminal-Bench cache missing at $cache_dir/terminal-bench/terminal-bench"
 }
 
 setup_venv() {
