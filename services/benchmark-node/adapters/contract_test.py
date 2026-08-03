@@ -318,6 +318,21 @@ def main() -> None:
     assert runner.ARC_PYTHON not in frontier_only
     assert set(runner.required_caches("bundled")) == set(arc_only) | set(frontier_only)
 
+    # A progress post over 8000 bytes is rejected outright, and one shared failure mode
+    # fails all 25 games with the same long error at once. That is the worst case.
+    games = {
+        game: {
+            "game": game, "status": "failed", "score": 0.0,
+            "error": ("x" * 4000)[-runner.ARC_GAME_ERROR_CHARS:],
+        }
+        for game in runner.ARC_GAMES
+    }
+    worst = json.dumps({
+        "status": "running", "done": len(games), "total": len(games),
+        "games": games, "active": 0, "queued": 0, "rate": 0,
+    })
+    assert len(worst) < 8000, len(worst)
+
     print("python adapter contract ok")
 
 

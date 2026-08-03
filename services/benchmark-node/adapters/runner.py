@@ -91,6 +91,11 @@ ARC_GAMES = (
     "tn36", "sk48", "re86", "wa30", "cn04", "tu93", "tr87", "sb26", "su15", "ls20",
     "ka59", "cd82", "dc22", "vc33", "lf52",
 )
+# The Academy rejects a progress post over 8000 bytes outright, and every one of the 25
+# games carries its own error, so a per-game budget is the only thing keeping the payload
+# legal: a shared failure mode fails all 25 identically and multiplies by 25. 200 leaves
+# room for the JSON around them; the untruncated text still reaches the worker log.
+ARC_GAME_ERROR_CHARS = 200
 # Terminal-Bench 2.0's four `easy` tasks plus one concrete medium. The sprint scores a
 # five-task subset, so it is chosen for a reachable signal rather than for coverage.
 FRONTIER_TASKS = (
@@ -942,7 +947,7 @@ def run_arc(run_id: str, repo: Path, venv: Path, gateway: Gateway, reporter: Rep
                     result = parse_last_json(stdout)
                 except RunFailed:
                     result = {"game": game, "status": "failed", "score": 0.0,
-                              "error": (stderr or stdout)[-1000:]}
+                              "error": (stderr or stdout)[-ARC_GAME_ERROR_CHARS:]}
                 score = result.get("score")
                 if not isinstance(score, (int, float)) or not math.isfinite(score) or not 0 <= score <= 100:
                     result = {"game": game, "status": "failed", "score": 0.0, "error": "invalid score"}
