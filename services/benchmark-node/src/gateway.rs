@@ -802,6 +802,22 @@ fn sanitize_chat(body: Value, model_id: &str, reasoning_effort: &str) -> Result<
             result.insert("tool_choice".into(), choice.clone());
         }
     }
+    if let Some(response_format) = object.get("response_format") {
+        let format = response_format
+            .as_object()
+            .context("response_format must be an object")?;
+        let kind = format
+            .get("type")
+            .and_then(Value::as_str)
+            .context("response_format requires a type")?;
+        if !matches!(kind, "json_object" | "json_schema") {
+            bail!("unsupported response_format type: {kind}");
+        }
+        if serde_json::to_vec(response_format)?.len() > MAX_TEXT_BYTES {
+            bail!("response_format exceeds {MAX_TEXT_BYTES} bytes");
+        }
+        result.insert("response_format".into(), response_format.clone());
+    }
     Ok(Value::Object(result))
 }
 
@@ -1008,6 +1024,33 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn sanitization_preserves_structured_output() {
+        let response_format = json!({
+            "type": "json_schema",
+            "json_schema": {
+                "name": "terminus_action",
+                "strict": true,
+                "schema": {
+                    "type": "object",
+                    "properties": {"analysis": {"type": "string"}},
+                    "required": ["analysis"],
+                    "additionalProperties": false
+                }
+            }
+        });
+        let result = sanitize_chat(
+            json!({
+                "messages": [{"role": "user", "content": "choose an action"}],
+                "response_format": response_format,
+            }),
+            "gemma-4-31b",
+            "none",
+        )
+        .unwrap();
+        assert_eq!(result["response_format"], response_format);
     }
 
     #[test]
