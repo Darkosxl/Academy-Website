@@ -144,7 +144,9 @@ def main() -> None:
         assert str(runner.HARBOR_CLI) in shell
         assert f"-n {runner.FRONTIER_CONCURRENCY}" in shell
         assert f"max_turns={runner.FRONTIER_MAX_TURNS}" in shell
-        assert "llm_call_kwargs={\"response_format\":{\"type\":\"json_object\"}}" in shell
+        assert json.dumps(
+            {"response_format": runner.TERMINUS_RESPONSE_FORMAT}, separators=(",", ":")
+        ) in shell
         assert str(Path.home() / ".local/share/uv/python") not in command
 
     cleanup_calls = []
@@ -309,7 +311,7 @@ def main() -> None:
 
     body = json.dumps({
         "messages": [{"role": "user", "content": "Respond as JSON."}],
-        "response_format": {"type": "json_object"},
+        "response_format": runner.TERMINUS_RESPONSE_FORMAT,
     }).encode()
     handler = SimpleNamespace(
         path="/v1/chat/completions",
@@ -329,7 +331,7 @@ def main() -> None:
         _json=lambda *_args, **_kwargs: None,
     )
     bedrock_gateway.GatewayHandler.do_POST(handler)
-    assert forwarded["response_format"] == {"type": "json_object"}
+    assert forwarded["response_format"] == runner.TERMINUS_RESPONSE_FORMAT
     print("python adapter contract ok")
 
 

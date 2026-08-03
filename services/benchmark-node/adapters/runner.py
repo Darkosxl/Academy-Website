@@ -51,6 +51,35 @@ FRONTIER_CONCURRENCY = 2
 FRONTIER_MAX_TURNS = 180
 RUN_DEADLINE_SECONDS = 9 * 60 * 60
 FRONTIER_DEADLINE_SECONDS = 15 * 60
+TERMINUS_RESPONSE_FORMAT = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "terminus_action",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "properties": {
+                "analysis": {"type": "string"},
+                "plan": {"type": "string"},
+                "commands": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "keystrokes": {"type": "string"},
+                            "duration": {"type": "number"},
+                        },
+                        "required": ["keystrokes", "duration"],
+                        "additionalProperties": False,
+                    },
+                },
+                "task_complete": {"type": "boolean"},
+            },
+            "required": ["analysis", "plan", "commands", "task_complete"],
+            "additionalProperties": False,
+        },
+    },
+}
 
 ARC_GAMES = (
     "bp35", "m0r0", "ft09", "ar25", "s5i5", "sp80", "g50t", "lp85", "r11l", "sc25",
@@ -1067,6 +1096,9 @@ def bubblewrap_harbor(
         docker_config.resolve().relative_to(podman_socket.parent.resolve())
     except ValueError as exc:
         raise InfrastructureFailed("Buildx config must share the Podman socket directory") from exc
+    llm_call_kwargs = json.dumps(
+        {"response_format": TERMINUS_RESPONSE_FORMAT}, separators=(",", ":")
+    )
     command = [
         "bwrap", "--die-with-parent", "--new-session", "--unshare-pid", "--unshare-uts",
         # Harbor's BuildKit session uses the caller network for Docker Hub auth.
@@ -1100,7 +1132,7 @@ def bubblewrap_harbor(
         "--ak enable_summarize=false --ak proactive_summarization_threshold=0 "
         f"--ak max_turns={FRONTIER_MAX_TURNS} --ak temperature=0 "
         "--ak api_base=http://127.0.0.1:8000/v1 "
-        "--ak 'llm_call_kwargs={\"response_format\":{\"type\":\"json_object\"}}'",
+        f"--ak {shlex.quote(f'llm_call_kwargs={llm_call_kwargs}')}",
     ]
     return command
 
