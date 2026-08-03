@@ -210,6 +210,11 @@ def main() -> None:
 
     container = [
         "podman", "run", "--rm", "-i", "--network=none", "--cap-drop=all",
+        # The gateway directory is 2750 exposure-controller:exposure-benchmark, so
+        # reaching bedrock.sock needs the shared group. Rootless Podman drops
+        # supplementary groups at the user namespace unless they are kept, and crun
+        # then cannot even stat the bind source. The RAM lane passes the same flag.
+        "--group-add", "keep-groups",
         "--label", f"academy.harness.run={args.run_id}",
         "--label", "academy.harness.benchmark=arc",
         "--security-opt=no-new-privileges", "--pids-limit=128", "--memory=2g",

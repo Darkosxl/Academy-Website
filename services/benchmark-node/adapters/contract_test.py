@@ -96,20 +96,12 @@ def main() -> None:
     assert runner.ARC_CONCURRENCY == 5
     assert runner.FRONTIER_CONCURRENCY == 2
     assert runner.FRONTIER_MAX_TURNS == 180
-    assert runner.FRONTIER_DEADLINE_SECONDS == 15 * 60
-    assert runner.frontier_cutoff(2000, now=100) == 1000
+    assert runner.FRONTIER_DEADLINE_SECONDS == 45 * 60
+    assert runner.frontier_cutoff(9000, now=100) == 100 + 45 * 60
     assert runner.frontier_cutoff(500, now=100) == 500
 
-    with tempfile.TemporaryDirectory() as raw:
-        stub = Path(raw) / "stub.conf"
-        upstream = Path(raw) / "upstream.conf"
-        stub.write_text("nameserver 127.0.0.53\n")
-        upstream.write_text("nameserver 192.0.2.53\nnameserver 2001:db8::53\n")
-        assert runner.buildkit_nameservers((stub, upstream)) == [
-            "192.0.2.53", "2001:db8::53",
-        ]
-        stub.write_text("nameserver 127.0.0.11\n# ExtServers: [192.0.2.53 2001:db8::53]\n")
-        assert runner.buildkit_nameservers((stub,)) == ["192.0.2.53", "2001:db8::53"]
+    # buildkit_nameservers went away with b251b09 (classic builds for Frontier);
+    # its assertions went with it.
 
     with tempfile.TemporaryDirectory(dir="/tmp") as raw:
         work = Path(raw) / "work"
@@ -124,7 +116,7 @@ def main() -> None:
         socket_path = socket_dir / "podman.sock"
         command = runner.bubblewrap_harbor(
             repo, dataset, jobs, SimpleNamespace(directory=gateway, token="test-token"),
-            socket_path, docker_config, "test-builder",
+            socket_path, docker_config,
         )
 
         def has_sequence(sequence):
@@ -149,23 +141,7 @@ def main() -> None:
         ) in shell
         assert str(Path.home() / ".local/share/uv/python") not in command
 
-    cleanup_calls = []
-    original_subprocess_run = runner.subprocess.run
-
-    def failed_cleanup(command, **_kwargs):
-        cleanup_calls.append(command)
-        return SimpleNamespace(returncode=1)
-
-    try:
-        runner.subprocess.run = failed_cleanup
-        runner.cleanup_buildx_builder("test-builder", {"DOCKER_HOST": "test"})
-    finally:
-        runner.subprocess.run = original_subprocess_run
-    assert cleanup_calls == [
-        ["docker", "buildx", "rm", "--force", "test-builder"],
-        ["podman", "rm", "-f", "buildx_buildkit_test-builder0"],
-        ["podman", "volume", "rm", "-f", "buildx_buildkit_test-builder0_state"],
-    ]
+    # cleanup_buildx_builder went away with b251b09 too; nothing left to assert.
 
     with tempfile.TemporaryDirectory() as raw:
         jobs = Path(raw) / "jobs"
@@ -181,8 +157,10 @@ def main() -> None:
         )
         runner.rewrite_timeouts(task)
         rewritten = task.read_text()
-        assert "timeout_sec = 120.0" in rewritten
+        assert f"timeout_sec = {runner.FRONTIER_AGENT_SECONDS}" in rewritten
         assert "timeout_sec = 300" in rewritten
+        # three waves of agent time must still fit inside the stage budget
+        assert 3 * runner.FRONTIER_AGENT_SECONDS < runner.FRONTIER_DEADLINE_SECONDS
         assert 'network_mode = "public"' in rewritten
         assert 'network_mode = "no-network"' not in rewritten
 

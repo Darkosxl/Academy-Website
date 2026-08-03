@@ -45,11 +45,15 @@ ARC_CONCURRENCY = 5
 # time leaves the Docker-compatible runtime enough headroom for agent and
 # verifier commands without stretching the total sprint past its deadline.
 FRONTIER_CONCURRENCY = 2
-# At Cerebras speed, 120 turns end after about 80 seconds. Keep Gemma bounded
-# while allowing it to use Frontier's full 120-second task budget.
+# Turns, not seconds, are what bound the agent: measured Cerebras latency is about
+# 1.2 s per request, so 180 turns needs roughly ten minutes of wall clock, not 80
+# seconds. FRONTIER_AGENT_SECONDS is what rewrite_timeouts stamps into each task.
 FRONTIER_MAX_TURNS = 180
+FRONTIER_AGENT_SECONDS = 600.0
 RUN_DEADLINE_SECONDS = 9 * 60 * 60
-FRONTIER_DEADLINE_SECONDS = 15 * 60
+# Five tasks at FRONTIER_CONCURRENCY=2 is three waves, so the stage budget has to
+# clear 3 * FRONTIER_AGENT_SECONDS with room left for image builds and verifiers.
+FRONTIER_DEADLINE_SECONDS = 45 * 60
 TERMINUS_RESPONSE_FORMAT = {
     "type": "json_schema",
     "json_schema": {
@@ -984,7 +988,7 @@ def rewrite_timeouts(path: Path) -> None:
         if match:
             section = match.group(1)
         if line.strip().startswith("timeout_sec") and section == "agent":
-            line = "timeout_sec = 120.0"
+            line = f"timeout_sec = {FRONTIER_AGENT_SECONDS}"
         output.append(line)
     path.write_text("\n".join(output) + "\n")
 
