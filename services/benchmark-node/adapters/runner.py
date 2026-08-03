@@ -1069,6 +1069,7 @@ def bubblewrap_harbor(
     llm_call_kwargs = json.dumps(
         {"response_format": TERMINUS_RESPONSE_FORMAT}, separators=(",", ":")
     )
+    docker_bin = docker_config.parent / "bin"
     command = [
         "bwrap", "--die-with-parent", "--new-session", "--unshare-pid", "--unshare-uts",
         "--unshare-ipc", "--ro-bind", "/", "/", "--tmpfs", "/home",
@@ -1085,6 +1086,7 @@ def bubblewrap_harbor(
         "--proc", "/proc", "--dev", "/dev",
         "--setenv", "HOME", "/tmp/home", "--setenv", "DOCKER_HOST", f"unix://{podman_socket}",
         "--setenv", "DOCKER_CONFIG", str(docker_config),
+        "--setenv", "PATH", f"{docker_bin}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
         # Podman's Docker-compatible API handles Docker's classic build endpoint but
         # cannot start Buildx's init-enabled helper container on this Debian image.
         "--setenv", "DOCKER_BUILDKIT", "0",
@@ -1105,6 +1107,39 @@ def bubblewrap_harbor(
         f"--ak {shlex.quote(f'llm_call_kwargs={llm_call_kwargs}')}",
     ]
     return command
+
+
+def install_harbor_docker_shim(docker_config: Path) -> None:
+    """Translate Harbor's forced Buildx call to Podman's supported classic build API."""
+    docker_bin = docker_config.parent / "bin"
+    docker_bin.mkdir(mode=0o700)
+    shim = docker_bin / "docker"
+    shim.write_text(
+        """#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${1:-}" == "buildx" && "${2:-}" == "build" ]]; then
+    shift 2
+    arguments=()
+    image=""
+    for argument in "$@"; do
+        case "$argument" in
+            --output=type=docker,name=*) image="${argument#--output=type=docker,name=}" ;;
+            --platform=*) ;;
+            *) arguments+=("$argument") ;;
+        esac
+    done
+    [[ -n "$image" && ${#arguments[@]} -gt 0 ]] || exit 2
+    last_index=$((${#arguments[@]} - 1))
+    context="${arguments[$last_index]}"
+    unset "arguments[$last_index]"
+    exec /usr/bin/docker build "${arguments[@]}" --tag "$image" "$context"
+fi
+
+exec /usr/bin/docker "$@"
+"""
+    )
+    shim.chmod(0o700)
 
 
 def frontier_cutoff(global_deadline: float, now: float | None = None) -> float:
@@ -1162,6 +1197,7 @@ def run_frontier(run_id: str, repo: Path, work: Path, gateway: Gateway, reporter
                         detail = (service.stderr.read() or "")[-1000:]
                 raise InfrastructureFailed(f"Podman API did not start: {detail}")
         docker_config.mkdir(mode=0o700)
+        install_harbor_docker_shim(docker_config)
         reporter.update(
             "frontier", status="running", done=0, total=len(FRONTIER_TASKS),
             tasks={}, rate=0, max_seconds=FRONTIER_DEADLINE_SECONDS,
