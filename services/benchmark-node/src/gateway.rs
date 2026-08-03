@@ -310,7 +310,13 @@ impl GatewayHandle {
         // The executor's shared group may traverse and connect, but cannot replace gateway
         // files. setgid gives the socket that shared group instead of the private controller
         // group.
-        tokio::fs::set_permissions(&run_directory, std::fs::Permissions::from_mode(0o2750))
+        //
+        // o+x, not o+r: Podman resolves a bind-mount source with the *container* user's
+        // credentials rather than the host user's supplementary groups
+        // (containers/podman#26845), so a group-only directory fails to stat and the ARC
+        // sandbox dies before it starts. Search permission alone cannot list the directory,
+        // and bedrock.sock stays 0660, so only the shared group can still connect.
+        tokio::fs::set_permissions(&run_directory, std::fs::Permissions::from_mode(0o2751))
             .await
             .context("protect gateway directory")?;
         let socket_path = run_directory.join("bedrock.sock");

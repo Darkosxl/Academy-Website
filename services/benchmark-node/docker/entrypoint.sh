@@ -71,7 +71,11 @@ rm -f "$PODMAN_API_SOCKET"
 install -d -m 0700 -o "$CONTROLLER_USER" -g "$CONTROLLER_USER" "$CONTROLLER_HOME"
 install -d -m 0751 -o root -g "$SHARED_GROUP" "$RUNTIME_DIRECTORY"
 install -d -m 2750 -o "$EXECUTOR_USER" -g "$SHARED_GROUP" "$EXECUTOR_DIRECTORY"
-install -d -m 2750 -o "$CONTROLLER_USER" -g "$SHARED_GROUP" "$GATEWAY_DIRECTORY"
+# 2751, not 2750: the ARC sandbox bind-mounts a run directory underneath this one, and
+# Podman resolves the mount source without the host user's supplementary groups
+# (containers/podman#26845). Search permission is enough to traverse; the run directory
+# still cannot be listed and its socket stays group-only.
+install -d -m 2751 -o "$CONTROLLER_USER" -g "$SHARED_GROUP" "$GATEWAY_DIRECTORY"
 install -d -m 0700 -o "$EXECUTOR_USER" -g "$EXECUTOR_USER" "$EXECUTOR_RUNTIME"
 rm -f "$EXECUTOR_SOCKET"
 
