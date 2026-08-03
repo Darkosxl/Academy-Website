@@ -10,3 +10,11 @@ class HarborAgent(Terminus2):
             "If a command fails, use its output to repair the issue and continue. Do not "
             "mark the task complete until you have direct evidence that it is complete."
         )
+
+    def _get_completion_confirmation_message(self, terminal_output: str) -> str:
+        return (
+            super()._get_completion_confirmation_message(terminal_output)
+            + "\n\nVerification gate: only confirm completion when the terminal output above "
+            "shows a successful relevant test or direct verification after your latest change. "
+            "Otherwise set task_complete to false, continue investigating, and run that check."
+        )
