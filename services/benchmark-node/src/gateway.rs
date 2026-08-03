@@ -23,7 +23,7 @@ use std::{
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, oneshot};
 
 const MAX_BODY_BYTES: usize = 1024 * 1024;
-const MAX_MESSAGES: usize = 12;
+const MAX_MESSAGES: usize = 24;
 const MAX_TOOL_RESULT_BYTES: usize = 8 * 1024;
 const MAX_TEXT_BYTES: usize = 64 * 1024;
 const MAX_IMAGE_DATA_CHARS: usize = 384 * 1024;
