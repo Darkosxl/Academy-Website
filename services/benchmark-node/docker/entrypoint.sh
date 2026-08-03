@@ -57,6 +57,11 @@ seed_if_missing() {
 install -d -m 0751 -o root -g "$SHARED_GROUP" "$STATE_DIRECTORY"
 seed_if_missing venv
 seed_if_missing cache
+# `cache` only seeds on a fresh volume, so a worker upgraded in place keeps whatever
+# datasets it already had and never gains new ones. Seed each dataset directory too:
+# a no-op right after a fresh `cache` seed, and the only way a new benchmark reaches an
+# existing volume. Add a line here whenever a dataset is added.
+seed_if_missing cache/terminal-bench
 seed_if_missing executor/.local/share/uv/tools/harbor
 install -d -m 0700 -o "$EXECUTOR_USER" -g "$EXECUTOR_USER" \
   "$EXECUTOR_HOME" \
