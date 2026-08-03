@@ -739,7 +739,17 @@ fn sanitize_chat(body: Value, model_id: &str, reasoning_effort: &str) -> Result<
         messages.push(Value::Object(clean));
     }
     if messages.len() > MAX_MESSAGES {
-        messages = messages.split_off(messages.len() - MAX_MESSAGES);
+        // Terminus puts the task description in its first user turn. Keep that
+        // anchor as well as the most recent terminal context so longer runs do
+        // not lose what they are trying to solve.
+        let initial_task = messages
+            .first()
+            .filter(|message| message.get("role").and_then(Value::as_str) == Some("user"))
+            .cloned();
+        messages = messages.split_off(messages.len() - (MAX_MESSAGES - 1));
+        if let Some(initial_task) = initial_task {
+            messages.insert(0, initial_task);
+        }
     }
     while messages
         .first()
@@ -997,6 +1007,7 @@ mod tests {
         assert!(result["messages"].as_array().unwrap().len() <= MAX_MESSAGES + 1);
         assert_eq!(result["messages"][0]["role"], "system");
         assert_eq!(result["messages"][1]["role"], "user");
+        assert_eq!(result["messages"][1]["content"], "question 0");
     }
 
     #[test]
