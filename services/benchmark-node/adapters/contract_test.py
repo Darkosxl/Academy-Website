@@ -310,6 +310,14 @@ def main() -> None:
     )
     bedrock_gateway.GatewayHandler.do_POST(handler)
     assert forwarded["response_format"] == runner.TERMINUS_RESPONSE_FORMAT
+
+    # A single-lane run must not require the other lane's dataset.
+    arc_only = runner.required_caches("arc")
+    frontier_only = runner.required_caches("frontier")
+    assert runner.FRONTIER_SOURCE not in arc_only and runner.HARBOR_CLI not in arc_only
+    assert runner.ARC_PYTHON not in frontier_only
+    assert set(runner.required_caches("bundled")) == set(arc_only) | set(frontier_only)
+
     print("python adapter contract ok")
 
 

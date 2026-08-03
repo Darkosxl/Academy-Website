@@ -1404,6 +1404,21 @@ def process_claim(claim: dict[str, Any]) -> None:
             shutil.rmtree(work, ignore_errors=True)
 
 
+def required_caches(benchmark_kind: str) -> tuple[Path, ...]:
+    """Datasets a run of this kind actually reads, keyed like the lane threads below.
+
+    An ARC-only run must not die because a Terminal-Bench dataset is absent: the
+    lanes are independent, so the preflight has to be too. The RAM lane runs for
+    every kind and needs nothing from the cache.
+    """
+    paths: tuple[Path, ...] = ()
+    if benchmark_kind in {"arc", "bundled"}:
+        paths += (ARC_PYTHON, ARC_STARTER / "environment_files")
+    if benchmark_kind in {"frontier", "bundled"}:
+        paths += (FRONTIER_SOURCE, HARBOR_CLI)
+    return paths
+
+
 def process_executor_run(request: dict[str, Any]) -> None:
     """Run benchmark SDK adapters under Rust ownership; emit only bounded NDJSON."""
     global BEDROCK_PROFILE_NAME
@@ -1423,9 +1438,7 @@ def process_executor_run(request: dict[str, Any]) -> None:
             or benchmark_kind not in {"arc", "frontier", "bundled"}:
         raise InfrastructureFailed("executor request contained an invalid model capability")
     BEDROCK_PROFILE_NAME = profile
-    for path in (
-        ARC_PYTHON, ARC_STARTER / "environment_files", FRONTIER_SOURCE, HARBOR_CLI,
-    ):
+    for path in required_caches(benchmark_kind):
         if not path.exists():
             raise InfrastructureFailed(f"required benchmark cache is missing: {path}")
     # The Compose entrypoint builds and verifies this image before it accepts
