@@ -95,7 +95,7 @@ def main() -> None:
     assert len(set(runner.ARC_GAMES)) == 25
     assert runner.ARC_CONCURRENCY == 5
     assert runner.FRONTIER_CONCURRENCY == 2
-    assert runner.FRONTIER_MAX_TURNS == 120
+    assert runner.FRONTIER_MAX_TURNS == 180
     assert runner.FRONTIER_DEADLINE_SECONDS == 15 * 60
     assert runner.frontier_cutoff(2000, now=100) == 1000
     assert runner.frontier_cutoff(500, now=100) == 500

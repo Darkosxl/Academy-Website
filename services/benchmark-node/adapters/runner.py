@@ -46,9 +46,9 @@ ARC_CONCURRENCY = 5
 # time leaves the Docker-compatible runtime enough headroom for agent and
 # verifier commands without stretching the total sprint past its deadline.
 FRONTIER_CONCURRENCY = 2
-# Keep Gemma bounded, while allowing it to use the Frontier task's full
-# 120-second execution budget now that JSON completion is enforced.
-FRONTIER_MAX_TURNS = 120
+# At Cerebras speed, 120 turns end after about 80 seconds. Keep Gemma bounded
+# while allowing it to use Frontier's full 120-second task budget.
+FRONTIER_MAX_TURNS = 180
 RUN_DEADLINE_SECONDS = 9 * 60 * 60
 FRONTIER_DEADLINE_SECONDS = 15 * 60
 
