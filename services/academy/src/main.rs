@@ -5,6 +5,7 @@ mod admin;
 mod auth;
 mod board;
 mod consent;
+mod grading;
 mod harness;
 mod html;
 mod model;
@@ -25,6 +26,7 @@ use admin::*;
 use auth::*;
 use board::*;
 use consent::*;
+use grading::*;
 use harness::*;
 use monopoly::*;
 use portal::*;
@@ -117,6 +119,16 @@ async fn main() {
         .execute(&pool)
         .await
         .expect("deepinfra provider migration failed");
+    sqlx::raw_sql(include_str!("../migrations/011_beginner_grading.sql"))
+        .execute(&pool)
+        .await
+        .expect("beginner grading migration failed");
+    sqlx::raw_sql(include_str!(
+        "../migrations/012_harness_rejected_submissions.sql"
+    ))
+    .execute(&pool)
+    .await
+    .expect("rejected submissions migration failed");
     seed_admin(&pool).await;
     seed_invite_code(&pool).await;
     seed_videos(&pool).await;
@@ -129,6 +141,14 @@ async fn main() {
     let _ = sqlx::query("delete from sessions_exposure_academy where expires_at < now()")
         .execute(&pool)
         .await;
+    // Rejected submissions are a debugging aid, not a record — a month is long past the point
+    // where anyone is still asking why a link bounced.
+    let _ = sqlx::query(
+        "delete from harness_rejected_submissions_exposure_academy
+         where created_at < now() - interval '30 days'",
+    )
+    .execute(&pool)
+    .await;
 
     let app = App {
         pool,
@@ -243,11 +263,13 @@ async fn main() {
         .route("/admin/user", post(admin_user))
         .route("/admin/user/delete", post(admin_user_delete))
         .route("/admin/user/hidden", post(admin_user_hidden))
-        .route("/admin/review", post(admin_review))
-        .route("/admin/prompts.txt", get(admin_prompts_txt))
         .route("/admin/invite", post(admin_rotate_invite))
-        .route("/admin/submission/live", post(admin_submission_live))
         .route("/admin/harness/run/fail", post(admin_harness_run_fail))
+        // Görev Puanlama — the grading queue, split off /admin (grading.rs)
+        .route("/admin/puanlama", get(grading_page))
+        .route("/admin/puanlama/review", post(grading_review))
+        .route("/admin/puanlama/live", post(grading_live))
+        .route("/admin/puanlama/prompts.txt", get(grading_prompts_txt))
         // Takım formasyonu — harness team membership, split off /admin (teams.rs)
         .route("/admin/takimlar", get(teams_page))
         .route("/admin/takimlar/team", post(team_create))

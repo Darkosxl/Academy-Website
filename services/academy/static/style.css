@@ -363,6 +363,79 @@ body:not(.portal) .btn-dark.big { padding:14px 32px; }
 /* teammate names under the "Bunu yapmak isterim" switch — tighter than filter chips */
 .portal .interest-names { margin:10px 0 4px; }
 
+/* ============================================================================
+   GÖREV PUANLAMA — the grading queue (grading.rs / grading.js)
+   Horizontal filter bar over a dense table: chips for the two low-cardinality
+   cuts, a select for the high-cardinality one, count and clear-all trailing.
+   ============================================================================ */
+.filterbar {
+  display:flex; align-items:center; flex-wrap:wrap; gap:10px 16px; margin-bottom:10px;
+}
+/* the bar's own .chips instances sit inline with their label, so they drop the
+   standalone-filter bottom margin the /videos grid needs */
+.filterbar .chips { margin-bottom:0; }
+.filter-label {
+  font-size:var(--fs-label); font-weight:600; text-transform:uppercase; letter-spacing:0.05em;
+  color:var(--text-subtle); min-width:4.5rem;
+}
+/* count rides inside the chip so "what's waiting on me" is legible without a click */
+.portal .chip .chip-count {
+  margin-left:7px; font-variant-numeric:tabular-nums; opacity:0.65; font-weight:600;
+}
+.portal .chip.active .chip-count { opacity:0.85; }
+.filterbar select { margin-top:0; width:auto; min-width:12rem; }
+.filterbar .checkline { margin-bottom:0; font-size:var(--fs-xs); }
+/* pushed to the far end of the bar: status, then the way out of it */
+.filter-count {
+  margin-left:auto; font-size:var(--fs-mini); color:var(--text-subtle);
+  font-variant-numeric:tabular-nums;
+}
+.portal .filter-clear { font-size:var(--fs-mini); color:var(--blue-text); }
+.portal .filter-clear:hover { text-decoration:underline; }
+.portal .empty-row { text-align:center; padding:26px 10px; }
+
+/* No sticky header here, deliberately: .panel sets overflow-x:auto, which per spec
+   computes overflow-y to auto as well, so the panel — not the viewport — is the
+   scrollport a sticky <th> would anchor to. With no height constraint it never scrolls
+   vertically, so `position:sticky` would render as a no-op. The real fix is that the
+   default view is the Bekleyenler queue, which is short. */
+
+/* Öğrenci and Görev each carry a quiet second line (e-posta / seviye + etiketler),
+   which buys back the two columns Durum and Geri bildirim now occupy. */
+.cell-name { font-size:var(--fs-xs); color:var(--text-body); }
+.cell-sub {
+  margin-top:3px; font-size:var(--fs-mini); color:var(--text-subtle);
+  display:flex; align-items:center; gap:6px; flex-wrap:wrap;
+}
+.tag-beginner, .tag-attempt {
+  font-size:var(--fs-mini); font-weight:600; padding:2px 7px; border-radius:var(--r-pill);
+  border:1px solid var(--border-strong); color:var(--text-muted); white-space:nowrap;
+}
+.tag-attempt { border-style:dashed; }
+.portal td.nowrap { white-space:nowrap; }
+.portal input.fb-input { min-width:11rem; margin-top:0; }
+
+/* A 2px rail on the first cell, not row dimming: under the "Geçti" filter dimming would
+   grey out the entire table and say nothing. */
+.portal tr[data-status="passed"] td:first-child { box-shadow:inset 2px 0 0 var(--ok); }
+.portal tr[data-status="failed"] td:first-child { box-shadow:inset 2px 0 0 #ef4444; }
+.portal tr[data-status="reviewing"] td:first-child { box-shadow:inset 2px 0 0 var(--blue); }
+/* graded out of the current filter — kept in place so nothing vanishes under the
+   cursor, but visibly no longer part of the queue */
+.portal tr.row-left-queue { opacity:0.45; }
+
+/* Autosave indicator, in the cell the Kaydet button used to own. Reserves its width so
+   the table doesn't reflow every time a row saves. */
+.rowsave {
+  display:inline-block; min-width:7.5rem; font-size:var(--fs-mini); font-weight:600;
+  color:var(--text-subtle); white-space:nowrap;
+}
+.rowsave.ok { color:var(--ok-text); }
+.rowsave.error { color:#f87171; cursor:pointer; text-decoration:underline; }
+@media (prefers-reduced-motion:no-preference) {
+  .rowsave { transition:color 150ms; }
+}
+
 /* ---- Video grid ---- */
 .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:20px; }
 .vcard { display:block; }
@@ -511,14 +584,16 @@ body:not(.portal) .btn-dark.big { padding:14px 32px; }
 .portal label.checkline input { display:inline-block; width:auto; margin-top:0; accent-color:var(--blue-50); }
 
 /* ---- Admin panels: card + 10px eyebrow section titles ---- */
-/* The admin panel is a dense tool, not reading material: the Gönderimler table has ten
-   columns and 64rem cut the Puan box off the right edge. #admin-root is only on
-   /admin, so :has() keeps every other page at its reading measure. */
-.portal .portal-inner:has(> #admin-root) { max-width:none; }
+/* The admin tools are dense instruments, not reading material: Görev Puanlama's queue has
+   ten columns and 64rem cut the Puan box off the right edge. These two roots exist only
+   on /admin and /admin/puanlama, so :has() keeps every other page at its reading measure. */
+.portal .portal-inner:has(> #admin-root),
+.portal .portal-inner:has(> #grading-root) { max-width:none; }
 /* .portal-main is a flex item, so min-width:auto stops it shrinking below its content's
    min-content width — that is why a wide table scrolled the whole PAGE sideways instead
    of scrolling inside its own .panel (which is already overflow-x:auto). */
-.portal-main:has(#admin-root) { min-width:0; }
+.portal-main:has(#admin-root),
+.portal-main:has(#grading-root) { min-width:0; }
 .admingrid { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:16px; margin-top:20px; }
 /* grid items default to min-width:auto — wide row-forms would expand the track and
    paint over the neighboring panel; min-width:0 + overflow makes them scroll inside */
@@ -760,6 +835,14 @@ form.inline input, form.inline select { margin-top:0; width:auto; }
   /* ---- Tables scroll inside their card instead of widening the page ---- */
   .panel { padding:16px; overflow-x:auto; -webkit-overflow-scrolling:touch; }
   .portal table { min-width:34rem; }
+
+  /* ---- Grading filter bar: label over controls, count on its own line ---- */
+  .filterbar { gap:8px 12px; }
+  .filter-label { min-width:100%; }
+  .filterbar select { width:100%; min-width:0; }
+  .filter-count { margin-left:0; }
+  /* the queue is far wider than the 34rem default — let it scroll properly */
+  #grading-root table { min-width:60rem; }
 
   /* ---- Forms stack ---- */
   .subform { flex-direction:column; align-items:stretch; }
