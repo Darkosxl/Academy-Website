@@ -213,6 +213,7 @@ async fn main() {
         .route("/board/sites/{task_id}", get(board_sites))
         .route("/admin", get(admin_page))
         .route("/admin/harness", get(admin_harness_page))
+        .route("/admin/beginner-track", get(admin_beginner_page))
         .route("/admin/video", post(admin_video))
         .route("/admin/video/level", post(admin_video_level))
         .route("/admin/video/delete", post(admin_video_delete))

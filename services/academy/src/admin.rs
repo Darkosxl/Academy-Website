@@ -6,7 +6,7 @@ use crate::model::*;
 use crate::{App, auth::*, random_token};
 use axum::{
     Form,
-    extract::{Multipart, Path, State},
+    extract::{Multipart, Path, Query, State},
     http::{HeaderMap, StatusCode, header},
     response::{Html, IntoResponse, Redirect, Response},
 };
@@ -126,6 +126,66 @@ pub async fn admin_page(
         &consent_locks,
         &consent_urls,
     )))
+}
+
+// ---- Beginner Track gönderimleri ----
+
+#[derive(Deserialize)]
+pub struct BeginnerAdminQ {
+    /// A `BEGINNER_PROJECTS` key. Absent = the project list, present = that project's
+    /// student table. One route, two views, so the back link is just the same URL.
+    proje: Option<String>,
+}
+
+/// Admin-only read of the Beginner Track submissions. No editing: students own their
+/// own links, this page only has to make them clickable and show who is missing.
+pub async fn admin_beginner_page(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Query(q): Query<BeginnerAdminQ>,
+) -> Result<Html<String>, Response> {
+    let user = require_admin(current_user(&app, &headers).await)?;
+    // An unknown ?proje= falls back to the list rather than 404ing — a stale bookmark
+    // from a renamed project key should still land somewhere useful.
+    let project = q
+        .proje
+        .as_deref()
+        .filter(|k| html::BEGINNER_PROJECTS.iter().any(|(pk, ..)| pk == k));
+    let Some(key) = project else {
+        let counts = sqlx::query_as::<_, BeginnerProjectCount>(
+            "select project_key, count(*) as submitted
+             from beginner_submissions_exposure_academy s
+             join users_exposure_academy u on u.id = s.user_id
+             where not u.is_admin
+             group by project_key",
+        )
+        .fetch_all(&app.pool)
+        .await
+        .unwrap_or_default();
+        let students: i64 = sqlx::query_scalar(
+            "select count(*) from users_exposure_academy where not is_admin",
+        )
+        .fetch_one(&app.pool)
+        .await
+        .unwrap_or(0);
+        return Ok(Html(html::admin_beginner_list(&user, &counts, students)));
+    };
+    // Left join from the roster, not from the submissions: a student who hasn't handed
+    // this one in is a row with empty cells, which is the thing the admin is looking for.
+    // Real names — this is the admin side, the nickname is only a public-facing handle.
+    let rows = sqlx::query_as::<_, BeginnerStudentRow>(
+        "select u.display_name, s.repo_url, s.vercel_url, s.updated_at
+         from users_exposure_academy u
+         left join beginner_submissions_exposure_academy s
+           on s.user_id = u.id and s.project_key = $1
+         where not u.is_admin
+         order by s.updated_at is null, lower(u.display_name)",
+    )
+    .bind(key)
+    .fetch_all(&app.pool)
+    .await
+    .unwrap_or_default();
+    Ok(Html(html::admin_beginner_project(&user, key, &rows)))
 }
 
 // ---- haftalık program ----

@@ -160,6 +160,24 @@ pub struct BeginnerSubmission {
     pub vercel_url: String,
 }
 
+/// One student's line on the admin's per-project submission table. Left-joined, so a
+/// student who hasn't handed in that project is still a row with `None` links — the
+/// point of the page is seeing who is missing as much as who isn't.
+#[derive(FromRow)]
+pub struct BeginnerStudentRow {
+    pub display_name: String,
+    pub repo_url: Option<String>,
+    pub vercel_url: Option<String>,
+    pub updated_at: Option<DateTime<Utc>>,
+}
+
+/// How many students have handed in one project — the count on the project list.
+#[derive(FromRow)]
+pub struct BeginnerProjectCount {
+    pub project_key: String,
+    pub submitted: i64,
+}
+
 /// One student's deployed site for a task — a card in the /board/sites/{task_id} gallery.
 /// Its own narrow projection rather than a widened SubmissionView: the gallery needs the
 /// public nickname and nothing about review status, and SubmissionView carries neither.

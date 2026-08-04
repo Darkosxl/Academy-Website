@@ -240,7 +240,7 @@ pub async fn online_hub(
     )))
 }
 
-/// Beginner Track — the five fixed projects, each with the student's saved links (if any).
+/// Beginner Track — the six fixed projects, each with the student's saved links (if any).
 pub async fn beginner_track_hub(
     State(app): State<App>,
     headers: HeaderMap,

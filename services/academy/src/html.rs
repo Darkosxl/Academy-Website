@@ -115,8 +115,15 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
         Some(u) => {
             let admin_block = if u.is_admin {
                 format!(
-                    r#"<div class="sb-head">Yönetim</div>{}{}{}"#,
+                    r#"<div class="sb-head">Yönetim</div>{}{}{}{}"#,
                     nav_link("/admin", active, "admin", &ico(P_ADMIN), "Yönetici paneli"),
+                    nav_link(
+                        "/admin/beginner-track",
+                        active,
+                        "beginner-admin",
+                        &ico(P_FLAG),
+                        "Beginner Track Gönderimleri"
+                    ),
                     nav_link(
                         "/admin/takimlar",
                         active,
@@ -2462,7 +2469,7 @@ pub fn advanced_track(user: &User) -> String {
 // (key, title, one-line summary, pdf filename in static/beginner-projects/). ponytail:
 // hardcoded list, same pattern as DEMOS — these are fixed, code-and-deploy content, not
 // something an admin edits day to day. Add a row here (and the PDF) for a new project.
-pub const BEGINNER_PROJECTS: [(&str, &str, &str, &str); 5] = [
+pub const BEGINNER_PROJECTS: [(&str, &str, &str, &str); 6] = [
     (
         "kisisel-web-sitesi",
         "Proje 1 — Kişisel Web Sitesi",
@@ -2493,9 +2500,15 @@ pub const BEGINNER_PROJECTS: [(&str, &str, &str, &str); 5] = [
         "Kendi karakterini oluştur, görsel ve sesle hayata geçirip konuştur.",
         "05-character-voice-studio.pdf",
     ),
+    (
+        "ai-calorie-tracker",
+        "Proje 6 — AI Calorie Tracker",
+        "Yemek fotoğrafını yapay zekâ ile analiz edip kalori ve besin değerlerini takip eden bir uygulama geliştir.",
+        "06-ai-calorie-tracker.pdf",
+    ),
 ];
 
-/// Beginner Track — the five fixed projects above, each with a downloadable brief and a
+/// Beginner Track — the six fixed projects above, each with a downloadable brief and a
 /// save-your-links form. Self-reported, no grading: the form always shows, pre-filled
 /// with whatever was last saved, and resaving just overwrites it.
 pub fn beginner_track(user: &User, subs: &[BeginnerSubmission]) -> String {
@@ -2539,7 +2552,7 @@ pub fn beginner_track(user: &User, subs: &[BeginnerSubmission]) -> String {
         "beginner-track",
         &format!(
             r##"<h1 class="pagetitle">Beginner Track</h1>
-<p class="muted">Başlangıç seviyesindeki 5 proje. Her biri için brifi indir, projeni yap, sonra GitHub ve Vercel bağlantılarını kaydet.</p>
+<p class="muted">Başlangıç seviyesindeki 6 proje. Her biri için brifi indir, projeni yap, sonra GitHub ve Vercel bağlantılarını kaydet.</p>
 <div class="taskcard">
   <div class="taskhead"><h3>Vibe Coding Cheat Sheet</h3></div>
   <p class="desc">Tüm beginner track projelerinde işine yarayacak hızlı referans rehberi.</p>
@@ -2548,6 +2561,106 @@ pub fn beginner_track(user: &User, subs: &[BeginnerSubmission]) -> String {
   </div>
 </div>
 <div class="tasks">{cards}</div>"##
+        ),
+    )
+}
+
+/// Admin view, step 1: the six projects as a list, each carrying how many students have
+/// handed it in. Clicking one opens `admin_beginner_project`.
+pub fn admin_beginner_list(
+    user: &User,
+    counts: &[BeginnerProjectCount],
+    student_total: i64,
+) -> String {
+    let rows: String = BEGINNER_PROJECTS
+        .iter()
+        .map(|(key, title, summary, _)| {
+            let submitted = counts
+                .iter()
+                .find(|c| c.project_key == *key)
+                .map(|c| c.submitted)
+                .unwrap_or(0);
+            format!(
+                r##"<a class="beginner-adminrow" href="/admin/beginner-track?proje={key}">
+  <span class="ba-title">{title}</span>
+  <span class="ba-desc">{summary}</span>
+  <span class="ba-count">{submitted}/{student_total}</span>
+</a>"##,
+                title = esc(title),
+                summary = esc(summary),
+            )
+        })
+        .collect();
+    layout(
+        "Beginner Track Gönderimleri",
+        Some(user),
+        "beginner-admin",
+        &format!(
+            r##"<h1 class="pagetitle">Beginner Track Gönderimleri</h1>
+<p class="muted">Bir projeye tıkla, o projeyi gönderen öğrencilerin GitHub ve Vercel bağlantılarını gör.</p>
+<div class="panel wide">{rows}</div>"##
+        ),
+    )
+}
+
+/// Admin view, step 2: one project, every student, their two links. Students with no
+/// submission sort last and show an em dash — the page is also the "who is behind" list.
+pub fn admin_beginner_project(user: &User, key: &str, rows: &[BeginnerStudentRow]) -> String {
+    let (_, title, summary, _) = BEGINNER_PROJECTS
+        .iter()
+        .find(|(k, ..)| *k == key)
+        .copied()
+        .unwrap_or((key, key, "", ""));
+    let submitted = rows.iter().filter(|r| r.repo_url.is_some()).count();
+    // Long URLs would push the table past the panel, so each cell shows a short label and
+    // carries the full URL in the title attribute. href is the raw (escaped) student URL:
+    // beginner_track_submit already required an https://github.com/ prefix on the repo and
+    // an http(s) scheme on the live one, so neither can be a javascript: payload here.
+    let link_cell = |url: &Option<String>, label: &str| match url {
+        Some(u) if !u.is_empty() => format!(
+            r#"<a href="{href}" target="_blank" rel="noopener" title="{href}">{label} ↗</a>"#,
+            href = esc(u),
+        ),
+        _ => r#"<span class="ba-missing">—</span>"#.to_string(),
+    };
+    let body: String = rows
+        .iter()
+        .map(|r| {
+            format!(
+                r##"<tr>
+  <td>{name}</td>
+  <td>{repo}</td>
+  <td>{vercel}</td>
+  <td class="ba-when">{when}</td>
+</tr>"##,
+                name = esc(&r.display_name),
+                repo = link_cell(&r.repo_url, "GitHub"),
+                vercel = link_cell(&r.vercel_url, "Vercel"),
+                when = r
+                    .updated_at
+                    .map(|t| t.format("%d.%m.%Y %H:%M").to_string())
+                    .unwrap_or_else(|| "—".into()),
+            )
+        })
+        .collect();
+    layout(
+        "Beginner Track Gönderimleri",
+        Some(user),
+        "beginner-admin",
+        &format!(
+            r##"<p class="fieldnote"><a href="/admin/beginner-track">← Tüm projeler</a></p>
+<h1 class="pagetitle">{title}</h1>
+<p class="muted">{summary}</p>
+<div class="panel wide">
+  <div class="panel-head"><h2>Öğrenciler</h2><span class="item-meta">{submitted}/{total} gönderdi</span></div>
+  <table>
+    <thead><tr><th>Öğrenci</th><th>GitHub</th><th>Vercel</th><th>Güncelleme</th></tr></thead>
+    <tbody>{body}</tbody>
+  </table>
+</div>"##,
+            title = esc(title),
+            summary = esc(summary),
+            total = rows.len(),
         ),
     )
 }

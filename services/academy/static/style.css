@@ -642,6 +642,25 @@ form.inline input, form.inline select { margin-top:0; width:auto; }
 .item-controls .urlform { flex:1 1 100%; }
 .item-controls .urlform input { flex:1; min-width:0; }
 
+/* Beginner Track gönderimleri (admin) — proje listesi. Her satır tıklanabilir bir
+   blok: solda başlık + açıklama, sağda kaç öğrencinin gönderdiği. Dar ekranda
+   açıklama satır atlar, sayaç sağda kalır. */
+.beginner-adminrow {
+  display:grid; grid-template-columns:1fr auto; gap:2px 16px; align-items:baseline;
+  padding:14px 0; border-bottom:1px solid var(--border-subtle); text-decoration:none;
+}
+.beginner-adminrow:last-child { border-bottom:none; }
+.beginner-adminrow:hover .ba-title { text-decoration:underline; }
+.ba-title { font-size:var(--fs-xs); font-weight:600; color:var(--text-body); }
+.ba-desc { grid-column:1; font-size:var(--fs-mini); color:var(--text-subtle); line-height:1.6; }
+.ba-count {
+  grid-row:1 / span 2; grid-column:2; align-self:center; white-space:nowrap;
+  font-size:var(--fs-xs); font-weight:600; color:var(--blue-text); font-variant-numeric:tabular-nums;
+}
+/* Gönderim yapmayan öğrencinin boş hücresi ve tarih sütunu — okunur ama öne çıkmaz */
+.portal .ba-missing { color:var(--text-faint); }
+.portal td.ba-when { color:var(--text-subtle); white-space:nowrap; font-variant-numeric:tabular-nums; }
+
 /* ============================================================================
    MOBILE NAV — the drawer chrome. Hidden on desktop; the @media block below is
    the only place it becomes visible, so desktop rendering is untouched.
