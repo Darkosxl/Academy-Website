@@ -396,14 +396,12 @@ fn github_repo_url(raw: &str) -> Option<String> {
 
 fn submitted_provider(is_admin: bool, raw: &str) -> Option<ModelProvider> {
     let raw = raw.trim();
-    if !is_admin {
-        return matches!(raw, "" | "cerebras").then_some(ModelProvider::Cerebras);
-    }
     if raw.is_empty() {
-        Some(ModelProvider::Cerebras)
-    } else {
-        raw.parse().ok()
+        return Some(ModelProvider::Cerebras);
     }
+    let provider: ModelProvider = raw.parse().ok()?;
+    // Students pick between the two hosted pools; Bedrock stays admin-only.
+    (is_admin || provider != ModelProvider::Bedrock).then_some(provider)
 }
 
 fn submitted_model_id(provider: ModelProvider, raw: &str, requires_images: bool) -> Option<&str> {
@@ -1624,8 +1622,12 @@ mod tests {
             Some(ModelProvider::Bedrock)
         );
         assert_eq!(submitted_provider(true, "unknown"), None);
-        // DeepInfra follows the non-Cerebras rule: admins only.
-        assert_eq!(submitted_provider(false, "deepinfra"), None);
+        assert_eq!(submitted_provider(false, "unknown"), None);
+        // DeepInfra is on the student dropdown, so it passes without admin.
+        assert_eq!(
+            submitted_provider(false, "deepinfra"),
+            Some(ModelProvider::DeepInfra)
+        );
         assert_eq!(
             submitted_provider(true, "deepinfra"),
             Some(ModelProvider::DeepInfra)

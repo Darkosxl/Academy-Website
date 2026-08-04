@@ -13,7 +13,7 @@ pub const DEFAULT_DEEPINFRA_MODEL: &str = "Qwen/Qwen3.6-27B";
 pub const CEREBRAS_MODEL_IDS: &[&str] = &["gemma-4-31b", "zai-glm-4.7"];
 pub const CEREBRAS_IMAGE_MODEL_IDS: &[&str] = &["gemma-4-31b"];
 // DeepInfra serves the HF-style id verbatim; keep these sorted for binary_search.
-pub const DEEPINFRA_MODEL_IDS: &[&str] = &["Qwen/Qwen3.6-27B"];
+pub const DEEPINFRA_MODEL_IDS: &[&str] = &["Qwen/Qwen3.6-27B", "zai-org/GLM-5.2"];
 pub const DEEPINFRA_IMAGE_MODEL_IDS: &[&str] = &["Qwen/Qwen3.6-27B"];
 pub const BEDROCK_MODEL_IDS: &[&str] = &[
     "deepseek.v3.1",
@@ -523,6 +523,9 @@ mod tests {
         );
         assert!(ModelProvider::DeepInfra.supports_model(DEFAULT_DEEPINFRA_MODEL));
         assert!(ModelProvider::DeepInfra.supports_images(DEFAULT_DEEPINFRA_MODEL));
+        assert!(ModelProvider::DeepInfra.supports_model("zai-org/GLM-5.2"));
+        // GLM is text-only here, same call as Cerebras's zai-glm-4.7.
+        assert!(!ModelProvider::DeepInfra.supports_images("zai-org/GLM-5.2"));
         assert!(!ModelProvider::DeepInfra.supports_model(DEFAULT_CEREBRAS_MODEL));
         assert!(!ModelProvider::Cerebras.supports_model(DEFAULT_DEEPINFRA_MODEL));
     }

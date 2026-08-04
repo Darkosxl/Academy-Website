@@ -816,14 +816,73 @@ fn provider_model_options(provider: ModelProvider, select_default: bool) -> Stri
             } else {
                 ""
             };
+            // Inactive providers start disabled so a submit before touching the
+            // provider select can't send a model the server will reject; the
+            // picker's onchange re-enables the group it switches to.
+            let disabled = if select_default { "" } else { " disabled" };
             format!(
-                r#"<option value="{model}" data-provider="{provider}"{selected}{image}>{model}</option>"#,
+                r#"<option value="{model}" data-provider="{provider}"{selected}{disabled}{image}>{model}{note}</option>"#,
                 provider = provider.as_str(),
-                model = esc(model)
+                model = esc(model),
+                note = model_note(model)
             )
         })
         .collect::<Vec<_>>()
         .join("")
+}
+
+/// Warnings that belong on the option itself — no JS, visible while picking.
+fn model_note(model_id: &str) -> &'static str {
+    match model_id {
+        "zai-org/GLM-5.2" => " · Kaggle RTX 6000 üzerinde çalışmayabilir",
+        _ => "",
+    }
+}
+
+/// Bedrock is the admin-only pool; students choose between the two hosted ones.
+/// Order matters: the first entry is the pre-selected provider.
+const STUDENT_PROVIDERS: &[ModelProvider] = &[ModelProvider::Cerebras, ModelProvider::DeepInfra];
+const ADMIN_PROVIDERS: &[ModelProvider] = &[
+    ModelProvider::Cerebras,
+    ModelProvider::Bedrock,
+    ModelProvider::DeepInfra,
+];
+
+/// Provider picker plus the inline filter that greys out models from the other
+/// providers. First provider in the list is the selected one.
+fn provider_picker(providers: &[ModelProvider]) -> String {
+    let options: String = providers
+        .iter()
+        .enumerate()
+        .map(|(index, provider)| {
+            let label = match provider {
+                ModelProvider::Bedrock => "Bedrock",
+                ModelProvider::Cerebras => "Cerebras",
+                ModelProvider::DeepInfra => "DeepInfra",
+            };
+            let selected = if index == 0 { " selected" } else { "" };
+            format!(
+                r#"<option value="{}"{selected}>{label}</option>"#,
+                provider.as_str()
+            )
+        })
+        .collect();
+    format!(
+        r#"<label>provider:
+      <select name="provider" onchange="const m=this.form.elements.model_id;for(const o of m.options)o.disabled=o.dataset.provider!==this.value;const first=[...m.options].find(o=>!o.disabled);if(m.selectedOptions[0]?.disabled&amp;&amp;first)m.value=first.value">
+        {options}
+      </select>
+    </label>"#
+    )
+}
+
+/// Options for every provider in the list, defaulting to the first provider's model.
+fn provider_models(providers: &[ModelProvider]) -> String {
+    providers
+        .iter()
+        .enumerate()
+        .map(|(index, provider)| provider_model_options(*provider, index == 0))
+        .collect()
 }
 
 fn builtin_harness_options(bench: &str) -> String {
@@ -890,6 +949,7 @@ pub fn agentic_harness_main(
                     r##"<form method="post" action="/agentic-harness/submit" class="subform">
     <input type="hidden" name="benchmark_kind" value="{bench}">
     <input name="repo_url" type="url" placeholder="https://github.com/..." required>
+    {provider_picker}
     <label>model:
       <select name="model_id" required>{model_options}</select>
     </label>
@@ -897,7 +957,8 @@ pub fn agentic_harness_main(
   </form>
   <p class="fieldnote">Herhangi bir takım üyesi gönderebilir. Her benchmark için aynı anda tek çalıştırma.
   Kurallar için <a href="/agentic-harness?tab=instructions" lang="en">Instructions</a> sekmesine bak.</p>"##,
-                    model_options = provider_model_options(ModelProvider::Cerebras, true),
+                    provider_picker = provider_picker(STUDENT_PROVIDERS),
+                    model_options = provider_models(STUDENT_PROVIDERS),
                 ),
             };
             // The name IS the input — no edit button, no modal. A one-field form submits
@@ -1123,17 +1184,8 @@ fn admin_harness_form(bench: &str) -> String {
     </label>"#,
         builtin_harness_options(bench)
     );
-    let provider_picker = r#"<label>provider:
-      <select name="provider" onchange="const m=this.form.elements.model_id;for(const o of m.options)o.disabled=o.dataset.provider!==this.value;const first=[...m.options].find(o=>!o.disabled);if(m.selectedOptions[0]?.disabled&amp;&amp;first)m.value=first.value">
-        <option value="cerebras" selected>Cerebras</option><option value="bedrock">Bedrock</option><option value="deepinfra">DeepInfra</option>
-      </select>
-    </label>"#;
-    let model_options = format!(
-        "{}{}{}",
-        provider_model_options(ModelProvider::Cerebras, true),
-        provider_model_options(ModelProvider::Bedrock, false),
-        provider_model_options(ModelProvider::DeepInfra, false)
-    );
+    let provider_picker = provider_picker(ADMIN_PROVIDERS);
+    let model_options = provider_models(ADMIN_PROVIDERS);
     format!(
         r##"<form method="post" action="/agentic-harness/submit" class="subform">
     <input type="hidden" name="benchmark_kind" value="{bench}">
@@ -4254,7 +4306,7 @@ mod tests {
     }
 
     #[test]
-    fn harness_submission_lists_only_cerebras_models_for_students() {
+    fn harness_submission_lists_cerebras_and_deepinfra_for_students() {
         let user = User {
             id: Uuid::nil(),
             display_name: "A".into(),
@@ -4273,11 +4325,26 @@ mod tests {
             r#"name="repo_url" type="url" placeholder="https://github.com/..." required"#
         ));
         assert!(!html.contains(r#"name="builtin_harness""#));
-        assert!(!html.contains(r#"<select name="provider""#));
-        assert_eq!(html.matches("<option ").count(), CEREBRAS_MODEL_IDS.len());
+        assert!(html.contains(r#"<select name="provider""#));
+        // Two provider options plus every Cerebras and DeepInfra model, nothing from Bedrock.
+        assert_eq!(
+            html.matches("<option ").count(),
+            2 + CEREBRAS_MODEL_IDS.len() + DEEPINFRA_MODEL_IDS.len()
+        );
+        assert!(html.contains(r#"<option value="cerebras" selected>Cerebras</option>"#));
+        assert!(html.contains(r#"<option value="deepinfra">DeepInfra</option>"#));
+        assert!(!html.contains(r#">Bedrock</option>"#));
+        assert!(!html.contains(r#"data-provider="bedrock""#));
         assert!(html.contains(&format!(
             r#"<option value="{DEFAULT_CEREBRAS_MODEL}" data-provider="cerebras" selected data-image="true">"#
         )));
+        // DeepInfra's models come in disabled until the provider select switches to them.
+        assert!(html.contains(&format!(
+            r#"<option value="{DEFAULT_DEEPINFRA_MODEL}" data-provider="deepinfra" disabled data-image="true">"#
+        )));
+        assert!(html.contains(
+            r#"<option value="zai-org/GLM-5.2" data-provider="deepinfra" disabled>zai-org/GLM-5.2 · Kaggle RTX 6000 üzerinde çalışmayabilir</option>"#
+        ));
     }
 
     #[test]
@@ -4305,19 +4372,19 @@ mod tests {
         assert!(html.contains(r#"<option value="bedrock">Bedrock</option>"#));
         assert!(html.contains(r#"<option value="deepinfra">DeepInfra</option>"#));
         assert!(html.contains(
-            r#"<option value="Qwen/Qwen3.6-27B" data-provider="deepinfra" data-image="true">"#
+            r#"<option value="Qwen/Qwen3.6-27B" data-provider="deepinfra" disabled data-image="true">"#
         ));
         assert!(html.contains(r#"<select name="builtin_harness""#));
         assert!(html.contains(r#"<option value="forge">Forge</option>"#));
         assert!(html.contains(r#"<option value="reki">Reki</option>"#));
         assert!(
             html.contains(
-                r#"value="google.gemma-4-31b" data-provider="bedrock" data-image="true""#
+                r#"value="google.gemma-4-31b" data-provider="bedrock" disabled data-image="true""#
             )
         );
         assert!(
             !html.contains(
-                r#"value="openai.gpt-oss-120b" data-provider="bedrock" data-image="true""#
+                r#"value="openai.gpt-oss-120b" data-provider="bedrock" disabled data-image="true""#
             )
         );
         assert!(!html.contains(r#"placeholder="https://github.com/..." required"#));
