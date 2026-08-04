@@ -123,6 +123,12 @@ async fn main() {
         .execute(&pool)
         .await
         .expect("beginner grading migration failed");
+    sqlx::raw_sql(include_str!(
+        "../migrations/012_harness_rejected_submissions.sql"
+    ))
+    .execute(&pool)
+    .await
+    .expect("rejected submissions migration failed");
     seed_admin(&pool).await;
     seed_invite_code(&pool).await;
     seed_videos(&pool).await;
@@ -135,6 +141,14 @@ async fn main() {
     let _ = sqlx::query("delete from sessions_exposure_academy where expires_at < now()")
         .execute(&pool)
         .await;
+    // Rejected submissions are a debugging aid, not a record — a month is long past the point
+    // where anyone is still asking why a link bounced.
+    let _ = sqlx::query(
+        "delete from harness_rejected_submissions_exposure_academy
+         where created_at < now() - interval '30 days'",
+    )
+    .execute(&pool)
+    .await;
 
     let app = App {
         pool,

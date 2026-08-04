@@ -52,6 +52,19 @@ pub async fn admin_page(
         .fetch_all(&app.pool)
         .await
         .unwrap(),
+        // `unwrap_or_default`, unlike every `unwrap` above it: this panel is a debugging aid,
+        // and it must not take the whole admin page down on an instance where migration 012
+        // hasn't landed yet.
+        rejected: sqlx::query_as(
+            "select j.raw_input, j.reason, u.display_name, t.name as team_name, j.created_at
+             from harness_rejected_submissions_exposure_academy j
+             left join users_exposure_academy u on u.id = j.user_id
+             left join harness_teams_exposure_academy t on t.id = j.team_id
+             order by j.created_at desc limit 50",
+        )
+        .fetch_all(&app.pool)
+        .await
+        .unwrap_or_default(),
     };
     // Same interim shape for AI Monopoly. `entries` drives the "N takım hazır" line and
     // the start button; `tournament` is the live one if there is one, so the admin can

@@ -721,10 +721,24 @@ pub struct HarnessKaggleSubmission {
     pub updated_at: DateTime<Utc>,
 }
 
+/// One rejected harness submission, for the /admin panel. `display_name` and `team_name` are
+/// `Option` because both FKs are `on delete set null` — a rejection outlives the account that
+/// made it, which is exactly when it's still worth reading.
+#[derive(FromRow)]
+pub struct HarnessRejectedRow {
+    pub raw_input: String,
+    pub reason: String,
+    pub display_name: Option<String>,
+    pub team_name: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
 /// Interim admin-side run management. Team membership moved to /admin/takimlar
-/// (`teams.rs`); what stays here is the stuck-run escape hatch.
+/// (`teams.rs`); what stays here is the stuck-run escape hatch, plus the rejected-submission
+/// log that answers "but I *did* send a GitHub link".
 pub struct HarnessAdmin {
     pub active_runs: Vec<HarnessActiveRun>,
+    pub rejected: Vec<HarnessRejectedRow>,
 }
 
 /// One draggable card on the Takım formasyonu board. `team_id` is `None` for a kid

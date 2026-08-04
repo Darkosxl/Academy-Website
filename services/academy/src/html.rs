@@ -523,6 +523,32 @@ fn harness_stage_tr(stage: &str) -> (&'static str, &'static str) {
     }
 }
 
+/// Turkish label per `source_error_slug` (harness.rs), for the rejected-submission log. The
+/// catch-all arm matters: rows outlive the variant that wrote them, and a retired slug should
+/// render as "bilinmeyen" rather than take the admin page down.
+fn harness_reject_reason_tr(reason: &str) -> &'static str {
+    match reason {
+        "empty" => "Boş bırakılmış",
+        "too_long" => "Bağlantı çok uzun",
+        "not_a_url" => "Bağlantı değil",
+        "not_github" => "github.com değil",
+        "gist_link" => "Gist bağlantısı",
+        "raw_file_link" => "Raw dosya bağlantısı",
+        "credentials" => "Kullanıcı adı/şifre/port var",
+        "no_repo" => "Repo adı yok",
+        "owner_only" => "Profil bağlantısı, repo değil",
+        "reserved_owner" => "GitHub'ın kendi sayfası",
+        "non_ascii" => "Türkçe karakter var",
+        "bad_chars" => "Geçersiz karakter",
+        "segment_too_long" => "İsim çok uzun",
+        "both_sources" => "Hem repo hem hazır harness",
+        "no_source" => "Ne repo ne hazır harness",
+        "builtin_forbidden" => "Hazır harness izni yok",
+        "builtin_unknown" => "Bilinmeyen hazır harness",
+        _ => "bilinmeyen",
+    }
+}
+
 fn harness_stop_form(run_id: uuid::Uuid) -> String {
     format!(
         r##"<form method="post" action="/agentic-harness/stop" class="inline"
@@ -956,14 +982,16 @@ pub fn agentic_harness_main(
                 None => format!(
                     r##"<form method="post" action="/agentic-harness/submit" class="subform">
     <input type="hidden" name="benchmark_kind" value="{bench}">
-    <input name="repo_url" type="url" placeholder="https://github.com/..." required>
+    <input name="repo_url" type="text" inputmode="url" spellcheck="false"
+      placeholder="https://github.com/kullanici/repo" required>
     {provider_picker}
     <label>model:
       <select name="model_id" required>{model_options}</select>
     </label>
     <button class="btn-dark">Ajanı Gönder →</button>
   </form>
-  <p class="fieldnote">Herhangi bir takım üyesi gönderebilir. Her benchmark için aynı anda tek çalıştırma.
+  <p class="fieldnote">Repo'nun ana sayfasının adresini yapıştır; klasör veya dosya bağlantısı da olur, biz kısaltırız.
+  Herhangi bir takım üyesi gönderebilir. Her benchmark için aynı anda tek çalıştırma.
   Kurallar için <a href="/agentic-harness?tab=instructions" lang="en">Instructions</a> sekmesine bak.</p>"##,
                     provider_picker = provider_picker(STUDENT_PROVIDERS),
                     model_options = provider_models(STUDENT_PROVIDERS),
@@ -1197,7 +1225,8 @@ fn admin_harness_form(bench: &str) -> String {
     format!(
         r##"<form method="post" action="/agentic-harness/submit" class="subform">
     <input type="hidden" name="benchmark_kind" value="{bench}">
-    <input name="repo_url" type="url" placeholder="https://github.com/...">
+    <input name="repo_url" type="text" inputmode="url" spellcheck="false"
+      placeholder="https://github.com/kullanici/repo">
     {builtin_picker}
     {provider_picker}
     <label>model:
@@ -4137,6 +4166,29 @@ pub fn admin(
                 team = esc(&r.team_name), date = r.created_at.format("%d.%m.%Y %H:%M"), id = r.id)
         }).collect()
     };
+    // The rejected-submission log. `raw_input` is unvalidated student text — the only place in
+    // this feature where it reaches HTML — so it goes through esc() like everything else here.
+    let harness_rejected_rows: String = if harness.rejected.is_empty() {
+        "<p class='muted'>Reddedilen gönderim yok</p>".into()
+    } else {
+        harness
+            .rejected
+            .iter()
+            .map(|r| {
+                format!(
+                    r##"<div class="itemrow">
+  <div class="item-title"><span>{who}</span><span class="item-meta">{team} · {date}</span><span class="substatus st-failed">{reason}</span></div>
+  <div class="item-meta"><code>{raw}</code></div>
+</div>"##,
+                    who = esc(r.display_name.as_deref().unwrap_or("(silinmiş öğrenci)")),
+                    team = esc(r.team_name.as_deref().unwrap_or("takımsız")),
+                    date = r.created_at.format("%d.%m.%Y %H:%M"),
+                    reason = harness_reject_reason_tr(&r.reason),
+                    raw = esc(&r.raw_input),
+                )
+            })
+            .collect()
+    };
     // AI Monopoly mirrors the harness block above: same interim team management, plus
     // the start button and the running tournament's stop hatch.
     let monopoly_team_opts: String = monopoly
@@ -4304,6 +4356,11 @@ pub fn admin(
   takılı kalmış çalıştırmalar kurtarılır.</p>
   <p class="muted">Aktif çalıştırmalar</p>
   <div class="minilist">{harness_run_rows}</div>
+  <p class="muted">Reddedilen gönderimler (son 50)</p>
+  <p class="fieldnote">Öğrencinin yapıştırdığı bağlantı ve neden kabul edilmediği.
+  30 günden eski kayıtlar silinir. Burada kayıt yoksa bağlantı kabul edilmiş demektir —
+  sorun klonlamada (özel repo gibi), çalıştırmanın hata kaydına bak.</p>
+  <div class="minilist">{harness_rejected_rows}</div>
 </section>
 
 <section class="panel">
@@ -4593,9 +4650,9 @@ mod tests {
         assert!(html.contains("<label>model:"));
         assert!(html.contains(r#"<select name="model_id" required>"#));
         assert!(html.contains(r#"name="benchmark_kind" value="arc""#));
-        assert!(html.contains(
-            r#"name="repo_url" type="url" placeholder="https://github.com/..." required"#
-        ));
+        // type=text, not type=url: the browser's own validation fired before the POST and
+        // showed a native, untranslatable bubble for links the server now accepts.
+        assert!(html.contains(r#"name="repo_url" type="text" inputmode="url""#));
         assert!(!html.contains(r#"name="builtin_harness""#));
         assert!(html.contains(r#"<select name="provider""#));
         // Two provider options plus every Cerebras and DeepInfra model, nothing from Bedrock.
