@@ -267,8 +267,15 @@ pub struct BeginnerSubmitForm {
 }
 
 /// Save (or replace) a student's GitHub + Vercel links for one Beginner Track project.
-/// No review pipeline — this just upserts the pair, same shape as `board_submit`'s
-/// validation but without the plan.md requirement.
+/// Upserts the pair, same shape as `board_submit`'s validation but without the plan.md
+/// requirement.
+///
+/// Changing either link sends the row back to the grading queue: status to 'pending',
+/// feedback and points cleared. Board submissions get this for free because each one
+/// INSERTs a fresh pending row, but these upsert in place — without the reset a student
+/// could be awarded 100 points and then swap the repo for anything at all. The reset is
+/// conditional on a link actually differing so re-saving the same pair never silently
+/// discards a grade.
 pub async fn beginner_track_submit(
     State(app): State<App>,
     headers: HeaderMap,
@@ -291,10 +298,22 @@ pub async fn beginner_track_submit(
         return Err(bad("Vercel bağlantısı https:// ile başlamalı."));
     }
     sqlx::query(
-        "insert into beginner_submissions_exposure_academy (user_id, project_key, repo_url, vercel_url, updated_at)
+        // aliased so the do-update can read the row's *current* values — Postgres needs
+        // the alias declared on the INSERT target to reference it in ON CONFLICT
+        "insert into beginner_submissions_exposure_academy as b
+           (user_id, project_key, repo_url, vercel_url, updated_at)
          values ($1,$2,$3,$4, now())
          on conflict (user_id, project_key) do update set
-           repo_url = excluded.repo_url, vercel_url = excluded.vercel_url, updated_at = now()",
+           repo_url = excluded.repo_url, vercel_url = excluded.vercel_url, updated_at = now(),
+           status = case when b.repo_url is distinct from excluded.repo_url
+                           or b.vercel_url is distinct from excluded.vercel_url
+                         then 'pending' else b.status end,
+           feedback = case when b.repo_url is distinct from excluded.repo_url
+                             or b.vercel_url is distinct from excluded.vercel_url
+                           then null else b.feedback end,
+           points_override = case when b.repo_url is distinct from excluded.repo_url
+                                    or b.vercel_url is distinct from excluded.vercel_url
+                                  then null else b.points_override end",
     )
     .bind(user.id)
     .bind(&f.project_key)
@@ -443,12 +462,19 @@ pub async fn leaderboard(
 /// a number into the Puan box, which stores a `points_override` on that submission row.
 /// Where a student has several passed submissions for one task, the newest one is the
 /// one that counts — so re-scoring means editing (or re-passing) the latest row.
+///
+/// Beginner Track projects score by exactly the same rules, graded from the same queue.
+/// They have no level, so they take PTS_PROJECT_L1 as their default — Beginner is the
+/// only thing they could be. Their PK is (user_id, project_key), so unlike board
+/// submissions they cannot pile up and need no `distinct on`. Both sources are summed
+/// into the same two output columns: `projects` stays the plain "X proje" count and
+/// `project_points` stays the total, so nothing downstream has to know the difference.
 pub async fn leader_rows(app: &App) -> Vec<LeaderRow> {
     sqlx::query_as::<_, LeaderRow>(
         "select u.id, u.display_name, u.nickname, u.hidden_from_leaderboard as hidden,
                 coalesce(w.videos, 0) as videos,
-                coalesce(p.projects, 0) as projects,
-                coalesce(p.project_points, 0) as project_points
+                coalesce(p.projects, 0) + coalesce(b.bprojects, 0) as projects,
+                coalesce(p.project_points, 0) + coalesce(b.bpoints, 0) as project_points
          from users_exposure_academy u
          left join (select user_id, count(*) as videos
                     from watch_progress_exposure_academy
@@ -467,10 +493,18 @@ pub async fn leader_rows(app: &App) -> Vec<LeaderRow> {
                           order by user_id, task_id, created_at desc) d
                     join tasks_exposure_academy t on t.id = d.task_id
                     group by d.user_id) p on p.user_id = u.id
+         left join (select user_id, count(*) as bprojects,
+                           sum(coalesce(points_override, $2))::bigint as bpoints
+                    from beginner_submissions_exposure_academy
+                    where status = 'passed'
+                    group by user_id) b on b.user_id = u.id
          -- nickname is null until onboarding is done: it is no longer what the board
          -- shows, but it still marks a finished onboarding, so keep gating on it
          where not u.is_admin and u.nickname is not null
-         order by coalesce(w.videos,0) * $1 + coalesce(p.project_points,0) desc, u.created_at")
+         -- must stay in step with the two summed columns above, or the standings would
+         -- sort by a total they don't print
+         order by coalesce(w.videos,0) * $1
+                  + coalesce(p.project_points,0) + coalesce(b.bpoints,0) desc, u.created_at")
         .bind(PTS_VIDEO)
         .bind(PTS_PROJECT_L1).bind(PTS_PROJECT_L2).bind(PTS_PROJECT_L3)
         .fetch_all(&app.pool).await.unwrap()

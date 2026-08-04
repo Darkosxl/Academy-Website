@@ -45,12 +45,17 @@ pub async fn board(State(app): State<App>, headers: HeaderMap) -> Result<Html<St
     }
     let tasks = sqlx::query_as::<_, Task>("select id, title, description, level, example_url, example_embeddable from tasks_exposure_academy order by level, position")
         .fetch_all(&app.pool).await.unwrap();
+    // Newest attempt per task, and only this student's — the two joins this used to carry
+    // existed for the admin grading table, which now has its own query in grading.rs.
     let subs = sqlx::query_as::<_, SubmissionView>(
-        "select distinct on (s.task_id) s.id, s.task_id, s.repo_url, s.status, s.feedback, s.demo_video_url, s.plan_md, s.live_url,
-                u.display_name, u.email, t.title as task_title, t.level as task_level, s.points_override, s.created_at
-         from submissions_exposure_academy s join users_exposure_academy u on u.id = s.user_id join tasks_exposure_academy t on t.id = s.task_id
-         where s.user_id = $1 order by s.task_id, s.created_at desc")
-        .bind(user.id).fetch_all(&app.pool).await.unwrap();
+        "select distinct on (s.task_id) s.task_id, s.status, s.feedback, s.demo_video_url, s.plan_md
+         from submissions_exposure_academy s
+         where s.user_id = $1 order by s.task_id, s.created_at desc",
+    )
+    .bind(user.id)
+    .fetch_all(&app.pool)
+    .await
+    .unwrap();
     // Include my own interest rows even when I have no nickname (admins don't
     // onboard, so nickname is null) — otherwise `mine`/`started` never flips for
     // them. Others still need a nickname to appear as a teammate chip. coalesce
