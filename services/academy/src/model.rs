@@ -247,29 +247,161 @@ pub struct SiteCard {
     pub live_embeddable: Option<bool>,
 }
 
+/// What a student sees about their own latest submission to a task, on /board.
+///
+/// This used to be the admin grading row as well, and carried the joined student name,
+/// e-mail, task title, level and points for that second reader. Grading moved to Görev
+/// Puanlama and reads `GradeRow` instead, so those columns are gone — a student's own
+/// board never needed them, and they were being joined and shipped on every board load.
 #[derive(FromRow)]
 pub struct SubmissionView {
-    pub id: Uuid,
     pub task_id: Uuid,
-    pub repo_url: String,
     pub status: String,
     pub feedback: Option<String>,
     pub demo_video_url: Option<String>,
     /// Null on submissions made before plan.md became required.
     pub plan_md: Option<String>,
-    /// The deployed site, if we've resolved one. Null is the normal state right after
-    /// submitting — the admin rescan and the manual override both fill it in later.
-    pub live_url: Option<String>,
+}
+
+/// One gradeable row on Görev Puanlama. Görev Panosu submissions and Beginner Track
+/// projects are two different tables with two different keys, but they are the same job
+/// to an admin, so `grading.rs` flattens both into this shape with a `union all` and the
+/// page renders one queue.
+///
+/// Beginner Track rows fill the gaps rather than widening the struct with options: they
+/// have no task uuid, no plan.md, and no level of their own — they are Beginner by
+/// definition, so `task_level` is hardcoded 'PRESEED' and picks up the 100-point default
+/// through the same `level_points` path as every board row.
+#[derive(FromRow)]
+pub struct GradeRow {
+    /// "board" | "beginner" — which table the row came from, and therefore which
+    /// primary key `key` holds and which UPDATE the review handler runs.
+    pub kind: String,
+    /// Opaque row identity for the review form: the submission uuid for board rows,
+    /// `{user_id}:{project_key}` for beginner ones, which have a composite PK.
+    pub key: String,
     pub display_name: String,
     pub email: String,
+    /// Board rows only — the review prompt needs the task's Tanım, which is looked up
+    /// from the `tasks` slice in memory rather than widening this query.
+    pub task_id: Option<Uuid>,
+    /// Board rows carry the task title; beginner rows carry the `project_key`, which the
+    /// renderer maps through `BEGINNER_PROJECTS` — SQL has no business knowing those titles.
     pub task_title: String,
-    /// The task's level, so the admin row can show the level default as the
-    /// placeholder next to the manual point box.
     pub task_level: String,
-    /// Admin-entered points for this submission. `None` = score it with the level
-    /// default, which is what almost every row does.
+    pub repo_url: String,
+    /// Board: the resolved/overridden live site. Beginner: the student's `vercel_url`,
+    /// which is student-owned and therefore read-only here.
+    pub live_url: Option<String>,
+    /// Always null on beginner rows — that flow has no plan.md requirement.
+    pub plan_md: Option<String>,
+    pub status: String,
+    pub feedback: Option<String>,
+    /// `None` = score it with the level default, which is what almost every row does.
     pub points_override: Option<i32>,
     pub created_at: DateTime<Utc>,
+    /// How many attempts exist at this (öğrenci, görev); >1 draws the "N. deneme" marker.
+    /// Always 1 for beginner rows — their PK is (user_id, project_key), so a resubmit
+    /// replaces rather than piles up.
+    pub attempts: i64,
+}
+
+/// (database value, what the admin sees) for a submission's review state. Same four
+/// values for board and Beginner Track rows — both tables share the CHECK constraint.
+pub const GRADE_STATUSES: [(&str, &str); 4] = [
+    ("pending", "İnceleme bekleniyor"),
+    ("reviewing", "İnceleniyor"),
+    ("passed", "Geçti"),
+    ("failed", "Başarısız"),
+];
+
+pub fn is_grade_status(s: &str) -> bool {
+    GRADE_STATUSES.iter().any(|(k, _)| *k == s)
+}
+
+/// The Durum chips. "Bekleyenler" folds pending+reviewing together because the split
+/// between them is a worker-pipeline detail, not something an admin grades differently.
+pub const DURUM_FILTERS: [(&str, &str); 4] = [
+    ("bekleyen", "Bekleyenler"),
+    ("hepsi", "Hepsi"),
+    ("passed", "Geçti"),
+    ("failed", "Başarısız"),
+];
+
+/// Opening the page with no `?durum=` lands on the queue, not the archive — the whole
+/// point of the split is that "what is waiting on me" is one glance, not a scroll.
+pub const DURUM_DEFAULT: &str = "bekleyen";
+
+pub fn durum_matches(durum: &str, status: &str) -> bool {
+    match durum {
+        "bekleyen" => status == "pending" || status == "reviewing",
+        "hepsi" => true,
+        exact => status == exact,
+    }
+}
+
+/// Validated filter state for Görev Puanlama. Built once per request from the query
+/// string (or from a form's hidden fields), then used both to run the query and to build
+/// every link on the page, so a chip can never disagree with what is on screen.
+#[derive(Clone)]
+pub struct Filters {
+    /// One of `DURUM_FILTERS`. Never empty — absent parses to `DURUM_DEFAULT`.
+    pub durum: String,
+    pub seviye: Option<String>,
+    pub ogrenci: Option<Uuid>,
+    /// true = show every attempt; false = newest attempt per (öğrenci, görev) only.
+    pub tum: bool,
+}
+
+impl Filters {
+    /// `?a=b&c=d`, or "" when nothing but the default is set. Only ever emits values this
+    /// struct has already validated, which is what keeps it safe to put in a `Location`.
+    pub fn query_string(&self) -> String {
+        let mut parts: Vec<String> = Vec::new();
+        if self.durum != DURUM_DEFAULT {
+            parts.push(format!("durum={}", self.durum));
+        }
+        if let Some(s) = &self.seviye {
+            parts.push(format!("seviye={s}"));
+        }
+        if let Some(u) = self.ogrenci {
+            parts.push(format!("ogrenci={u}"));
+        }
+        if self.tum {
+            parts.push("tum=1".into());
+        }
+        if parts.is_empty() {
+            String::new()
+        } else {
+            format!("?{}", parts.join("&"))
+        }
+    }
+
+    pub fn url(&self) -> String {
+        format!("/admin/puanlama{}", self.query_string())
+    }
+
+    /// The same page with one filter swapped — how every chip builds its href, so
+    /// changing Seviye keeps your Durum and Öğrenci rather than resetting them.
+    pub fn with_durum(&self, durum: &str) -> Filters {
+        Filters {
+            durum: durum.to_string(),
+            ..self.clone()
+        }
+    }
+
+    pub fn with_seviye(&self, seviye: Option<&str>) -> Filters {
+        Filters {
+            seviye: seviye.map(str::to_string),
+            ..self.clone()
+        }
+    }
+
+    /// True when any filter is narrowing the view, i.e. when "Filtreleri temizle" would
+    /// actually do something. The default queue view is not "filtered" for this purpose.
+    pub fn is_narrowed(&self) -> bool {
+        self.durum != DURUM_DEFAULT || self.seviye.is_some() || self.ogrenci.is_some() || self.tum
+    }
 }
 
 /// One student's standing. Points: 20 per completed video; passed projects are
@@ -660,10 +792,24 @@ pub struct HarnessKaggleSubmission {
     pub updated_at: DateTime<Utc>,
 }
 
+/// One rejected harness submission, for the /admin panel. `display_name` and `team_name` are
+/// `Option` because both FKs are `on delete set null` — a rejection outlives the account that
+/// made it, which is exactly when it's still worth reading.
+#[derive(FromRow)]
+pub struct HarnessRejectedRow {
+    pub raw_input: String,
+    pub reason: String,
+    pub display_name: Option<String>,
+    pub team_name: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
 /// Interim admin-side run management. Team membership moved to /admin/takimlar
-/// (`teams.rs`); what stays here is the stuck-run escape hatch.
+/// (`teams.rs`); what stays here is the stuck-run escape hatch, plus the rejected-submission
+/// log that answers "but I *did* send a GitHub link".
 pub struct HarnessAdmin {
     pub active_runs: Vec<HarnessActiveRun>,
+    pub rejected: Vec<HarnessRejectedRow>,
 }
 
 /// One draggable card on the Takım formasyonu board. `team_id` is `None` for a kid

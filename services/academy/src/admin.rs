@@ -1,5 +1,8 @@
-//! Yönetici paneli: videos, tasks, students, invite code, review — and the
-//! example-project screenshot cache behind /preview/{id}.
+//! Yönetici paneli: videos, tasks, students, invite code — and the example-project
+//! screenshot cache behind /preview/{id}.
+//!
+//! Grading moved to Görev Puanlama (grading.rs); `valid_http_url` and `probe_embeddable`
+//! are still shared with it.
 
 use crate::html;
 use crate::model::*;
@@ -22,12 +25,6 @@ pub async fn admin_page(
         "select u.display_name, v.title as video_title, w.seconds_watched, w.max_position, w.duration, w.updated_at
          from watch_progress_exposure_academy w join users_exposure_academy u on u.id = w.user_id join videos_exposure_academy v on v.id = w.video_id
          order by w.updated_at desc limit 200")
-        .fetch_all(&app.pool).await.unwrap();
-    let subs = sqlx::query_as::<_, SubmissionView>(
-        "select s.id, s.task_id, s.repo_url, s.status, s.feedback, s.demo_video_url, s.plan_md, s.live_url,
-                u.display_name, u.email, t.title as task_title, t.level as task_level, s.points_override, s.created_at
-         from submissions_exposure_academy s join users_exposure_academy u on u.id = s.user_id join tasks_exposure_academy t on t.id = s.task_id
-         order by s.created_at desc")
         .fetch_all(&app.pool).await.unwrap();
     let videos = sqlx::query_as::<_, Video>(
         "select id, youtube_id, title, level from videos_exposure_academy order by level, position",
@@ -55,6 +52,19 @@ pub async fn admin_page(
         .fetch_all(&app.pool)
         .await
         .unwrap(),
+        // `unwrap_or_default`, unlike every `unwrap` above it: this panel is a debugging aid,
+        // and it must not take the whole admin page down on an instance where migration 012
+        // hasn't landed yet.
+        rejected: sqlx::query_as(
+            "select j.raw_input, j.reason, u.display_name, t.name as team_name, j.created_at
+             from harness_rejected_submissions_exposure_academy j
+             left join users_exposure_academy u on u.id = j.user_id
+             left join harness_teams_exposure_academy t on t.id = j.team_id
+             order by j.created_at desc limit 50",
+        )
+        .fetch_all(&app.pool)
+        .await
+        .unwrap_or_default(),
     };
     // Same interim shape for AI Monopoly. `entries` drives the "N takım hazır" line and
     // the start button; `tournament` is the live one if there is one, so the admin can
@@ -112,7 +122,6 @@ pub async fn admin_page(
     Ok(Html(html::admin(
         &user,
         &stats,
-        &subs,
         &videos,
         &tasks,
         &members,
@@ -956,41 +965,6 @@ pub fn spawn_resolver(app: App) {
 }
 
 #[derive(Deserialize)]
-pub struct SubLiveForm {
-    id: Uuid,
-    live_url: String,
-}
-
-/// The admin's manual override, and the escape hatch for a student on a custom domain that
-/// `is_deploy_host` won't auto-accept. Blank clears it. Deliberately skips the host
-/// allowlist — an admin typing a URL is the same trust level as the task example URLs.
-pub async fn admin_submission_live(
-    State(app): State<App>,
-    headers: HeaderMap,
-    Form(f): Form<SubLiveForm>,
-) -> Result<Redirect, Response> {
-    require_admin(current_user(&app, &headers).await)?;
-    let url = f.live_url.trim();
-    if !url.is_empty() && !valid_http_url(url) {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "Canlı site URL'i http:// veya https:// ile başlamalı.",
-        )
-            .into_response());
-    }
-    // re-probe so the iframe/screenshot choice stays honest for whatever was just typed
-    let embeddable = if url.is_empty() {
-        None
-    } else {
-        probe_embeddable(&app.http, url).await
-    };
-    sqlx::query("update submissions_exposure_academy set live_url = nullif($2,''), live_embeddable = $3 where id = $1")
-        .bind(f.id).bind(url).bind(embeddable)
-        .execute(&app.pool).await.map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
-    Ok(Redirect::to("/admin"))
-}
-
-#[derive(Deserialize)]
 pub struct IdForm {
     pub id: Uuid,
 }
@@ -1191,100 +1165,6 @@ pub async fn admin_rotate_invite(
          on conflict (key) do update set value = $1, updated_at = now()")
         .bind(new_code).execute(&app.pool).await.unwrap();
     Ok(Redirect::to("/admin"))
-}
-
-#[derive(Deserialize)]
-pub struct ReviewForm {
-    id: Uuid,
-    status: String,
-    feedback: String,
-    /// The Puan box. Blank is the normal case and means "score it by level".
-    #[serde(default)]
-    points: String,
-}
-
-pub async fn admin_review(
-    State(app): State<App>,
-    headers: HeaderMap,
-    Form(f): Form<ReviewForm>,
-) -> Result<Redirect, Response> {
-    require_admin(current_user(&app, &headers).await)?;
-    // Blank clears any previous override and puts the row back on the level default;
-    // anything that isn't a non-negative number is a typo, so reject rather than
-    // silently scoring the project at some other value.
-    let points: Option<i32> = match f.points.trim() {
-        "" => None,
-        s => Some(
-            s.parse::<i32>()
-                .ok()
-                .filter(|p| *p >= 0)
-                .ok_or_else(|| StatusCode::BAD_REQUEST.into_response())?,
-        ),
-    };
-    sqlx::query("update submissions_exposure_academy set status = $2, feedback = nullif($3,''), points_override = $4 where id = $1")
-        .bind(f.id).bind(&f.status).bind(&f.feedback).bind(points)
-        .execute(&app.pool).await.map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
-    Ok(Redirect::to("/admin"))
-}
-
-/// One .txt holding a review prompt per submission that hasn't reached a verdict yet,
-/// so a whole grading round can be pasted into an agent in one go. Its own narrow
-/// projection rather than SubmissionView — that struct has no task description, and
-/// widening it would drag the board query along for no reason.
-pub async fn admin_prompts_txt(
-    State(app): State<App>,
-    headers: HeaderMap,
-) -> Result<Response, Response> {
-    require_admin(current_user(&app, &headers).await)?;
-    let rows: Vec<(
-        String,
-        String,
-        String,
-        String,
-        chrono::DateTime<chrono::Utc>,
-    )> = sqlx::query_as(
-        "select u.display_name, t.title, t.description, s.repo_url, s.created_at
-         from submissions_exposure_academy s
-         join users_exposure_academy u on u.id = s.user_id
-         join tasks_exposure_academy t on t.id = s.task_id
-         where s.status in ('pending', 'reviewing')
-         order by s.created_at desc",
-    )
-    .fetch_all(&app.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())?;
-
-    let body = if rows.is_empty() {
-        "İncelenmeyi bekleyen gönderim yok.\n".to_string()
-    } else {
-        rows.iter()
-            .map(|(name, title, desc, repo, at)| {
-                format!(
-                    "=== {name} — {title} — {date} ===\n{prompt}\n",
-                    date = at.format("%d.%m.%Y"),
-                    prompt = review_prompt(repo, if desc.trim().is_empty() { title } else { desc }),
-                )
-            })
-            .collect::<Vec<_>>()
-            .join("\n")
-    };
-
-    let filename = format!("prompts-{}.txt", chrono::Utc::now().format("%Y-%m-%d"));
-    Ok((
-        [
-            (
-                header::CONTENT_TYPE,
-                "text/plain; charset=utf-8".to_string(),
-            ),
-            (
-                header::CONTENT_DISPOSITION,
-                format!("attachment; filename=\"{filename}\""),
-            ),
-            (header::CACHE_CONTROL, "no-store".to_string()),
-        ],
-        body,
-    )
-        .into_response())
 }
 
 #[derive(Deserialize)]

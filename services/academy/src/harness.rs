@@ -359,39 +359,198 @@ pub struct HarnessSubmitForm {
     builtin_harness: String,
 }
 
-fn github_repo_url(raw: &str) -> Option<String> {
-    if raw.len() > 300 {
-        return None;
+/// Why a pasted repo link isn't usable. One variant per thing the student can *fix*, not one
+/// per branch in the parser: this used to be a bare `Option`, so every failure below printed
+/// "Repo bağlantısı https://github.com/ ile başlamalı" — a sentence that was false for almost
+/// every link it was shown for, since the address-bar copy of a repo folder does start with
+/// exactly that.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RepoUrlError {
+    Empty,
+    TooLong,
+    /// Not parseable even after the fix-ups in `github_repo_url` — prose, or a typo'd scheme.
+    NotAUrl,
+    /// Parses, but the host isn't github.com. Covers `github.com.evil.com`.
+    NotGithub,
+    GistLink,
+    RawFileLink,
+    /// `user:pass@` or an explicit port. (The scp form `git@github.com:` is rewritten, not
+    /// rejected — it reaches this check with no username left.)
+    Credentials,
+    /// `https://github.com/` — no owner at all.
+    NoRepo,
+    /// `https://github.com/ali` — a profile, not a repo.
+    OwnerOnly,
+    /// The owner slot is one of GitHub's own namespaces: /orgs/…, /settings/…, /apps/….
+    ReservedOwner,
+    /// Turkish letters (or any non-ASCII) in owner/repo. GitHub URLs never contain these.
+    NonAscii,
+    /// ASCII but outside `[A-Za-z0-9._-]` — a space, a quote, a stray character.
+    BadChars,
+    SegmentTooLong,
+}
+
+/// Owner-position paths GitHub keeps for itself. Without this, truncating a deep path to its
+/// first two segments would turn https://github.com/orgs/exposure/repositories into the
+/// nonexistent repo "orgs/exposure" — a clone failure days later instead of a sentence now.
+/// GitHub reserves these, so no real account can shadow one; if it ever releases one, the fix
+/// is deleting a string here and the symptom until then is a clear message, not a silent drop.
+const GITHUB_RESERVED_OWNERS: [&str; 24] = [
+    "orgs",
+    "users",
+    "settings",
+    "sponsors",
+    "topics",
+    "search",
+    "apps",
+    "marketplace",
+    "collections",
+    "codespaces",
+    "notifications",
+    "explore",
+    "features",
+    "pricing",
+    "about",
+    "login",
+    "join",
+    "new",
+    "organizations",
+    "account",
+    "dashboard",
+    "trending",
+    "site",
+    "contact",
+];
+
+/// Generous: the old 300 cap rejected a `/blob/main/deep/path#L12-L40` before we got the
+/// chance to truncate it down to the repo it names. The per-segment caps below are what
+/// actually bound the stored value.
+const REPO_URL_MAX: usize = 2000;
+
+/// A canonical `https://github.com/{owner}/{repo}` out of whatever the student pasted, or the
+/// specific reason it can't be one.
+///
+/// Forgiving on the way in, unchanged on the way out. Every fix-up here is a lossless rewrite
+/// of a string that names exactly one repo — a subpath, a query string, the scp form, a
+/// missing scheme — and the result still passes the same host/segment/charset gate the strict
+/// version used. Nothing new can reach the worker: `executor.rs::valid_repo_url` and
+/// `runner.py::valid_repo_url` re-check the stored value and both are strict, so the output
+/// shape is a contract (see `normalized_urls_satisfy_the_worker_contract`).
+fn github_repo_url(raw: &str) -> Result<String, RepoUrlError> {
+    use RepoUrlError::*;
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return Err(Empty);
     }
-    let url = reqwest::Url::parse(raw.trim()).ok()?;
-    if url.scheme() != "https"
-        || url.host_str() != Some("github.com")
-        || !url.username().is_empty()
-        || url.password().is_some()
-        || url.port().is_some()
-        || url.query().is_some()
-        || url.fragment().is_some()
-    {
-        return None;
+    if raw.len() > REPO_URL_MAX {
+        return Err(TooLong);
     }
-    let parts: Vec<_> = url
-        .path_segments()?
-        .filter(|part| !part.is_empty())
-        .collect();
-    if parts.len() != 2 {
-        return None;
-    }
-    let repo = parts[1].strip_suffix(".git").unwrap_or(parts[1]);
-    let valid = |part: &str| {
-        !part.is_empty()
-            && part
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+    // The scp form and a bare `github.com/...` both name the host literally, so rewriting is
+    // safe and the alternative ("that's not a URL") teaches the student nothing.
+    let rewritten;
+    let candidate = if let Some(rest) = raw.strip_prefix("git@github.com:") {
+        rewritten = format!("https://github.com/{rest}");
+        rewritten.as_str()
+    } else if !raw.contains("://") {
+        let lower = raw.to_ascii_lowercase();
+        if !lower.starts_with("github.com/") && !lower.starts_with("www.github.com/") {
+            return Err(NotAUrl);
+        }
+        rewritten = format!("https://{raw}");
+        rewritten.as_str()
+    } else {
+        raw
     };
-    if !valid(parts[0]) || !valid(repo) || repo == "." || repo == ".." {
-        return None;
+    let url = reqwest::Url::parse(candidate).map_err(|_| NotAUrl)?;
+
+    let host_raw = url.host_str().unwrap_or_default().to_ascii_lowercase();
+    let host = host_raw.strip_prefix("www.").unwrap_or(host_raw.as_str());
+    // The equality arm is the security-critical line here: `github.com.evil.com` and
+    // `notgithub.com` must both fall through to NotGithub.
+    match host {
+        "github.com" => {}
+        "gist.github.com" => return Err(GistLink),
+        "raw.githubusercontent.com" | "objects.githubusercontent.com" => return Err(RawFileLink),
+        _ => return Err(NotGithub),
     }
-    Some(format!("https://github.com/{}/{repo}", parts[0]))
+
+    // `ssh://git@github.com/o/r` carries its username in the URL rather than a prefix, so it
+    // has to be recognised before the credentials check would reject it. We still clone over
+    // https — the scheme is normalized away below, never honoured.
+    let ssh_git = url.scheme() == "ssh" && url.username() == "git" && url.password().is_none();
+    if !ssh_git && !matches!(url.scheme(), "https" | "http") {
+        return Err(NotAUrl);
+    }
+    if (!ssh_git && !url.username().is_empty()) || url.password().is_some() || url.port().is_some()
+    {
+        return Err(Credentials);
+    }
+
+    // Query and fragment are ignored rather than rejected: no GitHub query parameter changes
+    // *which* repo a URL names, and neither survives into the stored value anyway. This alone
+    // is what fixes the `?tab=readme-ov-file` that GitHub's own copy button appends.
+    let segments: Vec<&str> = url
+        .path_segments()
+        .map(|parts| parts.filter(|part| !part.is_empty()).collect())
+        .unwrap_or_default();
+    let Some(owner) = segments.first().copied() else {
+        return Err(NoRepo);
+    };
+    if GITHUB_RESERVED_OWNERS.contains(&owner.to_ascii_lowercase().as_str()) {
+        return Err(ReservedOwner);
+    }
+    if segments.len() < 2 {
+        return Err(OwnerOnly);
+    }
+    // Everything past owner/repo — tree/main/src, blob/…, pull/3, issues, actions/runs/… — is
+    // *inside* the repo those two segments name, so it truncates rather than rejects. Blanket
+    // truncation over a /tree|/blob allowlist, which silently rots when GitHub adds a route;
+    // the reserved-owner check above covers the only case where segment 1 isn't a repo name.
+    let repo = segments[1].strip_suffix(".git").unwrap_or(segments[1]);
+    if repo.is_empty() {
+        return Err(NoRepo);
+    }
+
+    // Never percent-decode. `Url` encodes `ödev` to `%C3%B6dev` and a space to `%20`, which
+    // both fail the allowlist identically — checking the *raw* string is the only way to tell
+    // "Turkish letters" from "a stray space", and those need very different advice.
+    let raw_path = raw.split(['?', '#']).next().unwrap_or(raw);
+    let bad_charset = |part: &str| {
+        !part
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+    };
+    if bad_charset(owner) || bad_charset(repo) {
+        return Err(if raw_path.is_ascii() { BadChars } else { NonAscii });
+    }
+    // GitHub's own limits, and what bounds the value we store and render.
+    if owner.len() > 39 || repo.len() > 100 {
+        return Err(SegmentTooLong);
+    }
+    // Case is preserved, not lowercased: GitHub is case-preserving, `parse_github_repo` in
+    // admin.rs preserves it, and the api.github.com live-site resolver relies on it.
+    Ok(format!("https://github.com/{owner}/{repo}"))
+}
+
+/// The student-facing sentence for each reason. Every one names the thing to change and shows
+/// the target shape, because the reader is a teenager looking at a plain 400 page.
+fn repo_error_tr(err: RepoUrlError) -> &'static str {
+    use RepoUrlError::*;
+    match err {
+        Empty => "Repo bağlantısı boş. GitHub'da repo sayfanı aç, adres çubuğundaki bağlantıyı kopyalayıp buraya yapıştır.",
+        TooLong => "Bağlantı çok uzun. Yalnızca repo sayfasının adresini yapıştır: https://github.com/kullanici/repo",
+        NotAUrl => "Bu bir bağlantıya benzemiyor. Repo sayfasının adresini olduğu gibi yapıştır: https://github.com/kullanici/repo",
+        NotGithub => "Bu bağlantı github.com adresinde değil. Ajanını GitHub'a yükle ve repo sayfasının adresini yapıştır: https://github.com/kullanici/repo",
+        GistLink => "Bu bir Gist bağlantısı. Ajanın normal bir GitHub repo'su olmalı — repo'nun ana sayfasının adresini yapıştır.",
+        RawFileLink => "Bu tek bir dosyanın (raw) bağlantısı. Repo'nun ana sayfasına dön ve oradaki adresi yapıştır: https://github.com/kullanici/repo",
+        Credentials => "Bağlantıda kullanıcı adı, şifre veya port var. Sade repo adresini yapıştır: https://github.com/kullanici/repo",
+        NoRepo => "Bağlantıda repo adı yok. https://github.com/kullanici/repo biçiminde olmalı.",
+        OwnerOnly => "Bu senin GitHub profilinin bağlantısı, repo'nun değil. Profilinde ajanın repo'sunu aç, sonra o sayfanın adresini yapıştır: https://github.com/kullanici/repo",
+        ReservedOwner => "Bu bir repo sayfası değil, GitHub'ın kendi sayfalarından biri. Repo'nun ana sayfasını aç ve oradaki adresi yapıştır.",
+        NonAscii => "Repo veya kullanıcı adında Türkçe karakter (ö, ç, ş, ğ, ı, ü) görünüyor. GitHub adreslerinde bu harfler bulunmaz — repo sayfasını aç ve adres çubuğundaki adresi olduğu gibi kopyala.",
+        BadChars => "Repo veya kullanıcı adında geçersiz karakter var (boşluk gibi). Yalnızca harf, rakam, '-', '_' ve '.' olabilir — bağlantıyı elle yazmak yerine adres çubuğundan kopyala.",
+        SegmentTooLong => "Kullanıcı veya repo adı çok uzun. Repo sayfasının adresini yapıştır: https://github.com/kullanici/repo",
+    }
 }
 
 fn submitted_provider(is_admin: bool, raw: &str) -> Option<ModelProvider> {
@@ -417,13 +576,113 @@ fn submitted_model_id(provider: ModelProvider, raw: &str, requires_images: bool)
     (!requires_images || provider.supports_images(model_id)).then_some(model_id)
 }
 
-fn submission_source(is_admin: bool, repo_url: &str, builtin_harness: &str) -> Option<String> {
+/// Which of the two mutually exclusive sources the form carried, or why neither worked.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SourceError {
+    Repo(RepoUrlError),
+    /// Both fields filled — we won't guess which one was meant.
+    Both,
+    /// Neither field filled.
+    Neither,
+    /// A builtin picked by a non-admin.
+    BuiltinForbidden,
+    /// Unknown builtin slug — a hand-rolled POST, or a stale form.
+    BuiltinUnknown,
+}
+
+fn submission_source(
+    is_admin: bool,
+    repo_url: &str,
+    builtin_harness: &str,
+) -> Result<String, SourceError> {
     let repo_url = repo_url.trim();
     let builtin_harness = builtin_harness.trim();
     match (repo_url.is_empty(), builtin_harness.is_empty()) {
-        (false, true) => github_repo_url(repo_url),
-        (true, false) if is_admin => builtin_harness_uri(builtin_harness).map(String::from),
-        _ => None,
+        (false, true) => github_repo_url(repo_url).map_err(SourceError::Repo),
+        (true, false) if is_admin => builtin_harness_uri(builtin_harness)
+            .map(String::from)
+            .ok_or(SourceError::BuiltinUnknown),
+        (true, false) => Err(SourceError::BuiltinForbidden),
+        (true, true) => Err(SourceError::Neither),
+        (false, false) => Err(SourceError::Both),
+    }
+}
+
+/// The admin/student split survives the refactor: an admin who submitted nothing has a
+/// different next action (pick a builtin) than a student staring at an empty box.
+fn source_error_tr(is_admin: bool, err: SourceError) -> &'static str {
+    const PICK_ONE: &str = "GitHub bağlantısı gir veya bir hazır harness seç.";
+    match err {
+        SourceError::Repo(RepoUrlError::Empty) | SourceError::Neither if is_admin => PICK_ONE,
+        SourceError::Repo(inner) => repo_error_tr(inner),
+        SourceError::Neither => repo_error_tr(RepoUrlError::Empty),
+        SourceError::Both => {
+            "Ya bir GitHub bağlantısı gir ya da hazır bir harness seç — ikisini birden değil."
+        }
+        SourceError::BuiltinForbidden => {
+            "Hazır harness seçme iznin yok — kendi repo bağlantını gir."
+        }
+        SourceError::BuiltinUnknown => "Bilinmeyen hazır harness.",
+    }
+}
+
+/// Stable, greppable slug per reason for the `reason` column. Deliberately a plain string
+/// rather than a check-constrained enum, which a new variant would break on an old database.
+fn source_error_slug(err: SourceError) -> &'static str {
+    use RepoUrlError::*;
+    match err {
+        SourceError::Repo(Empty) => "empty",
+        SourceError::Repo(TooLong) => "too_long",
+        SourceError::Repo(NotAUrl) => "not_a_url",
+        SourceError::Repo(NotGithub) => "not_github",
+        SourceError::Repo(GistLink) => "gist_link",
+        SourceError::Repo(RawFileLink) => "raw_file_link",
+        SourceError::Repo(Credentials) => "credentials",
+        SourceError::Repo(NoRepo) => "no_repo",
+        SourceError::Repo(OwnerOnly) => "owner_only",
+        SourceError::Repo(ReservedOwner) => "reserved_owner",
+        SourceError::Repo(NonAscii) => "non_ascii",
+        SourceError::Repo(BadChars) => "bad_chars",
+        SourceError::Repo(SegmentTooLong) => "segment_too_long",
+        SourceError::Both => "both_sources",
+        SourceError::Neither => "no_source",
+        SourceError::BuiltinForbidden => "builtin_forbidden",
+        SourceError::BuiltinUnknown => "builtin_unknown",
+    }
+}
+
+/// Rejections are diagnostic, not authoritative: a failed insert must never turn a helpful
+/// 400 into a 500, so this swallows its error after a stderr line. Truncation is by chars and
+/// not bytes — the strings that land here are exactly the ones with Turkish letters in them.
+const HARNESS_RAW_INPUT_MAX: usize = 500;
+
+async fn record_rejected_submission(
+    app: &App,
+    user_id: Uuid,
+    team_id: Uuid,
+    raw_input: &str,
+    err: SourceError,
+    benchmark_kind: &str,
+) {
+    let raw: String = raw_input
+        .trim()
+        .chars()
+        .take(HARNESS_RAW_INPUT_MAX)
+        .collect();
+    let done = sqlx::query(
+        "insert into harness_rejected_submissions_exposure_academy
+           (user_id, team_id, raw_input, reason, benchmark_kind)
+         values ($1,$2,$3,$4,$5)",
+    )
+    .bind(user_id)
+    .bind(team_id)
+    .bind(&raw)
+    .bind(source_error_slug(err))
+    .bind(benchmark_kind.trim())
+    .execute(&app.pool)
+    .await;
+    if let Err(error) = done {
+        eprintln!("rejected-submission audit insert failed: {error}");
     }
 }
 
@@ -452,12 +711,25 @@ pub async fn harness_submit(
     let Some(provider) = submitted_provider(user.is_admin, &f.provider) else {
         return Err(bad("Bu sağlayıcıyı kullanma iznin yok."));
     };
-    let Some(repo_url) = submission_source(user.is_admin, &f.repo_url, &f.builtin_harness) else {
-        return Err(bad(if user.is_admin {
-            "GitHub bağlantısı gir veya bir hazır harness seç."
-        } else {
-            "Repo bağlantısı https://github.com/ ile başlamalı."
-        }));
+    let repo_url = match submission_source(user.is_admin, &f.repo_url, &f.builtin_harness) {
+        Ok(url) => url,
+        Err(err) => {
+            // The whole point of the audit table: the next time a student insists he sent a
+            // GitHub link, /admin can show exactly what he sent. The stderr line deliberately
+            // omits the raw input — that's the one field here with a privacy cost, and the
+            // table already holds it behind an admin session.
+            eprintln!("harness submit rejected: user={} reason={err:?}", user.id);
+            record_rejected_submission(
+                &app,
+                user.id,
+                team.id,
+                &f.repo_url,
+                err,
+                &f.benchmark_kind,
+            )
+            .await;
+            return Err(bad(source_error_tr(user.is_admin, err)));
+        }
     };
     let requires_images = benchmark_kind == BenchmarkKind::Arc && is_builtin_harness(&repo_url);
     let Some(model_id) = submitted_model_id(provider, &f.model_id, requires_images) else {
@@ -1638,17 +1910,223 @@ mod tests {
     fn builtin_harnesses_are_admin_only_and_require_a_blank_repo() {
         assert_eq!(
             submission_source(true, "", "forge").as_deref(),
-            Some("builtin://forge")
+            Ok("builtin://forge")
         );
-        assert_eq!(submission_source(false, "", "forge"), None);
         assert_eq!(
             submission_source(true, "https://github.com/example/agent", "").as_deref(),
-            Some("https://github.com/example/agent")
+            Ok("https://github.com/example/agent")
+        );
+        // The three the old `Option` return couldn't tell apart.
+        assert_eq!(
+            submission_source(false, "", "forge"),
+            Err(SourceError::BuiltinForbidden)
         );
         assert_eq!(
             submission_source(true, "https://github.com/example/agent", "forge"),
-            None
+            Err(SourceError::Both)
         );
-        assert_eq!(submission_source(true, "", "unknown"), None);
+        assert_eq!(
+            submission_source(true, "", "unknown"),
+            Err(SourceError::BuiltinUnknown)
+        );
+        assert_eq!(submission_source(false, "", ""), Err(SourceError::Neither));
+    }
+
+    /// Everything a student plausibly pastes has to land on the same repo. Each of these was
+    /// a 400 before, and the message it got said the link didn't start with
+    /// `https://github.com/` — which almost all of them do.
+    #[test]
+    fn github_urls_students_actually_paste_are_normalized() {
+        for raw in [
+            "https://github.com/ali/proje",
+            "  https://github.com/ali/proje  ",
+            "https://github.com/ali/proje/",
+            "https://github.com/ali/proje.git",
+            // the address-bar copy, while browsing a folder
+            "https://github.com/ali/proje/tree/main",
+            "https://github.com/ali/proje/tree/main/src/agent",
+            "https://github.com/ali/proje/blob/main/agent.py",
+            "https://github.com/ali/proje/blob/main/agent.py#L12-L40",
+            "https://github.com/ali/proje/pull/3",
+            "https://github.com/ali/proje/issues",
+            "https://github.com/ali/proje/actions/runs/12345",
+            // what GitHub's own copy button produces
+            "https://github.com/ali/proje?tab=readme-ov-file",
+            "https://github.com/ali/proje#readme",
+            "http://github.com/ali/proje",
+            "https://www.github.com/ali/proje",
+            "github.com/ali/proje",
+            "www.github.com/ali/proje",
+            "git@github.com:ali/proje.git",
+            "ssh://git@github.com/ali/proje.git",
+        ] {
+            assert_eq!(
+                github_repo_url(raw).as_deref(),
+                Ok("https://github.com/ali/proje"),
+                "{raw}"
+            );
+        }
+        // Case and the three legal punctuation marks survive untouched.
+        assert_eq!(
+            github_repo_url("https://github.com/Ali-Veli_1/pro.je-v2/tree/main").as_deref(),
+            Ok("https://github.com/Ali-Veli_1/pro.je-v2")
+        );
+    }
+
+    #[test]
+    fn bad_github_urls_say_exactly_what_is_wrong() {
+        use RepoUrlError::*;
+        for (raw, want) in [
+            ("", Empty),
+            ("   ", Empty),
+            ("https://github.com/ali", OwnerOnly),
+            ("https://github.com/ali/", OwnerOnly),
+            ("https://github.com/", NoRepo),
+            ("https://github.com", NoRepo),
+            ("https://gitlab.com/ali/proje", NotGithub),
+            ("https://huggingface.co/ali/model", NotGithub),
+            // both of these end in something that *looks* like github.com
+            ("https://github.com.evil.com/ali/proje", NotGithub),
+            ("https://notgithub.com/ali/proje", NotGithub),
+            ("https://gist.github.com/ali/abc123", GistLink),
+            (
+                "https://raw.githubusercontent.com/ali/proje/main/a.py",
+                RawFileLink,
+            ),
+            ("https://user:pw@github.com/ali/proje", Credentials),
+            ("https://github.com:8080/ali/proje", Credentials),
+            // the suspected cause of the report this change came from
+            ("https://github.com/ali/ödev-çalışması", NonAscii),
+            ("https://github.com/öğrenci/proje", NonAscii),
+            // ASCII but illegal — must NOT be reported as a Turkish-character problem
+            ("https://github.com/ali/pro je", BadChars),
+            ("https://github.com/orgs/exposure/repositories", ReservedOwner),
+            ("https://github.com/settings/profile", ReservedOwner),
+            ("https://github.com/apps/copilot", ReservedOwner),
+            ("ali/proje", NotAUrl),
+            ("repo linkim bu galiba", NotAUrl),
+        ] {
+            assert_eq!(github_repo_url(raw), Err(want), "{raw}");
+        }
+        assert_eq!(
+            github_repo_url(&"https://github.com/ali/".repeat(200)),
+            Err(TooLong)
+        );
+        assert_eq!(
+            github_repo_url(&format!("https://github.com/{}/x", "a".repeat(60))),
+            Err(SegmentTooLong)
+        );
+    }
+
+    /// The output shape is a contract with the worker, which re-validates it strictly in
+    /// `benchmark-node/src/bin/executor.rs::valid_repo_url` and
+    /// `benchmark-node/adapters/runner.py::valid_repo_url`. Asserted here independently of the
+    /// parser, so loosening the input side can never quietly loosen what we hand downstream.
+    #[test]
+    fn normalized_urls_satisfy_the_worker_contract() {
+        for raw in [
+            "https://github.com/ali/proje/blob/main/agent.py#L12-L40",
+            "https://github.com/ali/proje?tab=readme-ov-file",
+            "git@github.com:ali/proje.git",
+            "ssh://git@github.com/ali/proje.git",
+            "www.github.com/Ali-Veli_1/pro.je-v2",
+            "http://github.com/ali/proje/actions/runs/12345",
+        ] {
+            let url = github_repo_url(raw).expect(raw);
+            let rest = url
+                .strip_prefix("https://github.com/")
+                .unwrap_or_else(|| panic!("{raw} -> {url}"));
+            let parts: Vec<&str> = rest.split('/').collect();
+            assert_eq!(parts.len(), 2, "{raw} -> {url}");
+            for part in &parts {
+                assert!(!part.is_empty(), "{raw} -> {url}");
+                assert!(*part != "." && *part != "..", "{raw} -> {url}");
+                assert!(
+                    part.chars()
+                        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.')),
+                    "{raw} -> {url}"
+                );
+            }
+            assert!(parts[0].len() <= 39 && parts[1].len() <= 100, "{raw}");
+        }
+    }
+
+    /// Every reason has to carry its own advice — collapsing two of them back into one shared
+    /// sentence is precisely the bug this change fixes.
+    #[test]
+    fn every_rejection_reason_has_its_own_turkish_message() {
+        use RepoUrlError::*;
+        const ALL: [RepoUrlError; 13] = [
+            Empty,
+            TooLong,
+            NotAUrl,
+            NotGithub,
+            GistLink,
+            RawFileLink,
+            Credentials,
+            NoRepo,
+            OwnerOnly,
+            ReservedOwner,
+            NonAscii,
+            BadChars,
+            SegmentTooLong,
+        ];
+        let mut seen: Vec<&str> = Vec::new();
+        for err in ALL {
+            let msg = repo_error_tr(err);
+            assert!(!msg.is_empty(), "{err:?}");
+            // the retired one-size-fits-all sentence
+            assert_ne!(msg, "Repo bağlantısı https://github.com/ ile başlamalı.");
+            assert!(!seen.contains(&msg), "{err:?} reuses a message");
+            seen.push(msg);
+        }
+        // The admin/student split at the call site survives.
+        assert_eq!(
+            source_error_tr(true, SourceError::Neither),
+            "GitHub bağlantısı gir veya bir hazır harness seç."
+        );
+        assert_eq!(
+            source_error_tr(false, SourceError::Neither),
+            repo_error_tr(Empty)
+        );
+        assert_eq!(
+            source_error_tr(false, SourceError::Repo(NonAscii)),
+            repo_error_tr(NonAscii)
+        );
+    }
+
+    #[test]
+    fn every_rejection_reason_has_a_stable_slug() {
+        use RepoUrlError::*;
+        const ALL: [SourceError; 17] = [
+            SourceError::Repo(Empty),
+            SourceError::Repo(TooLong),
+            SourceError::Repo(NotAUrl),
+            SourceError::Repo(NotGithub),
+            SourceError::Repo(GistLink),
+            SourceError::Repo(RawFileLink),
+            SourceError::Repo(Credentials),
+            SourceError::Repo(NoRepo),
+            SourceError::Repo(OwnerOnly),
+            SourceError::Repo(ReservedOwner),
+            SourceError::Repo(NonAscii),
+            SourceError::Repo(BadChars),
+            SourceError::Repo(SegmentTooLong),
+            SourceError::Both,
+            SourceError::Neither,
+            SourceError::BuiltinForbidden,
+            SourceError::BuiltinUnknown,
+        ];
+        let mut seen: Vec<&str> = Vec::new();
+        for err in ALL {
+            let slug = source_error_slug(err);
+            assert!(!slug.is_empty(), "{err:?}");
+            assert!(
+                slug.chars().all(|c| c.is_ascii_lowercase() || c == '_'),
+                "{slug} is not a greppable slug"
+            );
+            assert!(!seen.contains(&slug), "{err:?} reuses slug {slug}");
+            seen.push(slug);
+        }
     }
 }

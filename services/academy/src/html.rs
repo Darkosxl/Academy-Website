@@ -99,6 +99,7 @@ const P_TRASH: &str = "m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.1
 const P_GLOBE: &str = "M12 21a9.004 9.004 0 0 0 8.716-6.747M12 21a9.004 9.004 0 0 1-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 0 1 7.843 4.582M12 3a8.997 8.997 0 0 0-7.843 4.582m15.686 0A11.953 11.953 0 0 1 12 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0 1 21 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0 1 12 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 0 1 3 12c0-1.605.42-3.113 1.157-4.418";
 const P_FLAG: &str = "M3 3v1.5M3 21v-6m0 0 2.77-.693a9 9 0 0 1 6.208.682l.108.054a9 9 0 0 0 6.086.71l3.114-.732a48.524 48.524 0 0 1-.005-10.499l-3.11.732a9 9 0 0 1-6.085-.711l-.108-.054a9 9 0 0 0-6.208-.682L3 4.5M3 15V4.5";
 const P_ROCKET: &str = "M15.59 14.37a6 6 0 0 1-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 0 0 6.16-12.12A14.98 14.98 0 0 0 9.631 8.41m5.96 5.96a14.926 14.926 0 0 1-5.841 2.58m-.119-8.54a6 6 0 0 0-7.381 5.84h4.8m2.581-5.84a14.927 14.927 0 0 0-2.58 5.84m2.699 2.7c-.103.021-.207.041-.311.06a15.09 15.09 0 0 1-2.448-2.448 14.9 14.9 0 0 1 .06-.312m-2.24 2.39a4.493 4.493 0 0 0-1.757 4.306 4.493 4.493 0 0 0 4.306-1.758M16.5 9a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0Z";
+const P_GRADE: &str = "M11.35 3.836c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75 2.25 2.25 0 0 0-.1-.664m-5.8 0A2.251 2.251 0 0 1 13.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m8.9-4.414c.376.023.75.05 1.124.08 1.131.094 1.976 1.057 1.976 2.192V16.5A2.25 2.25 0 0 1 18 18.75h-2.25m-7.5-10.5H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25ZM6.75 15.75l1.5 1.5 3-3.75";
 
 fn nav_link(href: &str, page: &str, key: &str, icon: &str, label: &str) -> String {
     nav_link_group(href, page, &[key], icon, label)
@@ -116,7 +117,7 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
         Some(u) => {
             let admin_block = if u.is_admin {
                 format!(
-                    r#"<div class="sb-head">Yönetim</div>{}{}{}{}"#,
+                    r#"<div class="sb-head">Yönetim</div>{}{}{}{}{}"#,
                     nav_link("/admin", active, "admin", &ico(P_ADMIN), "Yönetici paneli"),
                     nav_link(
                         "/admin/beginner-track",
@@ -124,6 +125,13 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
                         "beginner-admin",
                         &ico(P_FLAG),
                         "Beginner Track Gönderimleri"
+                    ),
+                    nav_link(
+                        "/admin/puanlama",
+                        active,
+                        "puanlama",
+                        &ico(P_GRADE),
+                        "Görev Puanlama"
                     ),
                     nav_link(
                         "/admin/takimlar",
@@ -519,6 +527,32 @@ fn harness_stage_tr(stage: &str) -> (&'static str, &'static str) {
         "infra_failed" => ("Altyapı hatası", "st-failed"),
         "cancelled" => ("Durduruldu", "st-failed"),
         _ => ("Başarısız", "st-failed"),
+    }
+}
+
+/// Turkish label per `source_error_slug` (harness.rs), for the rejected-submission log. The
+/// catch-all arm matters: rows outlive the variant that wrote them, and a retired slug should
+/// render as "bilinmeyen" rather than take the admin page down.
+fn harness_reject_reason_tr(reason: &str) -> &'static str {
+    match reason {
+        "empty" => "Boş bırakılmış",
+        "too_long" => "Bağlantı çok uzun",
+        "not_a_url" => "Bağlantı değil",
+        "not_github" => "github.com değil",
+        "gist_link" => "Gist bağlantısı",
+        "raw_file_link" => "Raw dosya bağlantısı",
+        "credentials" => "Kullanıcı adı/şifre/port var",
+        "no_repo" => "Repo adı yok",
+        "owner_only" => "Profil bağlantısı, repo değil",
+        "reserved_owner" => "GitHub'ın kendi sayfası",
+        "non_ascii" => "Türkçe karakter var",
+        "bad_chars" => "Geçersiz karakter",
+        "segment_too_long" => "İsim çok uzun",
+        "both_sources" => "Hem repo hem hazır harness",
+        "no_source" => "Ne repo ne hazır harness",
+        "builtin_forbidden" => "Hazır harness izni yok",
+        "builtin_unknown" => "Bilinmeyen hazır harness",
+        _ => "bilinmeyen",
     }
 }
 
@@ -955,14 +989,16 @@ pub fn agentic_harness_main(
                 None => format!(
                     r##"<form method="post" action="/agentic-harness/submit" class="subform">
     <input type="hidden" name="benchmark_kind" value="{bench}">
-    <input name="repo_url" type="url" placeholder="https://github.com/..." required>
+    <input name="repo_url" type="text" inputmode="url" spellcheck="false"
+      placeholder="https://github.com/kullanici/repo" required>
     {provider_picker}
     <label>model:
       <select name="model_id" required>{model_options}</select>
     </label>
     <button class="btn-dark">Ajanı Gönder →</button>
   </form>
-  <p class="fieldnote">Herhangi bir takım üyesi gönderebilir. Her benchmark için aynı anda tek çalıştırma.
+  <p class="fieldnote">Repo'nun ana sayfasının adresini yapıştır; klasör veya dosya bağlantısı da olur, biz kısaltırız.
+  Herhangi bir takım üyesi gönderebilir. Her benchmark için aynı anda tek çalıştırma.
   Kurallar için <a href="/agentic-harness?tab=instructions" lang="en">Instructions</a> sekmesine bak.</p>"##,
                     provider_picker = provider_picker(STUDENT_PROVIDERS),
                     model_options = provider_models(STUDENT_PROVIDERS),
@@ -1196,7 +1232,8 @@ fn admin_harness_form(bench: &str) -> String {
     format!(
         r##"<form method="post" action="/agentic-harness/submit" class="subform">
     <input type="hidden" name="benchmark_kind" value="{bench}">
-    <input name="repo_url" type="url" placeholder="https://github.com/...">
+    <input name="repo_url" type="text" inputmode="url" spellcheck="false"
+      placeholder="https://github.com/kullanici/repo">
     {builtin_picker}
     {provider_picker}
     <label>model:
@@ -3780,10 +3817,337 @@ pub fn board_locked(
     layout("Görev Panosu", Some(user), "board", &content)
 }
 
+/// What the Görev column shows. Board rows carry a real task title; beginner rows carry
+/// the `project_key`, because titles are a `BEGINNER_PROJECTS` fact and the union query
+/// has no business hardcoding them.
+pub fn grade_row_title(r: &GradeRow) -> String {
+    if r.kind == "beginner" {
+        BEGINNER_PROJECTS
+            .iter()
+            .find(|(k, ..)| *k == r.task_title)
+            .map(|(_, title, ..)| (*title).to_string())
+            .unwrap_or_else(|| r.task_title.clone())
+    } else {
+        r.task_title.clone()
+    }
+}
+
+/// The "Goals:" line of the review prompt: the task's Tanım for board rows, the fixed
+/// one-line summary for Beginner Track ones. Falls back to the title when a task has no
+/// description, so the prompt is never handed an empty goal.
+pub fn grade_row_goal(r: &GradeRow, tasks: &[Task]) -> String {
+    if r.kind == "beginner" {
+        return BEGINNER_PROJECTS
+            .iter()
+            .find(|(k, ..)| *k == r.task_title)
+            .map(|(_, _, summary, _)| (*summary).to_string())
+            .unwrap_or_else(|| grade_row_title(r));
+    }
+    r.task_id
+        .and_then(|id| tasks.iter().find(|t| t.id == id))
+        .map(|t| t.description.trim())
+        .filter(|d| !d.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| r.task_title.clone())
+}
+
+/// Görev Puanlama — the grading queue (grading.rs).
+///
+/// Layout follows the standard admin-table filter pattern: a horizontal filter bar above
+/// the table, segmented chips for the two low-cardinality cuts (Durum, Seviye), a select
+/// for the high-cardinality one (Öğrenci), counts on the chips that reflect the *other*
+/// active filters, and a result count plus a clear-all after the last control. The chips
+/// are the same `.chip` component /videos and /admin/harness already use.
+///
+/// Every control saves by itself (static/grading.js). The `<noscript>` buttons are the
+/// whole no-JS story: with JS on they are not in the DOM, so there is nothing to click
+/// and nothing to forget to click.
+pub fn grading(
+    user: &User,
+    rows: &[GradeRow],
+    tasks: &[Task],
+    members: &[MemberRow],
+    f: &Filters,
+) -> String {
+    // Hidden filter state, repeated into every row form so the no-JS POST → redirect
+    // lands back on the view you were grading from instead of resetting to the queue.
+    let mut filter_fields = String::new();
+    if f.durum != DURUM_DEFAULT {
+        filter_fields.push_str(&format!(
+            r#"<input type="hidden" name="durum" value="{}">"#,
+            esc(&f.durum)
+        ));
+    }
+    if let Some(s) = &f.seviye {
+        filter_fields.push_str(&format!(
+            r#"<input type="hidden" name="seviye" value="{}">"#,
+            esc(s)
+        ));
+    }
+    if let Some(u) = f.ogrenci {
+        filter_fields.push_str(&format!(
+            r#"<input type="hidden" name="ogrenci" value="{u}">"#
+        ));
+    }
+    if f.tum {
+        filter_fields.push_str(r#"<input type="hidden" name="tum" value="1">"#);
+    }
+
+    let durum_chips: String = DURUM_FILTERS
+        .iter()
+        .map(|(key, label)| {
+            let n = rows.iter().filter(|r| durum_matches(key, &r.status)).count();
+            format!(
+                r#"<a class="chip {active}" href="{href}">{label}<span class="chip-count">{n}</span></a>"#,
+                active = if f.durum == *key { "active" } else { "" },
+                href = esc(&f.with_durum(key).url()),
+            )
+        })
+        .collect();
+
+    let seviye_chips: String = std::iter::once((None, "Hepsi"))
+        .chain(LEVELS.iter().map(|(k, v)| (Some(*k), *v)))
+        .map(|(key, label)| {
+            format!(
+                r#"<a class="chip {active}" href="{href}">{label}</a>"#,
+                active = if f.seviye.as_deref() == key {
+                    "active"
+                } else {
+                    ""
+                },
+                href = esc(&f.with_seviye(key).url()),
+            )
+        })
+        .collect();
+
+    let student_opts: String =
+        std::iter::once(r#"<option value="">Tüm öğrenciler</option>"#.to_string())
+            .chain(members.iter().filter(|m| !m.is_admin).map(|m| {
+                format!(
+                    r#"<option value="{id}"{sel}>{name}</option>"#,
+                    id = m.id,
+                    sel = if f.ogrenci == Some(m.id) {
+                        " selected"
+                    } else {
+                        ""
+                    },
+                    name = esc(&m.display_name),
+                )
+            }))
+            .collect();
+
+    let shown: Vec<&GradeRow> = rows
+        .iter()
+        .filter(|r| durum_matches(&f.durum, &r.status))
+        .collect();
+
+    let sub_rows: String = shown
+        .iter()
+        .map(|r| grading_row(r, tasks, &filter_fields))
+        .collect();
+    let empty_row = if shown.is_empty() {
+        r#"<tr><td colspan="10" class="muted empty-row">Bu filtreye uyan gönderim yok.</td></tr>"#
+    } else {
+        ""
+    };
+
+    let clear = if f.is_narrowed() {
+        r#"<a class="filter-clear" href="/admin/puanlama?durum=hepsi">Filtreleri temizle</a>"#
+    } else {
+        ""
+    };
+
+    let content = format!(
+        r##"<div id="grading-root" data-durum="{durum}">
+<h1 class="pagetitle">Görev Puanlama</h1>
+
+<section class="panel wide">
+  <div class="panel-head">
+    <h2>Gönderimler</h2>
+    <a class="btn-dark small" href="/admin/puanlama/prompts.txt{qs}">⬇ Prompts .txt</a>
+  </div>
+
+  <div class="filterbar">
+    <span class="filter-label">Durum</span>
+    <div class="chips">{durum_chips}</div>
+  </div>
+  <div class="filterbar">
+    <span class="filter-label">Seviye</span>
+    <div class="chips">{seviye_chips}</div>
+  </div>
+  <form class="filterbar" method="get" action="/admin/puanlama">
+    {filter_fields_get}
+    <span class="filter-label">Öğrenci</span>
+    <select name="ogrenci" onchange="this.form.submit()">{student_opts}</select>
+    <label class="checkline"><input type="checkbox" name="tum" value="1"{tum_checked}
+      onchange="this.form.submit()"> Tüm denemeler</label>
+    <noscript><button class="btn-dark small">Uygula</button></noscript>
+    <span class="filter-count">{total} gönderim · {count} gösteriliyor</span>
+    {clear}
+  </form>
+
+  <p class="muted">Değişiklikler otomatik kaydedilir — ayrı bir kaydetme adımı yok.
+  Puan kutusu boşsa görevin seviye varsayılanı geçerlidir (Beginner {PTS_PROJECT_L1},
+  Intermediate {PTS_PROJECT_L2}, Advanced {PTS_PROJECT_L3}). Puan yalnızca durum "Geçti" ise sayılır.</p>
+  <p class="muted">Varsayılan olarak her öğrencinin her görevdeki <b>en son</b> denemesi listelenir;
+  eskiler için "Tüm denemeler"i aç. Canlı site adresleri arka planda otomatik bulunur (repo'nun
+  <code>homepage</code> alanı, yoksa GitHub Pages adresi). Beginner Track satırlarında site adresi
+  öğrencinin kendi girdiği Vercel bağlantısıdır, buradan değiştirilmez.</p>
+
+  <table>
+    <tr><th>Öğrenci</th><th>Görev</th><th>Repo</th><th>Site</th><th>Plan</th><th>Gönderim</th>
+        <th>Durum</th><th>Puan</th><th>Geri bildirim</th><th></th></tr>
+    {sub_rows}{empty_row}
+  </table>
+</section>
+</div>
+<script src="/static/grading.js?v=1" defer></script>"##,
+        qs = esc(&f.query_string()),
+        // grading.js reads this to decide whether a row it just saved still belongs in
+        // the current queue — see .row-left-queue
+        durum = esc(&f.durum),
+        // the GET form re-submits durum/seviye as hidden inputs so changing Öğrenci
+        // doesn't silently drop the chips above it
+        filter_fields_get = {
+            let mut s = String::new();
+            if f.durum != DURUM_DEFAULT {
+                s.push_str(&format!(
+                    r#"<input type="hidden" name="durum" value="{}">"#,
+                    esc(&f.durum)
+                ));
+            }
+            if let Some(v) = &f.seviye {
+                s.push_str(&format!(
+                    r#"<input type="hidden" name="seviye" value="{}">"#,
+                    esc(v)
+                ));
+            }
+            s
+        },
+        tum_checked = if f.tum { " checked" } else { "" },
+        total = rows.len(),
+        count = shown.len(),
+    );
+    layout("Görev Puanlama", Some(user), "puanlama", &content)
+}
+
+/// One queue row. The three graded fields (Durum, Puan, Geri bildirim) each sit in their
+/// own column but post as one form via the `form=` attribute — a `<form>` can't span table
+/// cells, and cramming them into a single cell is what made the old table hard to read.
+fn grading_row(r: &GradeRow, tasks: &[Task], filter_fields: &str) -> String {
+    let form_id = format!("rev-{}", r.key);
+    let status_opts: String = GRADE_STATUSES
+        .iter()
+        .map(|(k, v)| {
+            format!(
+                r#"<option value="{k}"{sel}>{v}</option>"#,
+                sel = if *k == r.status { " selected" } else { "" },
+            )
+        })
+        .collect();
+    let plan = r
+        .plan_md
+        .as_deref()
+        .filter(|p| !p.trim().is_empty())
+        .map(|p| {
+            format!(
+                r#"<details class="plan-details"><summary>Plan</summary><pre class="plan-pre">{}</pre></details>"#,
+                esc(p)
+            )
+        })
+        .unwrap_or_else(|| "—".into());
+
+    // Beginner Track rows are Beginner by definition, so the badge is honest, but they
+    // still need to be distinguishable from a board görev at a glance.
+    let beginner_tag = if r.kind == "beginner" {
+        r#" <span class="tag-beginner" lang="en">Beginner Track</span>"#
+    } else {
+        ""
+    };
+    let attempt_tag = if r.attempts > 1 {
+        format!(
+            r#" <span class="tag-attempt" title="Bu öğrencinin bu görevdeki {n}. denemesi">⟳ {n}. deneme</span>"#,
+            n = r.attempts
+        )
+    } else {
+        String::new()
+    };
+
+    // The site cell is an editable override for board rows and a plain link for beginner
+    // ones, whose vercel_url belongs to the student.
+    let site = if r.kind == "beginner" {
+        r.live_url
+            .as_deref()
+            .filter(|u| u.starts_with("http"))
+            .map(|u| {
+                format!(
+                    r#"<a href="{url}" target="_blank" rel="noopener">site ↗</a>"#,
+                    url = esc(u)
+                )
+            })
+            .unwrap_or_else(|| "—".into())
+    } else {
+        format!(
+            r##"<form method="post" action="/admin/puanlama/live" class="inline" data-live-form>
+  <input type="hidden" name="key" value="{key}">{filter_fields}
+  <input name="live_url" type="url" value="{live}" placeholder="https://... (boş = yok)"
+    title="Canlı site adresi — boş bırakıp kaydetmek adresi siler">
+  <noscript><button class="btn-dark small">Kaydet</button></noscript>
+</form>{live_open}"##,
+            key = esc(&r.key),
+            filter_fields = filter_fields,
+            live = esc(r.live_url.as_deref().unwrap_or("")),
+            live_open = r
+                .live_url
+                .as_deref()
+                .filter(|u| u.starts_with("http"))
+                .map(|u| format!(
+                    r#" <a href="{}" target="_blank" rel="noopener">↗</a>"#,
+                    esc(u)
+                ))
+                .unwrap_or_default(),
+        )
+    };
+
+    format!(
+        r##"<tr data-kind="{kind}" data-key="{key}" data-status="{status}">
+<td><div class="cell-name">{student}</div><div class="cell-sub">{email}</div></td>
+<td><div class="cell-name">{task}</div><div class="cell-sub"><span class="badge {lvl_class}">{lvl}</span>{beginner_tag}{attempt_tag}</div></td>
+<td><a href="{url}" target="_blank" rel="noopener">repo</a><button type="button" class="btn-copy" data-prompt="{prompt}">⧉ Prompt</button></td>
+<td>{site}</td>
+<td>{plan}</td>
+<td class="nowrap">{date}</td>
+<td><select form="{form_id}" name="status">{status_opts}</select></td>
+<td><input class="pts-input" form="{form_id}" type="number" min="0" step="1" name="points" value="{pts}"
+     placeholder="{pts_default}" title="Boş bırakırsan {lvl} varsayılanı olan {pts_default} puan verilir"></td>
+<td><input class="fb-input" form="{form_id}" name="feedback" placeholder="Geri bildirim" value="{fb}"></td>
+<td><form method="post" action="/admin/puanlama/review" class="inline" id="{form_id}">
+  <input type="hidden" name="kind" value="{kind}">
+  <input type="hidden" name="key" value="{key}">{filter_fields}
+  <span class="rowsave" aria-live="polite"></span>
+  <noscript><button class="btn-dark small">Kaydet</button></noscript>
+</form></td></tr>"##,
+        kind = esc(&r.kind),
+        key = esc(&r.key),
+        status = esc(&r.status),
+        student = esc(&r.display_name),
+        email = esc(&r.email),
+        task = esc(&grade_row_title(r)),
+        lvl = level_name(&r.task_level),
+        lvl_class = level_badge_class(&r.task_level),
+        url = esc(&r.repo_url),
+        prompt = esc(&review_prompt(&r.repo_url, &grade_row_goal(r, tasks))),
+        date = r.created_at.format("%d.%m.%Y %H:%M"),
+        pts = r.points_override.map(|p| p.to_string()).unwrap_or_default(),
+        pts_default = level_points(&r.task_level),
+        fb = esc(r.feedback.as_deref().unwrap_or("")),
+        filter_fields = filter_fields,
+    )
+}
+
 pub fn admin(
     user: &User,
     stats: &[StatRow],
-    subs: &[SubmissionView],
     videos: &[Video],
     tasks: &[Task],
     members: &[MemberRow],
@@ -3820,57 +4184,6 @@ pub fn admin(
             )
         })
         .collect();
-    let sub_rows: String = subs.iter().map(|s| {
-        // preselect the submission's actual status so saving without touching the
-        // dropdown doesn't silently reset it to "pending"
-        let status_opts: String = [
-            ("pending", "İnceleme bekleniyor"), ("reviewing", "İnceleniyor"),
-            ("passed", "Geçti"), ("failed", "Başarısız"),
-        ].iter().map(|(k, v)| format!(
-            r#"<option value="{k}"{sel}>{v}</option>"#,
-            sel = if *k == s.status { " selected" } else { "" },
-        )).collect();
-        let plan = s.plan_md.as_deref().filter(|p| !p.trim().is_empty())
-            .map(|p| format!(r#"<details class="plan-details"><summary>Plan</summary><pre class="plan-pre">{}</pre></details>"#, esc(p)))
-            .unwrap_or_else(|| "—".into());
-        // The review prompt needs the task's Tanım, which SubmissionView doesn't carry
-        // (it flattens the task to title + level). `tasks` is already here, so match on
-        // task_id in memory rather than widening the query — same as board() does.
-        let goal = tasks.iter().find(|t| t.id == s.task_id)
-            .map(|t| t.description.trim()).filter(|d| !d.is_empty())
-            .unwrap_or(&s.task_title);
-        // The Puan box sits in its own column but posts with the review form via the
-        // `form=` attribute — a <form> can't span table cells, so this is what keeps
-        // it a real column instead of a second control crammed into the last one.
-        // Blank shows the level default as placeholder: that is what it will score.
-        let form_id = format!("rev-{}", s.id);
-        format!(
-            r##"<tr><td>{student}</td><td>{email}</td><td>{task}</td><td><a href="{url}" target="_blank" rel="noopener">repo</a><button type="button" class="btn-copy" data-prompt="{prompt}">⧉ Prompt</button></td>
-<td><form method="post" action="/admin/submission/live" class="inline">
-  <input type="hidden" name="id" value="{id}">
-  <input name="live_url" type="url" value="{live}" placeholder="https://... (boş = yok)" title="Canlı site adresi — boş bırakıp kaydetmek adresi siler">
-  <button class="btn-dark small">Kaydet</button>
-</form>{live_open}</td><td>{plan}</td><td>{date}</td>
-<td><input class="pts-input" form="{form_id}" type="number" min="0" step="1" name="points" value="{pts}"
-     placeholder="{pts_default}" title="Boş bırakırsan {level} varsayılanı olan {pts_default} puan verilir"></td>
-<td><form method="post" action="/admin/review" class="inline" id="{form_id}">
-  <input type="hidden" name="id" value="{id}">
-  <select name="status">{status_opts}</select>
-  <input name="feedback" placeholder="Geri bildirim" value="{fb}">
-  <button class="btn-dark small">Kaydet</button>
-</form></td></tr>"##,
-            student = esc(&s.display_name), email = esc(&s.email), task = esc(&s.task_title),
-            url = esc(&s.repo_url), prompt = esc(&review_prompt(&s.repo_url, goal)),
-            date = s.created_at.format("%d.%m.%Y %H:%M"),
-            live = esc(s.live_url.as_deref().unwrap_or("")),
-            live_open = s.live_url.as_deref().filter(|u| u.starts_with("http"))
-                .map(|u| format!(r#" <a href="{}" target="_blank" rel="noopener">↗</a>"#, esc(u)))
-                .unwrap_or_default(),
-            id = s.id, fb = esc(s.feedback.as_deref().unwrap_or("")),
-            pts = s.points_override.map(|p| p.to_string()).unwrap_or_default(),
-            pts_default = level_points(&s.task_level), level = level_name(&s.task_level),
-        )
-    }).collect();
     let video_rows: String = videos.iter().map(|v| format!(
         r##"<div class="itemrow">
   <div class="item-title"><span>{title}</span><span class="item-meta">{yt}</span></div>
@@ -4001,6 +4314,29 @@ pub fn admin(
 </div>"##,
                 team = esc(&r.team_name), date = r.created_at.format("%d.%m.%Y %H:%M"), id = r.id)
         }).collect()
+    };
+    // The rejected-submission log. `raw_input` is unvalidated student text — the only place in
+    // this feature where it reaches HTML — so it goes through esc() like everything else here.
+    let harness_rejected_rows: String = if harness.rejected.is_empty() {
+        "<p class='muted'>Reddedilen gönderim yok</p>".into()
+    } else {
+        harness
+            .rejected
+            .iter()
+            .map(|r| {
+                format!(
+                    r##"<div class="itemrow">
+  <div class="item-title"><span>{who}</span><span class="item-meta">{team} · {date}</span><span class="substatus st-failed">{reason}</span></div>
+  <div class="item-meta"><code>{raw}</code></div>
+</div>"##,
+                    who = esc(r.display_name.as_deref().unwrap_or("(silinmiş öğrenci)")),
+                    team = esc(r.team_name.as_deref().unwrap_or("takımsız")),
+                    date = r.created_at.format("%d.%m.%Y %H:%M"),
+                    reason = harness_reject_reason_tr(&r.reason),
+                    raw = esc(&r.raw_input),
+                )
+            })
+            .collect()
     };
     // AI Monopoly mirrors the harness block above: same interim team management, plus
     // the start button and the running tournament's stop hatch.
@@ -4169,6 +4505,11 @@ pub fn admin(
   takılı kalmış çalıştırmalar kurtarılır.</p>
   <p class="muted">Aktif çalıştırmalar</p>
   <div class="minilist">{harness_run_rows}</div>
+  <p class="muted">Reddedilen gönderimler (son 50)</p>
+  <p class="fieldnote">Öğrencinin yapıştırdığı bağlantı ve neden kabul edilmediği.
+  30 günden eski kayıtlar silinir. Burada kayıt yoksa bağlantı kabul edilmiş demektir —
+  sorun klonlamada (özel repo gibi), çalıştırmanın hata kaydına bak.</p>
+  <div class="minilist">{harness_rejected_rows}</div>
 </section>
 
 <section class="panel">
@@ -4197,18 +4538,6 @@ pub fn admin(
   <table><tr><th>Öğrenci</th><th>Video</th><th>İlerleme</th><th>Toplam süre</th><th>Son izleme</th></tr>{stat_rows}</table>
 </section>
 
-<section class="panel wide">
-  <div class="panel-head">
-    <h2>Gönderimler</h2>
-    <a class="btn-dark small" href="/admin/prompts.txt">⬇ Prompts .txt</a>
-  </div>
-  <p class="muted">Puan kutusu boşsa görevin seviye varsayılanı geçerlidir (Beginner {PTS_PROJECT_L1},
-  Intermediate {PTS_PROJECT_L2}, Advanced {PTS_PROJECT_L3}). Puan yalnızca durum "Geçti" ise sayılır.</p>
-  <p class="muted">Canlı site adresleri arka planda otomatik bulunur (repo'nun <code>homepage</code> alanı,
-  yoksa GitHub Pages adresi); öğrenci projesini yayına aldıktan sonra en geç birkaç dakika içinde görünür.
-  Hiç bulunamayanı Site kutusuna elle yazabilirsin — elle girilen adres barındırma listesine takılmaz.</p>
-  <table><tr><th>Öğrenci</th><th>E-posta</th><th>Görev</th><th>Repo</th><th>Site</th><th>Plan</th><th>Gönderim</th><th>Puan</th><th></th></tr>{sub_rows}</table>
-</section>
 </div>
 <script src="/static/admin.js?v=6" defer></script>"##
         ),
@@ -4470,9 +4799,9 @@ mod tests {
         assert!(html.contains("<label>model:"));
         assert!(html.contains(r#"<select name="model_id" required>"#));
         assert!(html.contains(r#"name="benchmark_kind" value="arc""#));
-        assert!(html.contains(
-            r#"name="repo_url" type="url" placeholder="https://github.com/..." required"#
-        ));
+        // type=text, not type=url: the browser's own validation fired before the POST and
+        // showed a native, untranslatable bubble for links the server now accepts.
+        assert!(html.contains(r#"name="repo_url" type="text" inputmode="url""#));
         assert!(!html.contains(r#"name="builtin_harness""#));
         assert!(html.contains(r#"<select name="provider""#));
         // Two provider options plus every Cerebras and DeepInfra model, nothing from Bedrock.
@@ -4526,16 +4855,12 @@ mod tests {
         assert!(html.contains(r#"<select name="builtin_harness""#));
         assert!(html.contains(r#"<option value="forge">Forge</option>"#));
         assert!(html.contains(r#"<option value="reki">Reki</option>"#));
-        assert!(
-            html.contains(
-                r#"value="google.gemma-4-31b" data-provider="bedrock" disabled data-image="true""#
-            )
-        );
-        assert!(
-            !html.contains(
-                r#"value="openai.gpt-oss-120b" data-provider="bedrock" disabled data-image="true""#
-            )
-        );
+        assert!(html.contains(
+            r#"value="google.gemma-4-31b" data-provider="bedrock" disabled data-image="true""#
+        ));
+        assert!(!html.contains(
+            r#"value="openai.gpt-oss-120b" data-provider="bedrock" disabled data-image="true""#
+        ));
         assert!(!html.contains(r#"placeholder="https://github.com/..." required"#));
     }
 
