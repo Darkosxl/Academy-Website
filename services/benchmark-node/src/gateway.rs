@@ -1010,7 +1010,7 @@ mod tests {
                 "messages": messages,
                 "temperature": 2,
                 "stream": false,
-                "max_tokens": 9000
+                "max_tokens": 90000
             }),
             "xai.grok-4.3",
             "none",
