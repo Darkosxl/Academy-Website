@@ -252,7 +252,7 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/style.css?v=33">
+<link rel="stylesheet" href="/static/style.css?v=34">
 <script>if('scrollRestoration'in history)history.scrollRestoration='manual';</script>
 </head>
 <body class="{body_class}">
@@ -2627,7 +2627,7 @@ pub fn admin_beginner_list(
     counts: &[BeginnerProjectCount],
     student_total: i64,
 ) -> String {
-    let rows: String = BEGINNER_PROJECTS
+    let cards: String = BEGINNER_PROJECTS
         .iter()
         .map(|(key, title, summary, _)| {
             let submitted = counts
@@ -2635,11 +2635,22 @@ pub fn admin_beginner_list(
                 .find(|c| c.project_key == *key)
                 .map(|c| c.submitted)
                 .unwrap_or(0);
+            // Percent drives the bar width only. Guard the divide: an empty academy
+            // (no students yet) would otherwise be 0/0.
+            let pct = if student_total > 0 {
+                (submitted * 100 / student_total).clamp(0, 100)
+            } else {
+                0
+            };
+            // Zero submissions gets the muted badge — a bright blue "0" reads as a score
+            // rather than as "nobody has handed this in".
+            let badge = if submitted > 0 { "badge" } else { "badge badge-zero" };
             format!(
-                r##"<a class="beginner-adminrow" href="/admin/beginner-track?proje={key}">
-  <span class="ba-title">{title}</span>
-  <span class="ba-desc">{summary}</span>
-  <span class="ba-count">{submitted}/{student_total}</span>
+                r##"<a class="taskcard ba-card" href="/admin/beginner-track?proje={key}">
+  <div class="taskhead"><h3>{title}</h3><span class="{badge}">{submitted}/{student_total}</span></div>
+  <p class="desc">{summary}</p>
+  <div class="ba-bar"><span style="width:{pct}%"></span></div>
+  <span class="ba-go">Gönderimleri gör →</span>
 </a>"##,
                 title = esc(title),
                 summary = esc(summary),
@@ -2653,7 +2664,7 @@ pub fn admin_beginner_list(
         &format!(
             r##"<h1 class="pagetitle">Beginner Track Gönderimleri</h1>
 <p class="muted">Bir projeye tıkla, o projeyi gönderen öğrencilerin GitHub ve Vercel bağlantılarını gör.</p>
-<div class="panel wide">{rows}</div>"##
+<div class="tasks">{cards}</div>"##
         ),
     )
 }
@@ -2673,7 +2684,7 @@ pub fn admin_beginner_project(user: &User, key: &str, rows: &[BeginnerStudentRow
     // an http(s) scheme on the live one, so neither can be a javascript: payload here.
     let link_cell = |url: &Option<String>, label: &str| match url {
         Some(u) if !u.is_empty() => format!(
-            r#"<a href="{href}" target="_blank" rel="noopener" title="{href}">{label} ↗</a>"#,
+            r#"<a class="ba-link" href="{href}" target="_blank" rel="noopener" title="{href}">{label} ↗</a>"#,
             href = esc(u),
         ),
         _ => r#"<span class="ba-missing">—</span>"#.to_string(),
@@ -2682,12 +2693,13 @@ pub fn admin_beginner_project(user: &User, key: &str, rows: &[BeginnerStudentRow
         .iter()
         .map(|r| {
             format!(
-                r##"<tr>
+                r##"<tr class="{row_class}">
   <td>{name}</td>
   <td>{repo}</td>
   <td>{vercel}</td>
   <td class="ba-when">{when}</td>
 </tr>"##,
+                row_class = if r.repo_url.is_some() { "" } else { "ba-empty" },
                 name = esc(&r.display_name),
                 repo = link_cell(&r.repo_url, "GitHub"),
                 vercel = link_cell(&r.vercel_url, "Vercel"),

@@ -642,24 +642,33 @@ form.inline input, form.inline select { margin-top:0; width:auto; }
 .item-controls .urlform { flex:1 1 100%; }
 .item-controls .urlform input { flex:1; min-width:0; }
 
-/* Beginner Track gönderimleri (admin) — proje listesi. Her satır tıklanabilir bir
-   blok: solda başlık + açıklama, sağda kaç öğrencinin gönderdiği. Dar ekranda
-   açıklama satır atlar, sayaç sağda kalır. */
-.beginner-adminrow {
-  display:grid; grid-template-columns:1fr auto; gap:2px 16px; align-items:baseline;
-  padding:14px 0; border-bottom:1px solid var(--border-subtle); text-decoration:none;
+/* ---- Beginner Track gönderimleri (admin) ----
+   Proje listesi öğrencinin gördüğü .taskcard ızgarasını yeniden kullanır; buradaki
+   kurallar yalnızca kartı tıklanabilir bir bloğa çevirir ve doluluk çubuğunu ekler. */
+.ba-card { display:flex; flex-direction:column; }
+.ba-card .desc { flex:1; }
+.ba-card .taskhead h3 { font-size:var(--fs-body); line-height:1.4; }
+/* Sayaç rozeti tabular — 2/40 ile 13/40 aynı genişlikte durur, kartlar zıplamaz */
+.ba-card .badge { font-variant-numeric:tabular-nums; letter-spacing:0; }
+.badge.badge-zero { background:var(--bg-raised); color:var(--text-subtle); }
+/* Doluluk çubuğu: kaç öğrencinin gönderdiğini kart taranırken tek bakışta verir */
+.ba-bar { height:4px; border-radius:var(--r-pill); background:var(--border-subtle); overflow:hidden; }
+.ba-bar > span { display:block; height:100%; border-radius:var(--r-pill); background:var(--blue-text); }
+.ba-go { margin-top:12px; font-size:var(--fs-mini); font-weight:600; color:var(--blue-text); }
+.ba-card:hover .ba-go { text-decoration:underline; }
+
+/* Proje detayı: öğrenci tablosu. Bağlantılar rozet gibi — tıklama hedefi metin
+   genişliğinde kalmasın, boş hücreyle karışmasın. */
+.portal .ba-link {
+  display:inline-flex; align-items:center; gap:4px; padding:3px 10px;
+  border:1px solid var(--border-card); border-radius:var(--r-pill);
+  font-size:var(--fs-mini); font-weight:600; color:var(--blue-text); white-space:nowrap;
 }
-.beginner-adminrow:last-child { border-bottom:none; }
-.beginner-adminrow:hover .ba-title { text-decoration:underline; }
-.ba-title { font-size:var(--fs-xs); font-weight:600; color:var(--text-body); }
-.ba-desc { grid-column:1; font-size:var(--fs-mini); color:var(--text-subtle); line-height:1.6; }
-.ba-count {
-  grid-row:1 / span 2; grid-column:2; align-self:center; white-space:nowrap;
-  font-size:var(--fs-xs); font-weight:600; color:var(--blue-text); font-variant-numeric:tabular-nums;
-}
-/* Gönderim yapmayan öğrencinin boş hücresi ve tarih sütunu — okunur ama öne çıkmaz */
+.portal .ba-link:hover { border-color:var(--blue-40); background:var(--blue-15); }
 .portal .ba-missing { color:var(--text-faint); }
 .portal td.ba-when { color:var(--text-subtle); white-space:nowrap; font-variant-numeric:tabular-nums; }
+/* Gönderim yapmamış satır komple soluk — "kim eksik" listeye bakarken göze çarpsın */
+.portal tr.ba-empty td:first-child { color:var(--text-subtle); }
 
 /* ============================================================================
    MOBILE NAV — the drawer chrome. Hidden on desktop; the @media block below is
