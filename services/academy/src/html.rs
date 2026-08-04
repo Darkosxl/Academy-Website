@@ -252,7 +252,7 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/style.css?v=34">
+<link rel="stylesheet" href="/static/style.css?v=35">
 <script>if('scrollRestoration'in history)history.scrollRestoration='manual';</script>
 </head>
 <body class="{body_class}">
@@ -2626,6 +2626,7 @@ pub fn admin_beginner_list(
     user: &User,
     counts: &[BeginnerProjectCount],
     student_total: i64,
+    gaps: &[&str],
 ) -> String {
     let cards: String = BEGINNER_PROJECTS
         .iter()
@@ -2664,14 +2665,35 @@ pub fn admin_beginner_list(
         &format!(
             r##"<h1 class="pagetitle">Beginner Track Gönderimleri</h1>
 <p class="muted">Bir projeye tıkla, o projeyi gönderen öğrencilerin GitHub ve Vercel bağlantılarını gör.</p>
-<div class="tasks">{cards}</div>"##
+{warn}
+<div class="tasks">{cards}</div>"##,
+            warn = roster_gap_note(gaps),
         ),
+    )
+}
+
+/// Names on `BEGINNER_ROSTER` that match no account. Rendered on both admin views so a
+/// misspelled roster line (or a student who never signed up) is visible instead of just
+/// being an absent row. Empty list renders nothing.
+fn roster_gap_note(gaps: &[&str]) -> String {
+    if gaps.is_empty() {
+        return String::new();
+    }
+    format!(
+        r##"<p class="ba-warn">⚠ Listede olup portalda hesabı bulunmayan {n} isim: {names}. Kayıt olmamış olabilirler ya da adları portalda farklı yazılmış olabilir.</p>"##,
+        n = gaps.len(),
+        names = esc(&gaps.join(", ")),
     )
 }
 
 /// Admin view, step 2: one project, every student, their two links. Students with no
 /// submission sort last and show an em dash — the page is also the "who is behind" list.
-pub fn admin_beginner_project(user: &User, key: &str, rows: &[BeginnerStudentRow]) -> String {
+pub fn admin_beginner_project(
+    user: &User,
+    key: &str,
+    rows: &[BeginnerStudentRow],
+    gaps: &[&str],
+) -> String {
     let (_, title, summary, _) = BEGINNER_PROJECTS
         .iter()
         .find(|(k, ..)| *k == key)
@@ -2718,6 +2740,7 @@ pub fn admin_beginner_project(user: &User, key: &str, rows: &[BeginnerStudentRow
             r##"<p class="fieldnote"><a href="/admin/beginner-track">← Tüm projeler</a></p>
 <h1 class="pagetitle">{title}</h1>
 <p class="muted">{summary}</p>
+{warn}
 <div class="panel wide">
   <div class="panel-head"><h2>Öğrenciler</h2><span class="item-meta">{submitted}/{total} gönderdi</span></div>
   <table>
@@ -2728,6 +2751,7 @@ pub fn admin_beginner_project(user: &User, key: &str, rows: &[BeginnerStudentRow
             title = esc(title),
             summary = esc(summary),
             total = rows.len(),
+            warn = roster_gap_note(gaps),
         ),
     )
 }

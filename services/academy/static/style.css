@@ -669,6 +669,12 @@ form.inline input, form.inline select { margin-top:0; width:auto; }
 .portal td.ba-when { color:var(--text-subtle); white-space:nowrap; font-variant-numeric:tabular-nums; }
 /* Gönderim yapmamış satır komple soluk — "kim eksik" listeye bakarken göze çarpsın */
 .portal tr.ba-empty td:first-child { color:var(--text-subtle); }
+/* Listede olup hesabı olmayan isimler — hata değil, dikkat çekmesi gereken bir uyumsuzluk */
+.ba-warn {
+  margin-top:16px; padding:10px 14px; border-radius:var(--r-xl);
+  border:1px solid var(--warn-border); background:var(--warn-bg);
+  font-size:var(--fs-xs); color:var(--warn-text); line-height:1.6;
+}
 
 /* ============================================================================
    MOBILE NAV — the drawer chrome. Hidden on desktop; the @media block below is

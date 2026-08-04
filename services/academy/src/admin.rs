@@ -137,8 +137,25 @@ pub struct BeginnerAdminQ {
     proje: Option<String>,
 }
 
+/// Roster names with no matching account, so the page can say so instead of just
+/// rendering a short table. `have` is the set of display names actually in the database.
+fn roster_gaps(have: &[String]) -> Vec<&'static str> {
+    BEGINNER_ROSTER
+        .iter()
+        .filter(|n| {
+            let key = roster_key(n);
+            !have.iter().any(|h| roster_key(h) == key)
+        })
+        .copied()
+        .collect()
+}
+
 /// Admin-only read of the Beginner Track submissions. No editing: students own their
 /// own links, this page only has to make them clickable and show who is missing.
+///
+/// Scoped to `BEGINNER_ROSTER`. Filtering happens in Rust rather than in SQL because the
+/// match is on the normalized name (`roster_key`), and because the same pass produces the
+/// list of roster names that matched nothing — which the page shows as a warning.
 pub async fn admin_beginner_page(
     State(app): State<App>,
     headers: HeaderMap,
@@ -152,28 +169,46 @@ pub async fn admin_beginner_page(
         .as_deref()
         .filter(|k| html::BEGINNER_PROJECTS.iter().any(|(pk, ..)| pk == k));
     let Some(key) = project else {
-        let counts = sqlx::query_as::<_, BeginnerProjectCount>(
-            "select project_key, count(*) as submitted
-             from beginner_submissions_exposure_academy s
-             join users_exposure_academy u on u.id = s.user_id
-             where not u.is_admin
-             group by project_key",
+        // Both queries come back unfiltered and get narrowed to the roster below. The
+        // whole academy is a few dozen rows, so this is cheaper than it looks and keeps
+        // the roster match in one place.
+        let enrolled: Vec<String> = sqlx::query_scalar(
+            "select display_name from users_exposure_academy where not is_admin",
         )
         .fetch_all(&app.pool)
         .await
         .unwrap_or_default();
-        let students: i64 = sqlx::query_scalar(
-            "select count(*) from users_exposure_academy where not is_admin",
+        let subs: Vec<(String, String)> = sqlx::query_as(
+            "select u.display_name, s.project_key
+             from beginner_submissions_exposure_academy s
+             join users_exposure_academy u on u.id = s.user_id
+             where not u.is_admin",
         )
-        .fetch_one(&app.pool)
+        .fetch_all(&app.pool)
         .await
-        .unwrap_or(0);
-        return Ok(Html(html::admin_beginner_list(&user, &counts, students)));
+        .unwrap_or_default();
+        let counts: Vec<BeginnerProjectCount> = html::BEGINNER_PROJECTS
+            .iter()
+            .map(|(pk, ..)| BeginnerProjectCount {
+                project_key: (*pk).to_string(),
+                submitted: subs
+                    .iter()
+                    .filter(|(name, k)| k == pk && in_beginner_roster(name))
+                    .count() as i64,
+            })
+            .collect();
+        let on_track = enrolled.iter().filter(|n| in_beginner_roster(n)).count() as i64;
+        return Ok(Html(html::admin_beginner_list(
+            &user,
+            &counts,
+            on_track,
+            &roster_gaps(&enrolled),
+        )));
     };
-    // Left join from the roster, not from the submissions: a student who hasn't handed
+    // Left join from the students, not from the submissions: a student who hasn't handed
     // this one in is a row with empty cells, which is the thing the admin is looking for.
     // Real names — this is the admin side, the nickname is only a public-facing handle.
-    let rows = sqlx::query_as::<_, BeginnerStudentRow>(
+    let all = sqlx::query_as::<_, BeginnerStudentRow>(
         "select u.display_name, s.repo_url, s.vercel_url, s.updated_at
          from users_exposure_academy u
          left join beginner_submissions_exposure_academy s
@@ -185,7 +220,17 @@ pub async fn admin_beginner_page(
     .fetch_all(&app.pool)
     .await
     .unwrap_or_default();
-    Ok(Html(html::admin_beginner_project(&user, key, &rows)))
+    let names: Vec<String> = all.iter().map(|r| r.display_name.clone()).collect();
+    let rows: Vec<BeginnerStudentRow> = all
+        .into_iter()
+        .filter(|r| in_beginner_roster(&r.display_name))
+        .collect();
+    Ok(Html(html::admin_beginner_project(
+        &user,
+        key,
+        &rows,
+        &roster_gaps(&names),
+    )))
 }
 
 // ---- haftalık program ----

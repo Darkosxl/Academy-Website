@@ -178,6 +178,59 @@ pub struct BeginnerProjectCount {
     pub submitted: i64,
 }
 
+/// Who is actually on the Beginner Track. There is no track column on the users table —
+/// every student can open both track pages — so the admin submission view needs this
+/// list to know whose names belong on it. Edit here when the roster changes.
+///
+/// Matched against `users_exposure_academy.display_name` through `roster_key`, and the
+/// admin page names anyone here with no matching account, so a typo surfaces on screen
+/// rather than silently dropping a student from the table.
+pub const BEGINNER_ROSTER: [&str; 17] = [
+    "Ece Eroğul",
+    "Mete Kaan Yavuz",
+    "İpek Özmen",
+    "Ali Selim Önder",
+    "Alp Küçükkebabçı",
+    "Alya Rejepov",
+    "Elif Sevim Öğütcen",
+    "Nehir Macar",
+    "Serden Aydın",
+    "Ali Erdem Yılmaz",
+    "Bahadır Kutay Kelleci",
+    "Bora Bağran",
+    "Demir Erkuş",
+    "Zehra Karadayı",
+    "Bilge Bilgin",
+    "Çağan Barış Çelik",
+    "Eda Beyter",
+];
+
+/// Normalized form for roster matching: whitespace runs collapse to one space, case is
+/// folded, and the whole Turkish i-family (`i İ ı I`) collapses to plain `i`.
+///
+/// That last part is the reason this isn't just `to_lowercase()`. Rust folds case by the
+/// Unicode default, not Turkish rules, so `BARIŞ` lowercases to a *dotted* `barış` while
+/// the roster spells it with a dotless `ı` — they would never compare equal. Collapsing
+/// the family is safe here: the roster is seventeen names, and matching "Barış" to
+/// "BARIŞ" matters far more than telling `ı` and `i` apart.
+pub fn roster_key(name: &str) -> String {
+    name.split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .chars()
+        .flat_map(char::to_lowercase)
+        // `İ` lowercases to `i` + U+0307 (combining dot above); drop the mark so it
+        // matches a plain `i`.
+        .filter(|c| *c != '\u{0307}')
+        .map(|c| if c == 'ı' { 'i' } else { c })
+        .collect()
+}
+
+pub fn in_beginner_roster(name: &str) -> bool {
+    let key = roster_key(name);
+    BEGINNER_ROSTER.iter().any(|n| roster_key(n) == key)
+}
+
 /// One student's deployed site for a task — a card in the /board/sites/{task_id} gallery.
 /// Its own narrow projection rather than a widened SubmissionView: the gallery needs the
 /// public nickname and nothing about review status, and SubmissionView carries neither.
@@ -967,4 +1020,36 @@ pub struct StatRow {
     pub max_position: f32,
     pub duration: f32,
     pub updated_at: DateTime<Utc>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The roster is matched against names students typed at signup, so the comparison
+    /// has to survive casing and stray whitespace. A miss here silently drops a student
+    /// from the admin's submission table.
+    #[test]
+    fn roster_matching_tolerates_case_and_spacing() {
+        assert!(in_beginner_roster("Ece Eroğul"));
+        assert!(in_beginner_roster("  ece   eroğul "));
+        // Turkish casing: all-caps, and the dotted/dotless i written either way.
+        assert!(in_beginner_roster("ÇAĞAN BARIŞ ÇELİK"));
+        assert!(in_beginner_roster("ÇAĞAN BARIŞ ÇELIK"));
+        assert!(in_beginner_roster("Ipek Özmen"));
+        assert!(in_beginner_roster("İpek Özmen"));
+        assert!(!in_beginner_roster("Ece"));
+        assert!(!in_beginner_roster("Someone Else"));
+    }
+
+    /// Every roster line must be a distinct person — a duplicate would double-count in
+    /// the "kaç öğrenci gönderdi" totals.
+    #[test]
+    fn roster_has_no_duplicates() {
+        let mut keys: Vec<String> = BEGINNER_ROSTER.iter().map(|n| roster_key(n)).collect();
+        keys.sort();
+        let before = keys.len();
+        keys.dedup();
+        assert_eq!(before, keys.len(), "duplicate name in BEGINNER_ROSTER");
+    }
 }
