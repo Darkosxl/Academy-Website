@@ -113,6 +113,10 @@ async fn main() {
         .execute(&pool)
         .await
         .expect("beginner projects migration failed");
+    sqlx::raw_sql(include_str!("../migrations/010_deepinfra_provider.sql"))
+        .execute(&pool)
+        .await
+        .expect("deepinfra provider migration failed");
     seed_admin(&pool).await;
     seed_invite_code(&pool).await;
     seed_videos(&pool).await;

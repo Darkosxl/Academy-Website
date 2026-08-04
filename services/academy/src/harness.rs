@@ -13,9 +13,10 @@ use axum::{
 };
 use benchmark_protocol::{
     ARC_GAMES, ArcFrame as HarnessArcFrame, ArcFramesRequest as HarnessArcFramesReq, BenchmarkKind,
-    DEFAULT_BEDROCK_MODEL, DEFAULT_CEREBRAS_MODEL, HarnessCapacity, HarnessClaim,
-    HarnessLeaseRequest as HarnessLeaseReq, HarnessProgressRequest as HarnessProgressReq,
-    HarnessResultRequest as HarnessResultReq, HarnessStageRequest as HarnessStageReq, KaggleClaim,
+    DEFAULT_BEDROCK_MODEL, DEFAULT_CEREBRAS_MODEL, DEFAULT_DEEPINFRA_MODEL, HarnessCapacity,
+    HarnessClaim, HarnessLeaseRequest as HarnessLeaseReq,
+    HarnessProgressRequest as HarnessProgressReq, HarnessResultRequest as HarnessResultReq,
+    HarnessStageRequest as HarnessStageReq, KaggleClaim,
     KaggleResultRequest as HarnessKaggleResultReq, ModelProvider, RUN_DEADLINE_SECONDS,
     builtin_harness_uri, is_builtin_harness,
 };
@@ -395,20 +396,21 @@ fn github_repo_url(raw: &str) -> Option<String> {
 
 fn submitted_provider(is_admin: bool, raw: &str) -> Option<ModelProvider> {
     let raw = raw.trim();
-    if !is_admin {
-        return matches!(raw, "" | "cerebras").then_some(ModelProvider::Cerebras);
-    }
     if raw.is_empty() {
-        Some(ModelProvider::Cerebras)
-    } else {
-        raw.parse().ok()
+        return Some(ModelProvider::Cerebras);
     }
+    let provider: ModelProvider = raw.parse().ok()?;
+    // Students pick between the two hosted pools; Bedrock stays admin-only.
+    (is_admin || provider != ModelProvider::Bedrock).then_some(provider)
 }
 
 fn submitted_model_id(provider: ModelProvider, raw: &str, requires_images: bool) -> Option<&str> {
     let model_id = match raw.trim() {
-        "" if provider == ModelProvider::Cerebras => Some(DEFAULT_CEREBRAS_MODEL),
-        "" => Some(DEFAULT_BEDROCK_MODEL),
+        "" => Some(match provider {
+            ModelProvider::Bedrock => DEFAULT_BEDROCK_MODEL,
+            ModelProvider::Cerebras => DEFAULT_CEREBRAS_MODEL,
+            ModelProvider::DeepInfra => DEFAULT_DEEPINFRA_MODEL,
+        }),
         model_id if provider.supports_model(model_id) => Some(model_id),
         _ => None,
     }?;
@@ -1589,6 +1591,22 @@ mod tests {
             submitted_model_id(ModelProvider::Cerebras, "zai-glm-4.7", true),
             None
         );
+        assert_eq!(
+            submitted_model_id(ModelProvider::DeepInfra, "", false),
+            Some(DEFAULT_DEEPINFRA_MODEL)
+        );
+        assert_eq!(
+            submitted_model_id(ModelProvider::DeepInfra, "Qwen/Qwen3.6-27B", true),
+            Some("Qwen/Qwen3.6-27B")
+        );
+        assert_eq!(
+            submitted_model_id(ModelProvider::DeepInfra, "xai.grok-4.3", false),
+            None
+        );
+        assert_eq!(
+            submitted_model_id(ModelProvider::Bedrock, "Qwen/Qwen3.6-27B", false),
+            None
+        );
     }
 
     #[test]
@@ -1604,6 +1622,16 @@ mod tests {
             Some(ModelProvider::Bedrock)
         );
         assert_eq!(submitted_provider(true, "unknown"), None);
+        assert_eq!(submitted_provider(false, "unknown"), None);
+        // DeepInfra is on the student dropdown, so it passes without admin.
+        assert_eq!(
+            submitted_provider(false, "deepinfra"),
+            Some(ModelProvider::DeepInfra)
+        );
+        assert_eq!(
+            submitted_provider(true, "deepinfra"),
+            Some(ModelProvider::DeepInfra)
+        );
     }
 
     #[test]

@@ -9,8 +9,12 @@ pub const ARC_CONCURRENCY: usize = 5;
 pub const RUN_DEADLINE_SECONDS: i64 = 9 * 60 * 60;
 pub const DEFAULT_BEDROCK_MODEL: &str = "xai.grok-4.3";
 pub const DEFAULT_CEREBRAS_MODEL: &str = "gemma-4-31b";
+pub const DEFAULT_DEEPINFRA_MODEL: &str = "Qwen/Qwen3.6-27B";
 pub const CEREBRAS_MODEL_IDS: &[&str] = &["gemma-4-31b", "zai-glm-4.7"];
 pub const CEREBRAS_IMAGE_MODEL_IDS: &[&str] = &["gemma-4-31b"];
+// DeepInfra serves the HF-style id verbatim; keep these sorted for binary_search.
+pub const DEEPINFRA_MODEL_IDS: &[&str] = &["Qwen/Qwen3.6-27B", "zai-org/GLM-5.2"];
+pub const DEEPINFRA_IMAGE_MODEL_IDS: &[&str] = &["Qwen/Qwen3.6-27B"];
 pub const BEDROCK_MODEL_IDS: &[&str] = &[
     "deepseek.v3.1",
     "deepseek.v3.2",
@@ -84,12 +88,24 @@ pub fn cerebras_model_supports_images(model_id: &str) -> bool {
     CEREBRAS_IMAGE_MODEL_IDS.binary_search(&model_id).is_ok()
 }
 
+pub fn is_deepinfra_model(model_id: &str) -> bool {
+    DEEPINFRA_MODEL_IDS.binary_search(&model_id).is_ok()
+}
+
+pub fn deepinfra_model_supports_images(model_id: &str) -> bool {
+    DEEPINFRA_IMAGE_MODEL_IDS.binary_search(&model_id).is_ok()
+}
+
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ModelProvider {
     #[default]
     Bedrock,
     Cerebras,
+    // snake_case would split the camel hump into "deep_infra"; the wire and the
+    // database constraint both use "deepinfra".
+    #[serde(rename = "deepinfra")]
+    DeepInfra,
 }
 
 impl ModelProvider {
@@ -97,6 +113,7 @@ impl ModelProvider {
         match self {
             Self::Bedrock => "bedrock",
             Self::Cerebras => "cerebras",
+            Self::DeepInfra => "deepinfra",
         }
     }
 
@@ -104,6 +121,7 @@ impl ModelProvider {
         match self {
             Self::Bedrock => is_bedrock_model(model_id),
             Self::Cerebras => is_cerebras_model(model_id),
+            Self::DeepInfra => is_deepinfra_model(model_id),
         }
     }
 
@@ -111,6 +129,7 @@ impl ModelProvider {
         match self {
             Self::Bedrock => bedrock_model_supports_images(model_id),
             Self::Cerebras => cerebras_model_supports_images(model_id),
+            Self::DeepInfra => deepinfra_model_supports_images(model_id),
         }
     }
 }
@@ -128,6 +147,7 @@ impl FromStr for ModelProvider {
         match value {
             "bedrock" => Ok(Self::Bedrock),
             "cerebras" => Ok(Self::Cerebras),
+            "deepinfra" => Ok(Self::DeepInfra),
             _ => Err(()),
         }
     }
@@ -174,7 +194,11 @@ impl FromStr for BenchmarkKind {
 pub const BUILTIN_HARNESSES: [(&str, &str, &str); 3] = [
     ("forge", "builtin://forge", "Forge"),
     ("reki", "builtin://reki", "Reki"),
-    ("terminus-2", "builtin://terminus-2", "Terminus-2 (Frontier)"),
+    (
+        "terminus-2",
+        "builtin://terminus-2",
+        "Terminus-2 (Frontier)",
+    ),
 ];
 
 pub fn builtin_harness_uri(id: &str) -> Option<&'static str> {
@@ -486,6 +510,24 @@ mod tests {
         assert!(ModelProvider::Cerebras.supports_model(DEFAULT_CEREBRAS_MODEL));
         assert!(ModelProvider::Cerebras.supports_images(DEFAULT_CEREBRAS_MODEL));
         assert!(!ModelProvider::Cerebras.supports_images("zai-glm-4.7"));
+        assert!(DEEPINFRA_MODEL_IDS.windows(2).all(|pair| pair[0] < pair[1]));
+        assert!(
+            DEEPINFRA_IMAGE_MODEL_IDS
+                .windows(2)
+                .all(|pair| pair[0] < pair[1])
+        );
+        assert!(
+            DEEPINFRA_IMAGE_MODEL_IDS
+                .iter()
+                .all(|model| is_deepinfra_model(model))
+        );
+        assert!(ModelProvider::DeepInfra.supports_model(DEFAULT_DEEPINFRA_MODEL));
+        assert!(ModelProvider::DeepInfra.supports_images(DEFAULT_DEEPINFRA_MODEL));
+        assert!(ModelProvider::DeepInfra.supports_model("zai-org/GLM-5.2"));
+        // GLM is text-only here, same call as Cerebras's zai-glm-4.7.
+        assert!(!ModelProvider::DeepInfra.supports_images("zai-org/GLM-5.2"));
+        assert!(!ModelProvider::DeepInfra.supports_model(DEFAULT_CEREBRAS_MODEL));
+        assert!(!ModelProvider::Cerebras.supports_model(DEFAULT_DEEPINFRA_MODEL));
     }
 
     #[test]
@@ -536,6 +578,18 @@ mod tests {
         assert_eq!("frontier".parse(), Ok(BenchmarkKind::Frontier));
         assert!("Cerebras".parse::<ModelProvider>().is_err());
         assert!("all".parse::<BenchmarkKind>().is_err());
+        assert_eq!("deepinfra".parse(), Ok(ModelProvider::DeepInfra));
+        assert_eq!(ModelProvider::DeepInfra.to_string(), "deepinfra");
+        assert!("DeepInfra".parse::<ModelProvider>().is_err());
+        assert!("deep_infra".parse::<ModelProvider>().is_err());
+        assert_eq!(
+            serde_json::to_value(ModelProvider::DeepInfra).unwrap(),
+            serde_json::json!("deepinfra")
+        );
+        assert_eq!(
+            serde_json::from_value::<ModelProvider>(serde_json::json!("deepinfra")).unwrap(),
+            ModelProvider::DeepInfra
+        );
     }
 
     #[test]

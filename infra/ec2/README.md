@@ -23,7 +23,7 @@ Scale-in safety has two layers:
 Store this JSON in Secrets Manager:
 
 ```json
-{"worker_token":"same-value-as-Academy-WORKER_TOKEN","bedrock_api_key":"...","cerebras_api_keys":["...","...","...","..."]}
+{"worker_token":"same-value-as-Academy-WORKER_TOKEN","bedrock_api_key":"...","cerebras_api_keys":["...","...","...","..."],"deepinfra_api_key":"..."}
 ```
 
 The instance role can read only that secret, publish the benchmark metric namespace, and
