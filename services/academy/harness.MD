@@ -2,7 +2,7 @@
 
 - Agentic Harness (a separate side tab on the left side like leaderboard, gorev panosu etc.)
 - when you click inside you will see the leaderboard on the right, and submit your agent on the left
-- there should be a switch between three leaderboards (ARC-AGI-3, Frontier-bench,RAM-bench), but you submit once to get your score for all leaderboards
+- there should be a switch between three leaderboards (ARC-AGI-3, Terminal-Bench,RAM-bench), but you submit once to get your score for all leaderboards
 - THIS IS TO SUBMIT ARC AGI 3 FOR THE LEADERBOARD
 ==================================================== 
 
@@ -49,11 +49,10 @@ ARC’s agent interface is already designed around ordinary Python files and cla
 ==============================================================
 - 
 
-- https://www.frontierbench.ai/run — start here, actual run instructions
-- https://www.frontierbench.ai/announcement — what it is, scope, roadmap
+- https://www.tbench.ai/ — Terminal-Bench, start here — actual run and task-authoring conventions
+- https://github.com/laude-institute/terminal-bench-leaderboard — submission format reference, likely the same shape
 - https://www.harborframework.com/docs/getting-started — Harbor, the engine it runs on
-- https://github.com/laude-institute/terminal-bench-leaderboard — predecessor's submission format, likely the same shape
-- https://www.tbench.ai/ — Terminal-Bench, still useful for task-authoring conventions
+- https://www.frontierbench.ai/announcement — predecessor benchmark, what it was, scope, roadmap
 
 - https://docs.arcprize.org/arc-prize-2026 — the SDK. agent/my_agent.py, make play-local, make submit. This is the one that matters for you.
 - https://arcprize.org/arc-agi/3 — what the benchmark tests

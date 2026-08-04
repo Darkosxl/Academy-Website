@@ -158,6 +158,29 @@ class FrameFeed:
             pass
 
 
+ACCESS_TRACE = ""
+
+
+def access_trace(path: Path) -> str:
+    """What the process can actually see of the bind source, measured not assumed.
+
+    Two rounds of permission fixes have been aimed at this directory by reading modes off
+    the source, and crun still cannot stat it. Carry the measurement into the failure so
+    the next one names the offending component instead of inviting a third guess.
+    """
+    parts = [f"euid={os.geteuid()}", f"gr={sorted(os.getgroups())}"]
+    for candidate in (path.parent.parent, path.parent, path):
+        try:
+            stat = os.stat(candidate)
+            parts.append(
+                f"{candidate.name or '/'}={stat.st_mode & 0o7777:04o}:{stat.st_uid}:"
+                f"{stat.st_gid}:x={int(os.access(candidate, os.X_OK))}"
+            )
+        except OSError as error:
+            parts.append(f"{candidate.name or '/'}=ERR{error.errno}")
+    return " ".join(parts)
+
+
 def read_json(proc: subprocess.Popen, deadline: float) -> dict:
     selector = selectors.DefaultSelector()
     selector.register(proc.stdout, selectors.EVENT_READ)
@@ -170,7 +193,8 @@ def read_json(proc: subprocess.Popen, deadline: float) -> dict:
         selector.close()
     if not line:
         error = proc.stderr.read()[-4000:] if proc.stderr else ""
-        raise RuntimeError(f"agent exited before replying: {error}")
+        # trace last: only the tail of this message survives the per-game error budget
+        raise RuntimeError(f"agent exited before replying: {error} || {ACCESS_TRACE}")
     return json.loads(line)
 
 
@@ -210,6 +234,11 @@ def main() -> None:
 
     container = [
         "podman", "run", "--rm", "-i", "--network=none", "--cap-drop=all",
+        # The gateway directory is 2751 exposure-controller:exposure-benchmark, so
+        # reaching bedrock.sock needs the shared group. Rootless Podman drops
+        # supplementary groups at the user namespace unless they are kept. This does
+        # not fix the mount-source stat -- see access_trace. The RAM lane passes it too.
+        "--group-add", "keep-groups",
         "--label", f"academy.harness.run={args.run_id}",
         "--label", "academy.harness.benchmark=arc",
         "--security-opt=no-new-privileges", "--pids-limit=128", "--memory=2g",
@@ -238,6 +267,12 @@ def main() -> None:
         "socat TCP-LISTEN:8000,bind=127.0.0.1,reuseaddr,fork UNIX-CONNECT:/run/harness/bedrock.sock & "
         "exec /venv/bin/python /opt/harness/arc_agent_session.py",
     ]
+    # Two rounds of permission fixes have been aimed at this bind source from a reading of
+    # the modes rather than a measurement of them, and the stat still fails. Print what the
+    # process actually sees so the next failure names the offending component instead of
+    # inviting a third guess.
+    global ACCESS_TRACE
+    ACCESS_TRACE = access_trace(args.gateway_dir)
     proc = subprocess.Popen(
         container,
         stdin=subprocess.PIPE,

@@ -4,10 +4,10 @@ use crate::html;
 use crate::model::*;
 use crate::{App, auth::*};
 use axum::{
-    Json,
+    Form, Json,
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode, header},
-    response::{Html, IntoResponse, Response},
+    response::{Html, IntoResponse, Redirect, Response},
 };
 use serde::Deserialize;
 use uuid::Uuid;
@@ -144,10 +144,17 @@ pub async fn demos(
     Ok(Html(html::demos(&user, lang)))
 }
 
-/// Ana Sayfa. No content of its own — three doors (videolar / görevler / puan tablosu),
-/// each carrying the one number that tells the student where they stand.
-pub async fn home(State(app): State<App>, headers: HeaderMap) -> Result<Html<String>, Response> {
-    let user = require_onboarded(current_user(&app, &headers).await)?;
+/// The stats shown on both Ana Sayfa and Online — kept in one place so the two hubs
+/// can never disagree about a student's progress.
+struct StudentProgress {
+    videos_done: i64,
+    videos_total: i64,
+    open_tasks: i64,
+    points: i64,
+    rank: Option<i64>,
+}
+
+async fn student_progress(app: &App, user: &User) -> StudentProgress {
     let videos_total: i64 = sqlx::query_scalar("select count(*) from videos_exposure_academy")
         .fetch_one(&app.pool)
         .await
@@ -170,7 +177,7 @@ pub async fn home(State(app): State<App>, headers: HeaderMap) -> Result<Html<Str
     .fetch_one(&app.pool)
     .await
     .unwrap();
-    let all = leader_rows(&app).await;
+    let all = leader_rows(app).await;
     // Points come from the full list so a hidden (intern) account still sees its own
     // total; the rank comes from the visible standings, where it has no place at all.
     let points = all
@@ -181,6 +188,20 @@ pub async fn home(State(app): State<App>, headers: HeaderMap) -> Result<Html<Str
     let rows: Vec<LeaderRow> = all.into_iter().filter(|r| !r.hidden).collect();
     let ranks = html::dense_ranks(&rows);
     let rank = rows.iter().position(|r| r.id == user.id).map(|i| ranks[i]);
+    StudentProgress {
+        videos_done,
+        videos_total,
+        open_tasks,
+        points,
+        rank,
+    }
+}
+
+/// Ana Sayfa. No content of its own — three doors (videolar / görevler / puan tablosu),
+/// each carrying the one number that tells the student where they stand.
+pub async fn home(State(app): State<App>, headers: HeaderMap) -> Result<Html<String>, Response> {
+    let user = require_onboarded(current_user(&app, &headers).await)?;
+    let p = student_progress(&app, &user).await;
     // Consent forms count only while they're open for upload: a form whose document
     // isn't ready yet (locked) is not something the student can be behind on.
     let locks = crate::consent::consent_locks(&app).await;
@@ -192,14 +213,106 @@ pub async fn home(State(app): State<App>, headers: HeaderMap) -> Result<Html<Str
         .count();
     Ok(Html(html::home(
         &user,
-        videos_done,
-        videos_total,
-        open_tasks,
-        points,
-        rank,
+        p.videos_done,
+        p.videos_total,
+        p.open_tasks,
+        p.points,
+        p.rank,
         consent_done,
         open.len(),
     )))
+}
+
+/// Online — videos, tasks, demos and the leaderboard, grouped behind one sidebar entry.
+pub async fn online_hub(
+    State(app): State<App>,
+    headers: HeaderMap,
+) -> Result<Html<String>, Response> {
+    let user = require_onboarded(current_user(&app, &headers).await)?;
+    let p = student_progress(&app, &user).await;
+    Ok(Html(html::online(
+        &user,
+        p.videos_done,
+        p.videos_total,
+        p.open_tasks,
+        p.points,
+        p.rank,
+    )))
+}
+
+/// Beginner Track — the five fixed projects, each with the student's saved links (if any).
+pub async fn beginner_track_hub(
+    State(app): State<App>,
+    headers: HeaderMap,
+) -> Result<Html<String>, Response> {
+    let user = require_onboarded(current_user(&app, &headers).await)?;
+    let subs = sqlx::query_as::<_, BeginnerSubmission>(
+        "select project_key, repo_url, vercel_url
+         from beginner_submissions_exposure_academy where user_id = $1",
+    )
+    .bind(user.id)
+    .fetch_all(&app.pool)
+    .await
+    .unwrap();
+    Ok(Html(html::beginner_track(&user, &subs)))
+}
+
+#[derive(Deserialize)]
+pub struct BeginnerSubmitForm {
+    project_key: String,
+    #[serde(default)]
+    repo_url: String,
+    #[serde(default)]
+    vercel_url: String,
+}
+
+/// Save (or replace) a student's GitHub + Vercel links for one Beginner Track project.
+/// No review pipeline — this just upserts the pair, same shape as `board_submit`'s
+/// validation but without the plan.md requirement.
+pub async fn beginner_track_submit(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Form(f): Form<BeginnerSubmitForm>,
+) -> Result<Redirect, Response> {
+    let user = require_onboarded(current_user(&app, &headers).await)?;
+    let bad = |msg: &str| (StatusCode::BAD_REQUEST, msg.to_string()).into_response();
+    if !html::BEGINNER_PROJECTS
+        .iter()
+        .any(|(k, ..)| *k == f.project_key)
+    {
+        return Err(bad("Proje bulunamadı."));
+    }
+    let repo_url = f.repo_url.trim().to_string();
+    let vercel_url = f.vercel_url.trim().to_string();
+    if !repo_url.starts_with("https://github.com/") {
+        return Err(bad("Repo bağlantısı https://github.com/ ile başlamalı."));
+    }
+    if !vercel_url.starts_with("https://") && !vercel_url.starts_with("http://") {
+        return Err(bad("Vercel bağlantısı https:// ile başlamalı."));
+    }
+    sqlx::query(
+        "insert into beginner_submissions_exposure_academy (user_id, project_key, repo_url, vercel_url, updated_at)
+         values ($1,$2,$3,$4, now())
+         on conflict (user_id, project_key) do update set
+           repo_url = excluded.repo_url, vercel_url = excluded.vercel_url, updated_at = now()",
+    )
+    .bind(user.id)
+    .bind(&f.project_key)
+    .bind(&repo_url)
+    .bind(&vercel_url)
+    .execute(&app.pool)
+    .await
+    .unwrap();
+    Ok(Redirect::to("/beginner-track"))
+}
+
+/// Advanced Track — Agentic Harness and AI Monopoly, grouped behind one sidebar entry.
+pub async fn advanced_track_hub(
+    State(app): State<App>,
+    headers: HeaderMap,
+) -> Result<Html<String>, Response> {
+    let user = require_onboarded(current_user(&app, &headers).await)?;
+    Ok(Html(html::advanced_track(&user)))
 }
 
 pub async fn video_grid(

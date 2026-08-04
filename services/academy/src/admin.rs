@@ -42,25 +42,9 @@ pub async fn admin_page(
          from users_exposure_academy order by is_admin desc, lower(coalesce(nickname, display_name))")
         .fetch_all(&app.pool).await.unwrap();
     let invite_code = invite_code(&app).await;
-    // Interim harness-team management (until real team onboarding): the full team +
-    // membership lists are small, so load them whole like everything else here.
+    // Harness team membership lives on /admin/takimlar now (teams.rs). What's left here
+    // is the stuck-run escape hatch, which is run management, not formation.
     let harness = HarnessAdmin {
-        teams: sqlx::query_as(
-            "select id, name from harness_teams_exposure_academy order by lower(name)",
-        )
-        .fetch_all(&app.pool)
-        .await
-        .unwrap(),
-        members: sqlx::query_as(
-            "select tm.team_id, tm.user_id, u.display_name,
-                    (u.nickname is not null and not u.hidden_from_leaderboard) as public
-             from harness_team_members_exposure_academy tm
-             join users_exposure_academy u on u.id = tm.user_id
-             order by lower(u.display_name)",
-        )
-        .fetch_all(&app.pool)
-        .await
-        .unwrap(),
         active_runs: sqlx::query_as(
             "select r.id, t.name as team_name, r.stage, r.created_at
              from harness_runs_exposure_academy r

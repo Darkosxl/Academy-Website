@@ -6,7 +6,7 @@ implementing any deviation.
 ## Product contract
 
 - One public GitHub submission, or an admin-selected bundled agent, produces
-  independent ARC-AGI-3, Frontier Sprint, and RAM-bench results. A failure in
+  independent ARC-AGI-3, Terminal Sprint, and RAM-bench results. A failure in
   one benchmark does not erase completed results from another.
 - Local evaluation has a nine-hour safety deadline from queue claim and may be
   stopped manually by any member of the submitting team.
@@ -62,7 +62,7 @@ implementing any deviation.
 - ARC keeps five games active and immediately fills an open slot with the next
   public game. Request-rate telemetry remains visible, but a slow model never
   aborts the ARC cohort merely for missing a throughput target.
-- Frontier retains its aggregate throughput telemetry and failure gate.
+- Terminal retains its aggregate throughput telemetry and failure gate.
 - Infrastructure/Bedrock failures do not post leaderboard scores. Genuine game
   or task timeouts score zero only for the affected item.
 
@@ -78,13 +78,13 @@ implementing any deviation.
   slots until all 25 finish. A game ends on `WIN`, `GAME_OVER`, the agent's
   `is_done` decision, or its declared `MAX_ACTIONS`; the nine-hour deadline is
   only a final safety bound.
-- Frontier uses Harbor 0.20.0 and dataset commit
-  `3d694e919871dbf21ea5ff618782c99a3cb3663f`. Frontier Sprint v1 runs
+- Terminal uses Harbor 0.20.0 and dataset commit
+  `3d694e919871dbf21ea5ff618782c99a3cb3663f`. Terminal Sprint v1 runs
   `html-js-filter`, `vllm-deepseek-streaming`, `session-window-debug`,
   `mvcc-lsm-compaction`, and `embedding-drift-monitor` concurrently.
-- Frontier has no turn cap. Each task gets 120 seconds of agent time and a
+- Terminal has no turn cap. Each task gets 120 seconds of agent time and a
   60-second verifier cap. Its score is 100 times the mean of the five verifier
-  rewards. This is explicitly labelled a sprint, not a full Frontier-bench
+  rewards. This is explicitly labelled a sprint, not a full Terminal-Bench
   result.
 - RAM-bench runs `main.py` once and then ten times concurrently. Every process
   reads the same fixed prompt, must make exactly one successful gateway request,
@@ -215,7 +215,7 @@ implementing any deviation.
 
 - Incremental paid Bedrock smoke requests are authorized when the user supplies
   the deployment API key and asks for a live test. Run a single minimal gateway
-  request before starting ARC, Frontier, or RAM cohorts so model-access or quota
+  request before starting ARC, Terminal, or RAM cohorts so model-access or quota
   failures stop cheaply.
 - Local operators may run `services/benchmark-node/adapters/live_arc.py` against one pinned public game
   before starting a scored cohort. The diagnostic uses the production ARC game
@@ -255,7 +255,7 @@ implementing any deviation.
 - The 2026-07-31 Sonnet 5 smoke reached Bedrock through the real gateway but
   returned `AccessDeniedException`. A direct in-Region request confirmed
   `anthropic.claude-sonnet-5` is not available to this AWS account. No ARC,
-  Frontier, RAM, or Kaggle run was started.
+  Terminal, RAM, or Kaggle run was started.
 - A direct 2026-07-31 GPT-5.6 Terra Mantle smoke also reached AWS but returned
   HTTP 401 `access_denied`: `openai.gpt-5.6-terra` is not available to this
   account. The gateway remains configured for Terra so it is ready when AWS

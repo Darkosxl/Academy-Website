@@ -1,3 +1,22 @@
+// Team name: the heading is the input, so there is nothing to press. Enter already
+// submits a one-field form without any JS — this only adds save-on-blur, and only
+// when the text actually changed, so tabbing past it is never a write.
+(function () {
+  'use strict';
+
+  var form = document.querySelector('form.teamname');
+  if (!form) return;
+  var input = form.elements.name;
+  var original = input.value;
+  input.addEventListener('blur', function () {
+    if (input.value.trim() && input.value !== original) form.submit();
+  });
+  // Escape puts the old name back instead of saving a half-typed one
+  input.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') { input.value = original; input.blur(); }
+  });
+})();
+
 // Live Agentic Harness cards. Each benchmark is independent; terminal run
 // states trigger one reload so the form/history and partial scores stay canonical.
 (function () {

@@ -1,0 +1,67 @@
+/* Takım formasyonu — /admin/takimlar only.
+   Every selector starts with .formation, which exists on no other page, so this file
+   cannot reach anything style.css owns. Same arrangement harness.css uses, for the same
+   reason: editing style.css would force its global ?v= bust on all ~40 pages. */
+
+/* The board wants the width, like the admin panel does. Scoped by :has() so it can't
+   match a page with no .formation in it. Both halves are needed: .portal-main is a flex
+   item, and min-width:auto would let a wide board scroll the whole page sideways. */
+.portal .portal-inner:has(> .formation) { max-width:none; }
+.portal-main:has(.formation) { min-width:0; }
+
+.formation .fcreate { margin:18px 0 4px; }
+.formation .fcreate input { margin-top:0; }
+.formation .fsaved {
+  color:var(--ok-text); font-size:var(--fs-xs); font-weight:600; margin-top:12px;
+}
+
+/* minmax(0,…) not 1fr: a bare 1fr keeps min-width:auto, so one long kid name would
+   widen its track and push the board off the page. */
+.formation .fboard {
+  display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
+  gap:14px; margin-top:18px; align-items:start;
+}
+.formation .fcol {
+  min-width:0; display:flex; flex-direction:column; gap:10px;
+  background:var(--bg-card); border:1px solid var(--border-card);
+  border-radius:var(--r-2xl); padding:14px;
+  transition:border-color 150ms, background 150ms;
+}
+/* Aynı vurgulama .dropzone.drag'de kullanılıyor — sürükleme hedefi hep bu renkte. */
+.formation .fcol.over { border-color:var(--blue-50); background:var(--blue-10); }
+/* The unassigned bucket is a warning state, not a team. */
+.formation .fcol:not([data-team]) { border-style:dashed; }
+
+.formation .fhead { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.formation .fhead h2 {
+  font-size:var(--fs-label); font-weight:600; text-transform:uppercase;
+  letter-spacing:0.05em; color:var(--text-muted); margin:0;
+}
+.formation .fhead .substatus { margin-bottom:0; }
+.formation .frename { flex:1 1 120px; min-width:0; }
+.formation .frename input {
+  flex:1; min-width:0; margin-top:0; font-size:var(--fs-xs); font-weight:600;
+}
+
+.formation .fkids { display:flex; flex-direction:column; gap:6px; min-height:52px; }
+.formation .kid {
+  display:block; width:100%; text-align:left; cursor:grab;
+  padding:9px 12px; font-size:var(--fs-xs); font-weight:600; color:var(--text-body);
+  background:var(--bg-raised); border:1px solid var(--border-subtle);
+  border-radius:var(--r-xl);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.formation .kid:hover { background:var(--bg-raised-hover); color:#fff; }
+.formation .kid:focus-visible { outline:2px solid var(--blue-text); outline-offset:2px; }
+.formation .kid.dragging { opacity:0.4; cursor:grabbing; }
+.formation .fempty {
+  font-size:var(--fs-mini); color:var(--text-faint); padding:14px 0; text-align:center;
+}
+
+/* Touch has no HTML5 drag events and JS may be off, so the per-column select stays. */
+.formation .fassign { gap:6px; }
+.formation .fassign select { flex:1; min-width:0; margin-top:0; }
+
+@media (max-width:640px) {
+  .formation .fboard { grid-template-columns:minmax(0,1fr); }
+}

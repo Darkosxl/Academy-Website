@@ -14,9 +14,20 @@ import os
 import sys
 import time
 import traceback
+import types
 
 sys.path.insert(0, "/submission")
 sys.path.insert(0, "/opt/arc-agents")
+
+# `agents/__init__.py` eagerly imports all nine bundled templates, so `from agents.agent
+# import Agent` drags in langgraph, langchain and smolagents for one base class. Those are
+# absent from the sandbox image and cannot be added at runtime (`--network=none`), and
+# installing them would also pull the vendor's `openai==1.72.0` over the 2.44.0 the gateway
+# client needs. Claim the package name first: submodules still resolve through __path__,
+# but the template imports never run. agent.py itself only needs stdlib, pydantic and arc.
+_agents = types.ModuleType("agents")
+_agents.__path__ = ["/opt/arc-agents/agents"]
+sys.modules.setdefault("agents", _agents)
 
 from arcengine import FrameData, GameAction  # noqa: E402
 

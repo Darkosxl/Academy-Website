@@ -1,7 +1,7 @@
 //! Agentic Harness: the student page, the interim team admin, and the worker API
 //! the runner drives a submission through.
 
-use crate::admin::{IdForm, MemberForm, NameForm};
+use crate::admin::IdForm;
 use crate::html;
 use crate::model::*;
 use crate::{App, auth::*};
@@ -13,9 +13,10 @@ use axum::{
 };
 use benchmark_protocol::{
     ARC_GAMES, ArcFrame as HarnessArcFrame, ArcFramesRequest as HarnessArcFramesReq, BenchmarkKind,
-    DEFAULT_BEDROCK_MODEL, DEFAULT_CEREBRAS_MODEL, HarnessCapacity, HarnessClaim,
-    HarnessLeaseRequest as HarnessLeaseReq, HarnessProgressRequest as HarnessProgressReq,
-    HarnessResultRequest as HarnessResultReq, HarnessStageRequest as HarnessStageReq, KaggleClaim,
+    DEFAULT_BEDROCK_MODEL, DEFAULT_CEREBRAS_MODEL, DEFAULT_DEEPINFRA_MODEL, HarnessCapacity,
+    HarnessClaim, HarnessLeaseRequest as HarnessLeaseReq,
+    HarnessProgressRequest as HarnessProgressReq, HarnessResultRequest as HarnessResultReq,
+    HarnessStageRequest as HarnessStageReq, KaggleClaim,
     KaggleResultRequest as HarnessKaggleResultReq, ModelProvider, RUN_DEADLINE_SECONDS,
     builtin_harness_uri, is_builtin_harness,
 };
@@ -35,6 +36,10 @@ pub struct HarnessQ {
     bench: Option<String>,
     /// `?tab=live&run=` — a finished run to replay. Absent means "watch the latest one".
     run: Option<Uuid>,
+    /// What just happened, so the page can say it inline instead of a handler
+    /// dead-ending on a plain-text 400: `busy` (a teammate is already running),
+    /// `named` / `name-taken` / `name-long` (team rename).
+    msg: Option<String>,
 }
 
 /// The team the student belongs to, if any. Teams are admin-assigned for now.
@@ -208,6 +213,23 @@ async fn agentic_harness_page(
         .unwrap(),
         None => None,
     };
+    // Who pressed submit. Fetched separately rather than widened into HarnessRun, which
+    // would force the column into all four query_as sites for one label. `submitted_by`
+    // is `on delete set null`, so a deleted account leaves this None.
+    let submitter: Option<String> = match &active_run {
+        Some(run) => sqlx::query_scalar(
+            "select coalesce(u.nickname, u.display_name)
+             from harness_runs_exposure_academy r
+             join users_exposure_academy u on u.id = r.submitted_by
+             where r.id = $1",
+        )
+        .bind(run.id)
+        .fetch_optional(&app.pool)
+        .await
+        .unwrap()
+        .flatten(),
+        None => None,
+    };
     // Best score per team over its done runs. ARC/Frontier: higher wins. RAM: ranked
     // by the lowest 10-session PSS, and the 1-session column comes from that same run
     // (distinct on picks it), not from whichever run happened to have the lowest 1s.
@@ -263,8 +285,63 @@ async fn agentic_harness_page(
         team.as_ref(),
         &members,
         active_run.as_ref(),
+        submitter.as_deref(),
+        q.msg.as_deref(),
         &rows,
         &ram_rows,
+    )))
+}
+
+/// Admin-only page under "Yönetici paneli": the enhanced agent/provider/model submit form,
+/// scoped to the admin's own team exactly like `agentic_harness_page` was before that form
+/// moved out of the shared page. RAM isn't independently submittable, so `bench` is arc/frontier only.
+pub async fn admin_harness_page(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Query(q): Query<HarnessQ>,
+) -> Result<Html<String>, Response> {
+    let user = require_admin(current_user(&app, &headers).await)?;
+    let bench = match q.bench.as_deref() {
+        Some("frontier") => "frontier",
+        _ => "arc",
+    };
+    let team = harness_team_of(&app, user.id).await;
+    let members: Vec<TeamMemberRow> = sqlx::query_as(
+        "select tm.team_id, tm.user_id, u.display_name,
+                (u.nickname is not null and not u.hidden_from_leaderboard) as public
+         from harness_team_members_exposure_academy tm
+         join users_exposure_academy u on u.id = tm.user_id
+         order by tm.created_at",
+    )
+    .fetch_all(&app.pool)
+    .await
+    .unwrap();
+    let active_run: Option<HarnessRun> = match &team {
+        Some(t) => sqlx::query_as(
+            "select id, repo_url, model_id, provider, benchmark_kind,
+                    commit_sha, stage, benchmark_version,
+                    benchmark_state, bedrock_profile, deadline_at, score_arc,
+                    score_frontier, ram_1session_mb, ram_10session_mb,
+                    error_log, created_at
+             from harness_runs_exposure_academy
+             where team_id = $1
+               and benchmark_kind in ($2, 'bundled')
+               and stage not in ('done','partial','failed','infra_failed','cancelled')
+             order by created_at desc limit 1",
+        )
+        .bind(t.id)
+        .bind(bench)
+        .fetch_optional(&app.pool)
+        .await
+        .unwrap(),
+        None => None,
+    };
+    Ok(Html(html::admin_harness_page(
+        &user,
+        bench,
+        team.as_ref(),
+        &members,
+        active_run.as_ref(),
     )))
 }
 
@@ -331,8 +408,11 @@ fn submitted_provider(is_admin: bool, raw: &str) -> Option<ModelProvider> {
 
 fn submitted_model_id(provider: ModelProvider, raw: &str, requires_images: bool) -> Option<&str> {
     let model_id = match raw.trim() {
-        "" if provider == ModelProvider::Cerebras => Some(DEFAULT_CEREBRAS_MODEL),
-        "" => Some(DEFAULT_BEDROCK_MODEL),
+        "" => Some(match provider {
+            ModelProvider::Bedrock => DEFAULT_BEDROCK_MODEL,
+            ModelProvider::Cerebras => DEFAULT_CEREBRAS_MODEL,
+            ModelProvider::DeepInfra => DEFAULT_DEEPINFRA_MODEL,
+        }),
         model_id if provider.supports_model(model_id) => Some(model_id),
         _ => None,
     }?;
@@ -358,7 +438,9 @@ pub async fn harness_submit(
     let bad = |msg: &str| (StatusCode::BAD_REQUEST, msg.to_string()).into_response();
     let Some(team) = harness_team_of(&app, user.id).await else {
         // the form isn't rendered for team-less students; this catches hand-rolled POSTs
-        return Err(bad("Bir takımda değilsin — eğitmenine yaz."));
+        return Err(bad(
+            "Takımın olmadığı için gönderim yapamazsın — eğitmenine yaz.",
+        ));
     };
     let Some(benchmark_kind) = f
         .benchmark_kind
@@ -385,7 +467,16 @@ pub async fn harness_submit(
             "Bu agent için görüntü destekleyen geçerli bir model seç.",
         ));
     };
-    let in_flight = "Takımının bu benchmark için devam eden bir çalıştırması var.";
+    // A teammate already running is a normal race, not an error: send them back to the
+    // page, which explains who started it and offers a watch button. `busy=1` is the
+    // only difference from the success redirect below.
+    let busy = || {
+        Redirect::to(match benchmark_kind {
+            BenchmarkKind::Arc => "/agentic-harness/arc?msg=busy",
+            BenchmarkKind::Frontier => "/agentic-harness/frontier?msg=busy",
+            BenchmarkKind::Bundled => unreachable!(),
+        })
+    };
     let active: Option<Uuid> = sqlx::query_scalar(
         "select id from harness_runs_exposure_academy where team_id = $1
          and benchmark_kind in ($2, 'bundled')
@@ -397,12 +488,12 @@ pub async fn harness_submit(
     .await
     .map_err(worker_db_unavailable)?;
     if active.is_some() {
-        return Err(bad(in_flight));
+        return Ok(busy());
     }
     // The one-active-kind partial unique index backstops the pre-check above, so a
-    // double-click race lands here as a constraint error, not a second run — map it
-    // to the same friendly message instead of unwrap-panicking into a 500.
-    sqlx::query(
+    // double-click race lands here as a constraint error, not a second run — send it
+    // down the same path instead of unwrap-panicking into a 500.
+    let inserted = sqlx::query(
         "insert into harness_runs_exposure_academy
            (team_id, submitted_by, repo_url, model_id, provider, benchmark_kind,
             benchmark_version)
@@ -416,12 +507,59 @@ pub async fn harness_submit(
     .bind(benchmark_kind.as_str())
     .bind(HARNESS_VERSION)
     .execute(&app.pool)
-    .await
-    .map_err(|_| bad(in_flight))?;
+    .await;
+    if inserted.is_err() {
+        return Ok(busy());
+    }
     Ok(Redirect::to(match benchmark_kind {
         BenchmarkKind::Arc => "/agentic-harness/arc",
         BenchmarkKind::Frontier => "/agentic-harness/frontier",
         BenchmarkKind::Bundled => unreachable!(),
+    }))
+}
+
+#[derive(Deserialize)]
+pub struct TeamNameForm {
+    name: String,
+}
+
+/// Teams name themselves. Any member can, same rule as submitting — and there is no
+/// budget on it: the name is only a label, runs and scores are keyed on team id, so
+/// the worst case is an admin renaming them back from /admin/takimlar.
+///
+/// No team id in the form on purpose: the session decides which team gets renamed, so
+/// a hand-rolled POST can't touch anyone else's.
+pub async fn harness_team_rename(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Form(f): Form<TeamNameForm>,
+) -> Result<Redirect, Response> {
+    let user = require_onboarded(current_user(&app, &headers).await)?;
+    let Some(team) = harness_team_of(&app, user.id).await else {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Takımın olmadığı için isim değiştiremezsin.".to_string(),
+        )
+            .into_response());
+    };
+    let name = f.name.trim();
+    // chars(), not len(): "Yapay Zekâ Kâşifleri" is fewer letters than bytes
+    if name.is_empty() || name.chars().count() > HARNESS_TEAM_NAME_MAX {
+        return Ok(Redirect::to("/agentic-harness?msg=name-long"));
+    }
+    if name == team.name {
+        return Ok(Redirect::to("/agentic-harness"));
+    }
+    // unique on lower(name) — a clash is the only way this fails
+    let done = sqlx::query("update harness_teams_exposure_academy set name = $2 where id = $1")
+        .bind(team.id)
+        .bind(name)
+        .execute(&app.pool)
+        .await;
+    Ok(Redirect::to(if done.is_err() {
+        "/agentic-harness?msg=name-taken"
+    } else {
+        "/agentic-harness?msg=named"
     }))
 }
 
@@ -851,75 +989,8 @@ pub async fn harness_kaggle_submit(
     Ok(Redirect::to("/agentic-harness?tab=history"))
 }
 
-pub async fn admin_harness_team(
-    State(app): State<App>,
-    headers: HeaderMap,
-    Form(f): Form<NameForm>,
-) -> Result<Redirect, Response> {
-    require_admin(current_user(&app, &headers).await)?;
-    let name = f.name.trim().to_string();
-    if name.is_empty() {
-        return Err(StatusCode::BAD_REQUEST.into_response());
-    }
-    // unique on lower(name); a duplicate is a silent no-op, the list makes it obvious
-    sqlx::query(
-        "insert into harness_teams_exposure_academy (name) values ($1) on conflict do nothing",
-    )
-    .bind(&name)
-    .execute(&app.pool)
-    .await
-    .map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
-    Ok(Redirect::to("/admin"))
-}
-
-pub async fn admin_harness_team_delete(
-    State(app): State<App>,
-    headers: HeaderMap,
-    Form(f): Form<IdForm>,
-) -> Result<Redirect, Response> {
-    require_admin(current_user(&app, &headers).await)?;
-    // cascades members AND runs — the confirm() on the button says so
-    sqlx::query("delete from harness_teams_exposure_academy where id = $1")
-        .bind(f.id)
-        .execute(&app.pool)
-        .await
-        .map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
-    Ok(Redirect::to("/admin"))
-}
-
-pub async fn admin_harness_member(
-    State(app): State<App>,
-    headers: HeaderMap,
-    Form(f): Form<MemberForm>,
-) -> Result<Redirect, Response> {
-    require_admin(current_user(&app, &headers).await)?;
-    // user_id is the PK: assigning an already-assigned student moves them. Past runs
-    // stay with the old team — runs are team-scoped, the score was the team's.
-    sqlx::query(
-        "insert into harness_team_members_exposure_academy (user_id, team_id) values ($1,$2)
-         on conflict (user_id) do update set team_id = excluded.team_id",
-    )
-    .bind(f.user_id)
-    .bind(f.team_id)
-    .execute(&app.pool)
-    .await
-    .map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
-    Ok(Redirect::to("/admin"))
-}
-
-pub async fn admin_harness_member_remove(
-    State(app): State<App>,
-    headers: HeaderMap,
-    Form(f): Form<IdForm>,
-) -> Result<Redirect, Response> {
-    require_admin(current_user(&app, &headers).await)?;
-    sqlx::query("delete from harness_team_members_exposure_academy where user_id = $1")
-        .bind(f.id)
-        .execute(&app.pool)
-        .await
-        .map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
-    Ok(Redirect::to("/admin"))
-}
+// Team create/rename/delete and member assign/remove moved to `teams.rs`
+// (/admin/takimlar — the Takım formasyonu board). What stays here is run management.
 
 /// The stuck-run escape hatch: a worker that died after claiming leaves the run
 /// non-terminal, which blocks the team's resubmits (one-active-run index). Failing it
@@ -1522,6 +1593,22 @@ mod tests {
             submitted_model_id(ModelProvider::Cerebras, "zai-glm-4.7", true),
             None
         );
+        assert_eq!(
+            submitted_model_id(ModelProvider::DeepInfra, "", false),
+            Some(DEFAULT_DEEPINFRA_MODEL)
+        );
+        assert_eq!(
+            submitted_model_id(ModelProvider::DeepInfra, "Qwen/Qwen3.6-27B", true),
+            Some("Qwen/Qwen3.6-27B")
+        );
+        assert_eq!(
+            submitted_model_id(ModelProvider::DeepInfra, "xai.grok-4.3", false),
+            None
+        );
+        assert_eq!(
+            submitted_model_id(ModelProvider::Bedrock, "Qwen/Qwen3.6-27B", false),
+            None
+        );
     }
 
     #[test]
@@ -1537,6 +1624,12 @@ mod tests {
             Some(ModelProvider::Bedrock)
         );
         assert_eq!(submitted_provider(true, "unknown"), None);
+        // DeepInfra follows the non-Cerebras rule: admins only.
+        assert_eq!(submitted_provider(false, "deepinfra"), None);
+        assert_eq!(
+            submitted_provider(true, "deepinfra"),
+            Some(ModelProvider::DeepInfra)
+        );
     }
 
     #[test]

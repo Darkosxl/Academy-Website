@@ -11,7 +11,7 @@ use benchmark_node::{
     academy::{AcademyClient, ApiError},
     config::ControllerConfig,
     fleet::FleetManager,
-    gateway::{CerebrasKeyPool, GatewayHandle, GatewayMetrics},
+    gateway::{GatewayHandle, GatewayMetrics, OpenAiKeyPool, ProviderCredentials},
     ndjson,
 };
 use benchmark_protocol::{
@@ -132,7 +132,13 @@ enum RunEnd {
 #[tokio::main]
 async fn main() -> Result<()> {
     let config = ControllerConfig::load().await?;
-    let cerebras_pool = Arc::new(CerebrasKeyPool::new(config.cerebras_api_keys.clone())?);
+    let credentials = ProviderCredentials {
+        bedrock_api_key: config.bedrock_api_key.clone().into(),
+        cerebras: Arc::new(OpenAiKeyPool::cerebras(config.cerebras_api_keys.clone())?),
+        deepinfra: Arc::new(OpenAiKeyPool::deepinfra(vec![
+            config.deepinfra_api_key.clone(),
+        ])?),
+    };
     let academy = AcademyClient::new(config.academy_base_url.clone(), config.worker_token.clone())
         .context("build Academy client")?;
     let fleet = match config.fleet.as_ref() {
@@ -157,7 +163,7 @@ async fn main() -> Result<()> {
     if let Some(fleet) = fleet.clone() {
         tokio::spawn(report_capacity(academy.clone(), fleet, metrics.clone()));
     }
-    run(&config, &academy, &metrics, fleet.as_ref(), &cerebras_pool).await
+    run(&config, &academy, &metrics, fleet.as_ref(), &credentials).await
 }
 
 async fn run(
@@ -165,7 +171,7 @@ async fn run(
     academy: &AcademyClient,
     metrics: &Arc<ControllerMetrics>,
     fleet: Option<&FleetManager>,
-    cerebras_pool: &Arc<CerebrasKeyPool>,
+    credentials: &ProviderCredentials,
 ) -> Result<()> {
     if drain_if_terminating(fleet, metrics).await? {
         return park_for_termination().await;
@@ -177,7 +183,7 @@ async fn run(
             .context("mark initialized benchmark node idle")?;
     }
     let arc_lane = Arc::new(Semaphore::new(1));
-    let frontier_lane = Arc::new(Semaphore::new(1));
+    let terminal_lane = Arc::new(Semaphore::new(1));
     let fleet_transition = Arc::new(AsyncMutex::new(()));
     tokio::try_join!(
         run_kind_lane(
@@ -185,7 +191,7 @@ async fn run(
             academy,
             metrics,
             fleet,
-            cerebras_pool,
+            credentials,
             BenchmarkKind::Arc,
             arc_lane.clone(),
             fleet_transition.clone(),
@@ -195,9 +201,9 @@ async fn run(
             academy,
             metrics,
             fleet,
-            cerebras_pool,
+            credentials,
             BenchmarkKind::Frontier,
-            frontier_lane.clone(),
+            terminal_lane.clone(),
             fleet_transition.clone(),
         ),
         run_maintenance_lane(
@@ -205,9 +211,9 @@ async fn run(
             academy,
             metrics,
             fleet,
-            cerebras_pool,
+            credentials,
             arc_lane,
-            frontier_lane,
+            terminal_lane,
             fleet_transition,
         ),
     )?;
@@ -219,7 +225,7 @@ async fn run_kind_lane(
     academy: &AcademyClient,
     metrics: &Arc<ControllerMetrics>,
     fleet: Option<&FleetManager>,
-    cerebras_pool: &Arc<CerebrasKeyPool>,
+    credentials: &ProviderCredentials,
     kind: BenchmarkKind,
     lane: Arc<Semaphore>,
     fleet_transition: Arc<AsyncMutex<()>>,
@@ -251,7 +257,7 @@ async fn run_kind_lane(
                     }
                     continue;
                 }
-                process_run(config, academy, metrics, claim, cerebras_pool).await;
+                process_run(config, academy, metrics, claim, credentials).await;
                 if finish_claimed_work(fleet, metrics, &fleet_transition).await? {
                     return Ok(());
                 }
@@ -275,15 +281,15 @@ async fn run_maintenance_lane(
     academy: &AcademyClient,
     metrics: &Arc<ControllerMetrics>,
     fleet: Option<&FleetManager>,
-    cerebras_pool: &Arc<CerebrasKeyPool>,
+    credentials: &ProviderCredentials,
     arc_lane: Arc<Semaphore>,
-    frontier_lane: Arc<Semaphore>,
+    terminal_lane: Arc<Semaphore>,
     fleet_transition: Arc<AsyncMutex<()>>,
 ) -> Result<()> {
     let mut delay = Duration::from_secs(2);
     loop {
         let arc_permit = arc_lane.acquire().await.context("ARC lane closed")?;
-        let Ok(frontier_permit) = frontier_lane.try_acquire() else {
+        let Ok(terminal_permit) = terminal_lane.try_acquire() else {
             drop(arc_permit);
             tokio::time::sleep(Duration::from_millis(250)).await;
             continue;
@@ -312,7 +318,7 @@ async fn run_maintenance_lane(
                     }
                     continue;
                 }
-                process_run(config, academy, metrics, claim, cerebras_pool).await;
+                process_run(config, academy, metrics, claim, credentials).await;
                 if finish_claimed_work(fleet, metrics, &fleet_transition).await? {
                     return Ok(());
                 }
@@ -324,7 +330,7 @@ async fn run_maintenance_lane(
                 metrics.academy_errors.fetch_add(1, Ordering::Relaxed);
                 eprintln!("bundled claim failed: {error}");
                 delay = (delay * 2).min(Duration::from_secs(30));
-                drop(frontier_permit);
+                drop(terminal_permit);
                 drop(arc_permit);
                 tokio::time::sleep(delay).await;
                 continue;
@@ -362,7 +368,7 @@ async fn run_maintenance_lane(
                 delay = (delay * 2).min(Duration::from_secs(30));
             }
         }
-        drop(frontier_permit);
+        drop(terminal_permit);
         drop(arc_permit);
         tokio::time::sleep(delay).await;
     }
@@ -509,7 +515,7 @@ async fn process_run(
     academy: &AcademyClient,
     metrics: &Arc<ControllerMetrics>,
     claim: HarnessClaim,
-    cerebras_pool: &Arc<CerebrasKeyPool>,
+    credentials: &ProviderCredentials,
 ) {
     if claim.benchmark_version != BENCHMARK_VERSION {
         post_run_result(
@@ -552,8 +558,7 @@ async fn process_run(
         &claim.model_id,
         &claim.model_id,
         &config.reasoning_effort,
-        &config.bedrock_api_key,
-        cerebras_pool.clone(),
+        credentials,
         config.maximum_model_concurrency,
     )
     .await

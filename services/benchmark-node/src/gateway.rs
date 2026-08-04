@@ -23,15 +23,23 @@ use std::{
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, oneshot};
 
 const MAX_BODY_BYTES: usize = 1024 * 1024;
-const MAX_MESSAGES: usize = 12;
+const MAX_MESSAGES: usize = 24;
 const MAX_TOOL_RESULT_BYTES: usize = 8 * 1024;
 const MAX_TEXT_BYTES: usize = 64 * 1024;
 const MAX_IMAGE_DATA_CHARS: usize = 384 * 1024;
 const MAX_IMAGE_PARTS: usize = 16;
-const MAX_OUTPUT_TOKENS: u64 = 2048;
+// GLM-4.7 and friends spend most of a response on `reasoning` before emitting the
+// action JSON Terminus has to parse, so 2048 truncated them mid-thought and the turn
+// was wasted. 8192 leaves room for the reasoning and the action.
+const MAX_OUTPUT_TOKENS: u64 = 16384;
 const CEREBRAS_API_URL: &str = "https://api.cerebras.ai/v1/chat/completions";
 const CEREBRAS_KEY_COUNT: usize = 4;
 const CEREBRAS_CONCURRENCY_PER_KEY: usize = 8;
+const DEEPINFRA_API_URL: &str = "https://api.deepinfra.com/v1/openai/chat/completions";
+// DeepInfra rate-limits per account, not per key, so extra keys buy no headroom:
+// one key, with the whole per-account concurrency budget behind it.
+const DEEPINFRA_KEY_COUNT: usize = 1;
+const DEEPINFRA_CONCURRENCY_PER_KEY: usize = 32;
 const NO_PREFERRED_KEY: usize = usize::MAX;
 
 #[derive(Clone)]
@@ -41,10 +49,19 @@ enum GatewayUpstream {
         key: Arc<str>,
         slots: Arc<Semaphore>,
     },
-    Cerebras {
-        pool: Arc<CerebrasKeyPool>,
+    OpenAiPool {
+        pool: Arc<OpenAiKeyPool>,
         preferred_key: Arc<AtomicUsize>,
     },
+}
+
+/// Credentials for every upstream a gateway may serve, so `GatewayHandle::start`
+/// takes one argument instead of one per provider.
+#[derive(Clone)]
+pub struct ProviderCredentials {
+    pub bedrock_api_key: Arc<str>,
+    pub cerebras: Arc<OpenAiKeyPool>,
+    pub deepinfra: Arc<OpenAiKeyPool>,
 }
 
 #[derive(Clone)]
@@ -59,58 +76,122 @@ struct GatewayState {
     metrics: Arc<GatewayMetrics>,
 }
 
-struct CerebrasKeyState {
+struct PooledKeyState {
     credential: Arc<str>,
     slots: Arc<Semaphore>,
     in_flight: AtomicUsize,
     cooldown_until: Mutex<Option<Instant>>,
 }
 
-pub struct CerebrasKeyPool {
-    keys: Vec<Arc<CerebrasKeyState>>,
+/// Static per-provider text so pooled gateway errors keep naming the actual upstream.
+struct PoolProfile {
+    required_keys: usize,
+    concurrency_per_key: usize,
+    key_requirement: &'static str,
+    request_failed: &'static str,
+    rejected: &'static str,
+    invalid_json: &'static str,
+    none_available: &'static str,
+    all_rate_limited: &'static str,
+    http_client: &'static str,
+}
+
+const CEREBRAS_PROFILE: PoolProfile = PoolProfile {
+    required_keys: CEREBRAS_KEY_COUNT,
+    concurrency_per_key: CEREBRAS_CONCURRENCY_PER_KEY,
+    key_requirement: "Cerebras key pool requires four distinct API keys",
+    request_failed: "Cerebras request failed",
+    rejected: "Cerebras rejected the request",
+    invalid_json: "Cerebras returned invalid JSON",
+    none_available: "no Cerebras key is currently available",
+    all_rate_limited: "all Cerebras keys are rate limited",
+    http_client: "build Cerebras HTTP client",
+};
+
+const DEEPINFRA_PROFILE: PoolProfile = PoolProfile {
+    required_keys: DEEPINFRA_KEY_COUNT,
+    concurrency_per_key: DEEPINFRA_CONCURRENCY_PER_KEY,
+    key_requirement: "DeepInfra key pool requires one API key",
+    request_failed: "DeepInfra request failed",
+    rejected: "DeepInfra rejected the request",
+    invalid_json: "DeepInfra returned invalid JSON",
+    none_available: "no DeepInfra key is currently available",
+    all_rate_limited: "the DeepInfra key is rate limited",
+    http_client: "build DeepInfra HTTP client",
+};
+
+/// Key pool for any OpenAI-compatible bearer-auth upstream. Providers differ only in
+/// URL, key count, per-key concurrency, and how long a 429 without retry headers
+/// should cool the key down.
+pub struct OpenAiKeyPool {
+    profile: &'static PoolProfile,
+    keys: Vec<Arc<PooledKeyState>>,
     cursor: AtomicUsize,
     http: reqwest::Client,
     upstream_url: Arc<str>,
     default_cooldown: Duration,
 }
 
-struct CerebrasLease {
-    key: Arc<CerebrasKeyState>,
+struct PoolLease {
+    key: Arc<PooledKeyState>,
     index: usize,
     _permit: OwnedSemaphorePermit,
 }
 
-impl Drop for CerebrasLease {
+impl Drop for PoolLease {
     fn drop(&mut self) {
         self.key.in_flight.fetch_sub(1, Ordering::Relaxed);
     }
 }
 
-impl CerebrasKeyPool {
-    pub fn new(keys: Vec<String>) -> Result<Self> {
-        Self::with_url(keys, CEREBRAS_API_URL, Duration::from_secs(1))
+impl OpenAiKeyPool {
+    pub fn cerebras(keys: Vec<String>) -> Result<Self> {
+        Self::with_url(
+            keys,
+            &CEREBRAS_PROFILE,
+            CEREBRAS_API_URL,
+            Duration::from_secs(1),
+        )
     }
 
-    fn with_url(keys: Vec<String>, upstream_url: &str, default_cooldown: Duration) -> Result<Self> {
-        if keys.len() != CEREBRAS_KEY_COUNT
+    // DeepInfra documents no retry-after on 429 and throttles per account, so a
+    // limited key stays cool for a full minute instead of Cerebras's one second —
+    // hammering the sole key again immediately would just burn the 2s send deadline.
+    pub fn deepinfra(keys: Vec<String>) -> Result<Self> {
+        Self::with_url(
+            keys,
+            &DEEPINFRA_PROFILE,
+            DEEPINFRA_API_URL,
+            Duration::from_secs(60),
+        )
+    }
+
+    fn with_url(
+        keys: Vec<String>,
+        profile: &'static PoolProfile,
+        upstream_url: &str,
+        default_cooldown: Duration,
+    ) -> Result<Self> {
+        if keys.len() != profile.required_keys
             || keys.iter().any(|key| key.len() < 20)
             || keys.iter().collect::<HashSet<_>>().len() != keys.len()
         {
-            bail!("Cerebras key pool requires four distinct API keys");
+            bail!("{}", profile.key_requirement);
         }
         let http = reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(3))
             .timeout(Duration::from_secs(20))
-            .pool_max_idle_per_host(CEREBRAS_KEY_COUNT * CEREBRAS_CONCURRENCY_PER_KEY)
+            .pool_max_idle_per_host(profile.required_keys * profile.concurrency_per_key)
             .build()
-            .context("build Cerebras HTTP client")?;
+            .context(profile.http_client)?;
         Ok(Self {
+            profile,
             keys: keys
                 .into_iter()
                 .map(|credential| {
-                    Arc::new(CerebrasKeyState {
+                    Arc::new(PooledKeyState {
                         credential: credential.into(),
-                        slots: Arc::new(Semaphore::new(CEREBRAS_CONCURRENCY_PER_KEY)),
+                        slots: Arc::new(Semaphore::new(profile.concurrency_per_key)),
                         in_flight: AtomicUsize::new(0),
                         cooldown_until: Mutex::new(None),
                     })
@@ -123,7 +204,7 @@ impl CerebrasKeyPool {
         })
     }
 
-    fn try_acquire(&self, preferred: usize, excluded: u64) -> Option<CerebrasLease> {
+    fn try_acquire(&self, preferred: usize, excluded: u64) -> Option<PoolLease> {
         let now = Instant::now();
         let mut candidates = Vec::with_capacity(self.keys.len());
         for (index, key) in self.keys.iter().enumerate() {
@@ -138,7 +219,7 @@ impl CerebrasKeyPool {
                 cooldown.is_none()
             };
             let load = key.in_flight.load(Ordering::Relaxed);
-            if healthy && load < CEREBRAS_CONCURRENCY_PER_KEY {
+            if healthy && load < self.profile.concurrency_per_key {
                 candidates.push((index, load));
             }
         }
@@ -161,7 +242,7 @@ impl CerebrasKeyPool {
         let key = self.keys[selected].clone();
         let permit = key.slots.clone().try_acquire_owned().ok()?;
         key.in_flight.fetch_add(1, Ordering::Relaxed);
-        Some(CerebrasLease {
+        Some(PoolLease {
             key,
             index: selected,
             _permit: permit,
@@ -299,8 +380,7 @@ impl GatewayHandle {
         model_id: &str,
         profile_name: &str,
         reasoning_effort: &str,
-        bedrock_key: &str,
-        cerebras_pool: Arc<CerebrasKeyPool>,
+        credentials: &ProviderCredentials,
         maximum_concurrency: usize,
     ) -> Result<Self> {
         let run_directory = directory.join(run_id.to_string());
@@ -310,7 +390,13 @@ impl GatewayHandle {
         // The executor's shared group may traverse and connect, but cannot replace gateway
         // files. setgid gives the socket that shared group instead of the private controller
         // group.
-        tokio::fs::set_permissions(&run_directory, std::fs::Permissions::from_mode(0o2750))
+        //
+        // o+x, not o+r: Podman resolves a bind-mount source with the *container* user's
+        // credentials rather than the host user's supplementary groups
+        // (containers/podman#26845), so a group-only directory fails to stat and the ARC
+        // sandbox dies before it starts. Search permission alone cannot list the directory,
+        // and bedrock.sock stays 0660, so only the shared group can still connect.
+        tokio::fs::set_permissions(&run_directory, std::fs::Permissions::from_mode(0o2751))
             .await
             .context("protect gateway directory")?;
         let socket_path = run_directory.join("bedrock.sock");
@@ -337,11 +423,15 @@ impl GatewayHandle {
             ModelProvider::Bedrock => GatewayUpstream::Bedrock {
                 url: format!("https://bedrock-mantle.{region}.api.aws/openai/v1/chat/completions")
                     .into(),
-                key: bedrock_key.to_owned().into(),
+                key: credentials.bedrock_api_key.clone(),
                 slots: Arc::new(Semaphore::new(maximum_concurrency)),
             },
-            ModelProvider::Cerebras => GatewayUpstream::Cerebras {
-                pool: cerebras_pool,
+            ModelProvider::Cerebras => GatewayUpstream::OpenAiPool {
+                pool: credentials.cerebras.clone(),
+                preferred_key: Arc::new(AtomicUsize::new(NO_PREFERRED_KEY)),
+            },
+            ModelProvider::DeepInfra => GatewayUpstream::OpenAiPool {
+                pool: credentials.deepinfra.clone(),
                 preferred_key: Arc::new(AtomicUsize::new(NO_PREFERRED_KEY)),
             },
         };
@@ -463,10 +553,10 @@ async fn chat_completions(
         GatewayUpstream::Bedrock { url, key, slots } => {
             send_bedrock(&state, url, key, slots, &request).await
         }
-        GatewayUpstream::Cerebras {
+        GatewayUpstream::OpenAiPool {
             pool,
             preferred_key,
-        } => send_cerebras(&state, pool, preferred_key, &request).await,
+        } => send_pooled(&state, pool, preferred_key, &request).await,
     };
     let mut value = match value {
         Ok(value) => value,
@@ -531,9 +621,9 @@ async fn send_bedrock(
         .map_err(|_| (StatusCode::BAD_GATEWAY, "Bedrock returned invalid JSON"))
 }
 
-async fn send_cerebras(
+async fn send_pooled(
     state: &GatewayState,
-    pool: &CerebrasKeyPool,
+    pool: &OpenAiKeyPool,
     preferred_key: &AtomicUsize,
     request: &Value,
 ) -> std::result::Result<Value, (StatusCode, &'static str)> {
@@ -546,10 +636,7 @@ async fn send_cerebras(
                 break lease;
             }
             if Instant::now() >= deadline {
-                return Err((
-                    StatusCode::TOO_MANY_REQUESTS,
-                    "no Cerebras key is currently available",
-                ));
+                return Err((StatusCode::TOO_MANY_REQUESTS, pool.profile.none_available));
             }
             tokio::time::sleep(Duration::from_millis(1)).await;
         };
@@ -561,7 +648,7 @@ async fn send_cerebras(
             .json(request)
             .send()
             .await
-            .map_err(|_| (StatusCode::BAD_GATEWAY, "Cerebras request failed"))?;
+            .map_err(|_| (StatusCode::BAD_GATEWAY, pool.profile.request_failed))?;
         if response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
             state.metrics.record_rate_limit();
             let cooldown = rate_limit_cooldown(response.headers(), pool.default_cooldown);
@@ -569,20 +656,17 @@ async fn send_cerebras(
             excluded |= 1 << lease.index;
             drop(lease);
             if excluded.count_ones() as usize == pool.keys.len() {
-                return Err((
-                    StatusCode::TOO_MANY_REQUESTS,
-                    "all Cerebras keys are rate limited",
-                ));
+                return Err((StatusCode::TOO_MANY_REQUESTS, pool.profile.all_rate_limited));
             }
             continue;
         }
         if !response.status().is_success() {
-            return Err((StatusCode::BAD_GATEWAY, "Cerebras rejected the request"));
+            return Err((StatusCode::BAD_GATEWAY, pool.profile.rejected));
         }
         let value = response
             .json::<Value>()
             .await
-            .map_err(|_| (StatusCode::BAD_GATEWAY, "Cerebras returned invalid JSON"))?;
+            .map_err(|_| (StatusCode::BAD_GATEWAY, pool.profile.invalid_json))?;
         preferred_key.store(lease.index, Ordering::Relaxed);
         return Ok(value);
     }
@@ -739,7 +823,17 @@ fn sanitize_chat(body: Value, model_id: &str, reasoning_effort: &str) -> Result<
         messages.push(Value::Object(clean));
     }
     if messages.len() > MAX_MESSAGES {
-        messages = messages.split_off(messages.len() - MAX_MESSAGES);
+        // Terminus puts the task description in its first user turn. Keep that
+        // anchor as well as the most recent terminal context so longer runs do
+        // not lose what they are trying to solve.
+        let initial_task = messages
+            .first()
+            .filter(|message| message.get("role").and_then(Value::as_str) == Some("user"))
+            .cloned();
+        messages = messages.split_off(messages.len() - (MAX_MESSAGES - 1));
+        if let Some(initial_task) = initial_task {
+            messages.insert(0, initial_task);
+        }
     }
     while messages
         .first()
@@ -768,6 +862,13 @@ fn sanitize_chat(body: Value, model_id: &str, reasoning_effort: &str) -> Result<
         .unwrap_or(MAX_OUTPUT_TOKENS)
         .clamp(1, MAX_OUTPUT_TOKENS);
     result.insert("max_completion_tokens".into(), Value::from(requested));
+    if let Some(value) = object.get("temperature") {
+        let temperature = value.as_f64().context("temperature must be a number")?;
+        if !(0.0..=2.0).contains(&temperature) {
+            bail!("temperature must be between 0 and 2");
+        }
+        result.insert("temperature".into(), Value::from(temperature));
+    }
     if model_supports_reasoning_effort(model_id) {
         result.insert(
             "reasoning_effort".into(),
@@ -802,9 +903,29 @@ fn sanitize_chat(body: Value, model_id: &str, reasoning_effort: &str) -> Result<
             result.insert("tool_choice".into(), choice.clone());
         }
     }
+    if let Some(response_format) = object.get("response_format") {
+        let format = response_format
+            .as_object()
+            .context("response_format must be an object")?;
+        let kind = format
+            .get("type")
+            .and_then(Value::as_str)
+            .context("response_format requires a type")?;
+        if !matches!(kind, "json_object" | "json_schema") {
+            bail!("unsupported response_format type: {kind}");
+        }
+        if serde_json::to_vec(response_format)?.len() > MAX_TEXT_BYTES {
+            bail!("response_format exceeds {MAX_TEXT_BYTES} bytes");
+        }
+        result.insert("response_format".into(), response_format.clone());
+    }
     Ok(Value::Object(result))
 }
 
+// The DeepInfra Qwen prefix is deliberately absent: DeepInfra steers Qwen3.6
+// thinking through `chat_template_kwargs` rather than OpenAI `reasoning_effort`,
+// and the default-on reasoning arrives in a separate `reasoning_content` field,
+// so the `content` the adapters parse stays clean without any knob from us.
 fn model_supports_reasoning_effort(model_id: &str) -> bool {
     model_id.starts_with("xai.")
         || model_id.starts_with("openai.")
@@ -879,8 +1000,9 @@ mod tests {
         let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
 
         let pool = Arc::new(
-            CerebrasKeyPool::with_url(
+            OpenAiKeyPool::with_url(
                 keys.as_ref().clone(),
+                &CEREBRAS_PROFILE,
                 &format!("http://{address}/"),
                 Duration::from_secs(60),
             )
@@ -892,7 +1014,7 @@ mod tests {
             profile_name: "gemma-4-31b".into(),
             reasoning_effort: "none".into(),
             provider: ModelProvider::Cerebras,
-            upstream: GatewayUpstream::Cerebras {
+            upstream: GatewayUpstream::OpenAiPool {
                 pool: pool.clone(),
                 preferred_key: Arc::new(AtomicUsize::new(NO_PREFERRED_KEY)),
             },
@@ -908,14 +1030,14 @@ mod tests {
             let state = state.clone();
             let request = request.clone();
             calls.push(tokio::spawn(async move {
-                let GatewayUpstream::Cerebras {
+                let GatewayUpstream::OpenAiPool {
                     pool,
                     preferred_key,
                 } = &state.upstream
                 else {
                     unreachable!()
                 };
-                send_cerebras(&state, pool, preferred_key, &request).await
+                send_pooled(&state, pool, preferred_key, &request).await
             }));
         }
         for call in calls {
@@ -930,7 +1052,7 @@ mod tests {
 
         let before = attempts.lock().unwrap().clone();
         for _ in 0..2 {
-            let GatewayUpstream::Cerebras {
+            let GatewayUpstream::OpenAiPool {
                 pool,
                 preferred_key,
             } = &state.upstream
@@ -938,7 +1060,7 @@ mod tests {
                 unreachable!()
             };
             assert!(
-                send_cerebras(&state, pool, preferred_key, &request)
+                send_pooled(&state, pool, preferred_key, &request)
                     .await
                     .is_ok()
             );
@@ -955,8 +1077,126 @@ mod tests {
         server.abort();
     }
 
+    #[tokio::test]
+    async fn single_deepinfra_key_cools_down_after_429_and_recovers() {
+        #[derive(Clone)]
+        struct MockState {
+            attempts: Arc<AtomicUsize>,
+        }
+
+        async fn mock_completion(State(state): State<MockState>) -> Response {
+            if state.attempts.fetch_add(1, Ordering::Relaxed) == 0 {
+                // Longer than send_pooled's 2s acquire deadline, so the key is
+                // still cooling when the second call gives up waiting for it.
+                return (
+                    StatusCode::TOO_MANY_REQUESTS,
+                    [(header::RETRY_AFTER, "2.5")],
+                    Json(json!({"error":"mock limit"})),
+                )
+                    .into_response();
+            }
+            Json(json!({
+                "id":"mock",
+                "choices":[{"message":{"role":"assistant","content":"ok"}}],
+                "usage":{"prompt_tokens":1,"completion_tokens":1}
+            }))
+            .into_response()
+        }
+
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let mock = Router::new()
+            .route("/", post(mock_completion))
+            .with_state(MockState {
+                attempts: attempts.clone(),
+            });
+        let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
+
+        assert!(OpenAiKeyPool::deepinfra(Vec::new()).is_err());
+        assert!(
+            OpenAiKeyPool::deepinfra(vec![
+                "test-deepinfra-api-key-00".into(),
+                "test-deepinfra-api-key-01".into()
+            ])
+            .is_err()
+        );
+        let pool = Arc::new(
+            OpenAiKeyPool::with_url(
+                vec!["test-deepinfra-api-key-00".into()],
+                &DEEPINFRA_PROFILE,
+                &format!("http://{address}/"),
+                Duration::from_secs(60),
+            )
+            .unwrap(),
+        );
+        let state = GatewayState {
+            token: "test-gateway-token".into(),
+            model_id: "Qwen/Qwen3.6-27B".into(),
+            profile_name: "Qwen/Qwen3.6-27B".into(),
+            reasoning_effort: "none".into(),
+            provider: ModelProvider::DeepInfra,
+            upstream: GatewayUpstream::OpenAiPool {
+                pool: pool.clone(),
+                preferred_key: Arc::new(AtomicUsize::new(NO_PREFERRED_KEY)),
+            },
+            http: reqwest::Client::new(),
+            metrics: Arc::new(GatewayMetrics::default()),
+        };
+        let request = json!({
+            "model":"Qwen/Qwen3.6-27B",
+            "messages":[{"role":"user","content":"ready"}]
+        });
+        let GatewayUpstream::OpenAiPool {
+            pool: upstream_pool,
+            preferred_key,
+        } = &state.upstream
+        else {
+            unreachable!()
+        };
+
+        // The only key 429s: no failover target exists, so the caller sees the
+        // provider-named rate-limit error immediately.
+        let error = send_pooled(&state, upstream_pool, preferred_key, &request)
+            .await
+            .unwrap_err();
+        assert_eq!(
+            error,
+            (
+                StatusCode::TOO_MANY_REQUESTS,
+                "the DeepInfra key is rate limited"
+            )
+        );
+        // While the retry-after cooldown holds, the pool refuses without an attempt.
+        let error = send_pooled(&state, upstream_pool, preferred_key, &request)
+            .await
+            .unwrap_err();
+        assert_eq!(
+            error,
+            (
+                StatusCode::TOO_MANY_REQUESTS,
+                "no DeepInfra key is currently available"
+            )
+        );
+        // The failed acquire above already waited ~2s of the 2.5s cooldown.
+        tokio::time::sleep(Duration::from_millis(700)).await;
+        assert!(
+            send_pooled(&state, upstream_pool, preferred_key, &request)
+                .await
+                .is_ok()
+        );
+
+        let snapshot = state.metrics.snapshot();
+        assert_eq!(snapshot.rate_limits, 1);
+        assert_eq!(snapshot.upstream_attempts, 2);
+        assert_eq!(snapshot.key_requests, vec![2]);
+        assert_eq!(attempts.load(Ordering::Relaxed), 2);
+
+        server.abort();
+    }
+
     #[test]
-    fn sanitization_pins_model_and_drops_sampling_and_old_turns() {
+    fn sanitization_pins_model_keeps_bounded_sampling_and_task_context() {
         let mut messages = vec![json!({"role":"system","content":"rules"})];
         for index in 0..20 {
             messages.push(json!({"role":"user","content":format!("question {index}")}));
@@ -968,7 +1208,7 @@ mod tests {
                 "messages": messages,
                 "temperature": 2,
                 "stream": false,
-                "max_tokens": 9000
+                "max_tokens": 90000
             }),
             "xai.grok-4.3",
             "none",
@@ -977,10 +1217,11 @@ mod tests {
         assert_eq!(result["model"], "xai.grok-4.3");
         assert_eq!(result["reasoning_effort"], "none");
         assert_eq!(result["max_completion_tokens"], MAX_OUTPUT_TOKENS);
-        assert!(result.get("temperature").is_none());
+        assert_eq!(result["temperature"].as_f64(), Some(2.0));
         assert!(result["messages"].as_array().unwrap().len() <= MAX_MESSAGES + 1);
         assert_eq!(result["messages"][0]["role"], "system");
         assert_eq!(result["messages"][1]["role"], "user");
+        assert_eq!(result["messages"][1]["content"], "question 0");
     }
 
     #[test]
@@ -1008,6 +1249,33 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn sanitization_preserves_structured_output() {
+        let response_format = json!({
+            "type": "json_schema",
+            "json_schema": {
+                "name": "terminus_action",
+                "strict": true,
+                "schema": {
+                    "type": "object",
+                    "properties": {"analysis": {"type": "string"}},
+                    "required": ["analysis"],
+                    "additionalProperties": false
+                }
+            }
+        });
+        let result = sanitize_chat(
+            json!({
+                "messages": [{"role": "user", "content": "choose an action"}],
+                "response_format": response_format,
+            }),
+            "gemma-4-31b",
+            "none",
+        )
+        .unwrap();
+        assert_eq!(result["response_format"], response_format);
     }
 
     #[test]

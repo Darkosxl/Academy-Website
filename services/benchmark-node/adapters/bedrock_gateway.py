@@ -601,6 +601,9 @@ class GatewayHandler(BaseHTTPRequestHandler):
                     if tools:
                         request["tools"] = responses_tools_to_chat(tools)
                         request["tool_choice"] = responses_tool_choice_to_chat(tool_choice)
+                    response_format = body.get("response_format")
+                    if isinstance(response_format, dict):
+                        request["response_format"] = response_format
                     result = self.server.client.chat.completions.create(**request)
                     response = result.model_dump(exclude_none=True)
                 else:

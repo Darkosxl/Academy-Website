@@ -3,8 +3,9 @@
 
 use crate::model::*;
 use benchmark_protocol::{
-    BEDROCK_MODEL_IDS, BUILTIN_HARNESSES, CEREBRAS_MODEL_IDS, DEFAULT_BEDROCK_MODEL,
-    DEFAULT_CEREBRAS_MODEL, ModelProvider, builtin_harness_label,
+    BEDROCK_MODEL_IDS, BUILTIN_HARNESSES, CEREBRAS_MODEL_IDS, DEEPINFRA_MODEL_IDS,
+    DEFAULT_BEDROCK_MODEL, DEFAULT_CEREBRAS_MODEL, DEFAULT_DEEPINFRA_MODEL, ModelProvider,
+    builtin_harness_label,
 };
 use uuid::Uuid;
 
@@ -81,6 +82,7 @@ const P_BOARD: &str = "M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 0 0 2
 const P_HARNESS: &str = "M8.25 3v1.5M4.5 8.25H3m18 0h-1.5M4.5 12H3m18 0h-1.5m-15 3.75H3m18 0h-1.5M8.25 19.5V21M12 3v1.5m0 15V21m3.75-18v1.5m0 15V21m-9-1.5h10.5a2.25 2.25 0 0 0 2.25-2.25V6.75a2.25 2.25 0 0 0-2.25-2.25H6.75A2.25 2.25 0 0 0 4.5 6.75v10.5a2.25 2.25 0 0 0 2.25 2.25Zm.75-12h9v9h-9v-9Z";
 const P_MONOPOLY: &str = "M14.25 6.087c0-.355.186-.676.401-.959.221-.29.349-.634.349-1.003 0-1.036-1.007-1.875-2.25-1.875s-2.25.84-2.25 1.875c0 .369.128.713.349 1.003.215.283.401.604.401.959v0a.64.64 0 0 1-.657.643 48.39 48.39 0 0 1-4.163-.3c.186 1.613.293 3.25.315 4.907a.656.656 0 0 1-.658.663v0c-.355 0-.676-.186-.959-.401a1.647 1.647 0 0 0-1.003-.349c-1.036 0-1.875 1.007-1.875 2.25s.84 2.25 1.875 2.25c.369 0 .713-.128 1.003-.349.283-.215.604-.401.959-.401v0c.31 0 .555.26.532.57a48.039 48.039 0 0 1-.642 5.056c1.518.19 3.058.309 4.616.354a.64.64 0 0 0 .657-.643v0c0-.355-.186-.676-.401-.959a1.647 1.647 0 0 1-.349-1.003c0-1.035 1.008-1.875 2.25-1.875 1.243 0 2.25.84 2.25 1.875 0 .369-.128.713-.349 1.003-.215.283-.4.604-.4.959v0c0 .333.277.599.61.58a48.1 48.1 0 0 0 5.427-.63 48.05 48.05 0 0 0 .582-4.717.532.532 0 0 0-.533-.57v0c-.355 0-.676.186-.959.401-.29.221-.634.349-1.003.349-1.035 0-1.875-1.007-1.875-2.25s.84-2.25 1.875-2.25c.37 0 .713.128 1.003.349.283.215.604.401.96.401v0a.656.656 0 0 0 .658-.663 48.422 48.422 0 0 0-.37-5.36c-1.676.24-3.37.404-5.082.484a.638.638 0 0 1-.667-.643v0Z";
 const P_ADMIN: &str = "M11.42 15.17 17.25 21A2.652 2.652 0 0 0 21 17.25l-5.877-5.877M11.42 15.17l2.496-3.03c.317-.384.74-.626 1.208-.766M11.42 15.17l-4.655 5.653a2.548 2.548 0 1 1-3.586-3.586l6.837-5.63m5.108-.233c.55-.164 1.163-.188 1.743-.14a4.5 4.5 0 0 0 4.486-6.336l-3.276 3.277a3.004 3.004 0 0 1-2.25-2.25l3.276-3.276a4.5 4.5 0 0 0-6.336 4.486c.091 1.076-.071 2.264-.904 2.95l-.102.085m-1.745 1.437L5.909 7.5H4.5L2.25 3.75l1.5-1.5L7.5 4.5v1.409l4.26 4.26m-1.745 1.437 1.745-1.437m6.615 8.206L15.75 15.75M4.867 19.125h.008v.008h-.008v-.008Z";
+const P_TEAMS: &str = "M18 18.72a9.094 9.094 0 0 0 3.741-.479 3 3 0 0 0-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 0 1 6 18.719m12 0a5.971 5.971 0 0 0-.941-3.197m0 0A5.995 5.995 0 0 0 12 12.75a5.995 5.995 0 0 0-5.058 2.772m0 0a3 3 0 0 0-4.681 2.72 8.986 8.986 0 0 0 3.74.477m.94-3.197a5.971 5.971 0 0 0-.94 3.197M15 6.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z";
 const P_LOGOUT: &str = "M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15M12 9l-3 3m0 0 3 3m-3-3h12.75";
 const P_DEMO: &str = "m3.75 13.5 10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75Z";
 const P_TROPHY: &str = "M16.5 18.75h-9m9 0a3 3 0 0 1 3 3h-15a3 3 0 0 1 3-3m9 0v-3.375c0-.621-.503-1.125-1.125-1.125h-.871M7.5 18.75v-3.375c0-.621.504-1.125 1.125-1.125h.872m5.007 0H9.497m5.007 0a7.454 7.454 0 0 1-.982-3.172M9.497 14.25a7.454 7.454 0 0 0 .981-3.172M5.25 4.236c-.982.143-1.954.317-2.916.52A6.003 6.003 0 0 0 7.73 9.728M5.25 4.236V4.5c0 2.108.966 3.99 2.48 5.228M5.25 4.236V2.721C7.456 2.41 9.71 2.25 12 2.25c2.291 0 4.545.16 6.75.47v1.516M7.73 9.728a6.726 6.726 0 0 0 2.748 1.35m8.272-6.842V4.5c0 2.108-.966 3.99-2.48 5.228m2.48-5.492a46.32 46.32 0 0 1 2.916.52 6.003 6.003 0 0 1-5.395 4.972m0 0a6.726 6.726 0 0 1-2.749 1.35m0 0a6.772 6.772 0 0 1-3.044 0";
@@ -94,9 +96,18 @@ const P_PIN: &str = "M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z M19.5 10.5c0 7.142-7.
 const P_DOC: &str = "M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z";
 const P_DOWNLOAD: &str = "M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3";
 const P_TRASH: &str = "m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0";
+const P_GLOBE: &str = "M12 21a9.004 9.004 0 0 0 8.716-6.747M12 21a9.004 9.004 0 0 1-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 0 1 7.843 4.582M12 3a8.997 8.997 0 0 0-7.843 4.582m15.686 0A11.953 11.953 0 0 1 12 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0 1 21 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0 1 12 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 0 1 3 12c0-1.605.42-3.113 1.157-4.418";
+const P_FLAG: &str = "M3 3v1.5M3 21v-6m0 0 2.77-.693a9 9 0 0 1 6.208.682l.108.054a9 9 0 0 0 6.086.71l3.114-.732a48.524 48.524 0 0 1-.005-10.499l-3.11.732a9 9 0 0 1-6.085-.711l-.108-.054a9 9 0 0 0-6.208-.682L3 4.5M3 15V4.5";
+const P_ROCKET: &str = "M15.59 14.37a6 6 0 0 1-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 0 0 6.16-12.12A14.98 14.98 0 0 0 9.631 8.41m5.96 5.96a14.926 14.926 0 0 1-5.841 2.58m-.119-8.54a6 6 0 0 0-7.381 5.84h4.8m2.581-5.84a14.927 14.927 0 0 0-2.58 5.84m2.699 2.7c-.103.021-.207.041-.311.06a15.09 15.09 0 0 1-2.448-2.448 14.9 14.9 0 0 1 .06-.312m-2.24 2.39a4.493 4.493 0 0 0-1.757 4.306 4.493 4.493 0 0 0 4.306-1.758M16.5 9a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0Z";
 
 fn nav_link(href: &str, page: &str, key: &str, icon: &str, label: &str) -> String {
-    let active = if page == key { "active" } else { "" };
+    nav_link_group(href, page, &[key], icon, label)
+}
+
+/// Like `nav_link`, but highlights for any of several pages — used by sidebar sections
+/// (Online, Advanced Track) that fan out into sub-pages with no sidebar entry of their own.
+fn nav_link_group(href: &str, page: &str, keys: &[&str], icon: &str, label: &str) -> String {
+    let active = if keys.contains(&page) { "active" } else { "" };
     format!(r#"<a href="{href}" class="{active}">{icon}<span>{label}</span></a>"#)
 }
 
@@ -105,8 +116,22 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
         Some(u) => {
             let admin_block = if u.is_admin {
                 format!(
-                    r#"<div class="sb-head">Yönetim</div>{}"#,
-                    nav_link("/admin", active, "admin", &ico(P_ADMIN), "Yönetici paneli")
+                    r#"<div class="sb-head">Yönetim</div>{}{}{}"#,
+                    nav_link("/admin", active, "admin", &ico(P_ADMIN), "Yönetici paneli"),
+                    nav_link(
+                        "/admin/takimlar",
+                        active,
+                        "teams",
+                        &ico(P_TEAMS),
+                        "Takım formasyonu"
+                    ),
+                    nav_link(
+                        "/admin/harness",
+                        active,
+                        "harness-admin",
+                        &ico(P_HARNESS),
+                        "Agentic Harness (Admin)"
+                    )
                 )
             } else {
                 String::new()
@@ -125,15 +150,12 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
   </div>
   <nav class="sb-nav">
     {home}
+    {beginner_track}
+    {advanced_track}
     {schedule}
     {location}
     {documents}
-    {videos}
-    {board}
-    {leaderboard}
-    {harness}
-    {monopoly}
-    {demos}
+    {online}
     {admin_block}
   </nav>
   <div class="sb-footer">
@@ -165,35 +187,26 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
                     &ico(P_DOC),
                     "Veli Onay Formları"
                 ),
-                board = nav_link("/board", active, "board", &ico(P_BOARD), "Görev Panosu"),
-                leaderboard = nav_link(
-                    "/leaderboard",
+                online = nav_link_group(
+                    "/online",
                     active,
-                    "leaderboard",
-                    &ico(P_TROPHY),
-                    "Puan Tablosu"
+                    &["online", "videos", "board", "leaderboard", "demos"],
+                    &ico(P_GLOBE),
+                    "Online"
                 ),
-                harness = nav_link(
-                    "/agentic-harness",
+                beginner_track = nav_link_group(
+                    "/beginner-track",
                     active,
-                    "agentic-harness",
-                    &ico(P_HARNESS),
-                    "Agentic Harness"
+                    &["beginner-track"],
+                    &ico(P_FLAG),
+                    "Beginner Track"
                 ),
-                monopoly = nav_link(
-                    "/ai-monopoly",
+                advanced_track = nav_link_group(
+                    "/advanced-track",
                     active,
-                    "ai-monopoly",
-                    &ico(P_MONOPOLY),
-                    "AI Monopoly"
-                ),
-                videos = nav_link("/videos", active, "videos", &ico(P_PLAY), "Videolar"),
-                demos = nav_link(
-                    "/demos",
-                    active,
-                    "demos",
-                    &ico(P_DEMO),
-                    "İnteraktif Demolar"
+                    &["advanced-track", "agentic-harness", "ai-monopoly"],
+                    &ico(P_ROCKET),
+                    "Advanced Track"
                 ),
                 admin_block = admin_block,
                 profile_active = if active == "profile" { "active" } else { "" },
@@ -472,7 +485,7 @@ pub fn profile(user: &User, p: &Profile, msg: Option<&str>, error: Option<&str>)
 /// (query key, label) for the bench switcher chips. Benchmark names stay English.
 const HARNESS_BENCHES: [(&str, &str); 3] = [
     ("arc", "ARC-AGI-3"),
-    ("frontier", "Frontier Sprint"),
+    ("frontier", "Terminal Sprint"),
     ("ram", "RAM-bench"),
 ];
 
@@ -581,7 +594,7 @@ fn harness_shell(user: &User, tab: &str, sub: &str, inner: &str) -> String {
         // byte-identical output for every other page — <link rel=stylesheet> is body-ok.
         &format!(
             r##"<div class="arcade">
-<link rel="stylesheet" href="/static/harness.css?v=1">
+<link rel="stylesheet" href="/static/harness.css?v=6">
 <h1 class="pagetitle" lang="en">Agentic Harness</h1>
 <p class="muted">{sub}</p>
 <div class="chips">{chips}</div>
@@ -696,7 +709,12 @@ fn harness_benchmark_card(run: &HarnessRun, key: &str, title: &str, rule: &str) 
 
 /// The in-flight run's three independent benchmark states. harness.js polls the
 /// team-scoped status endpoint and reloads once the run reaches any terminal state.
-fn harness_stepper(run: &HarnessRun) -> String {
+///
+/// `submitter` is who pressed the button and `busy` means this student just tried to
+/// submit while that run was live. One team can only have one run per benchmark going,
+/// so the second person needs to be told who beat them to it and given a way to watch —
+/// this used to be a plain-text 400 with no way back.
+fn harness_stepper(run: &HarnessRun, submitter: Option<&str>, busy: bool) -> String {
     let (stage_label, stage_class) = harness_stage_tr(&run.stage);
     let sha = run
         .commit_sha
@@ -713,10 +731,10 @@ fn harness_stepper(run: &HarnessRun) -> String {
         .map(esc)
         .unwrap_or_else(|| esc(&run.model_id));
     let arc = harness_benchmark_card(run, "arc", "ARC-AGI-3", "25 public oyun · aynı anda 5 oyun");
-    let frontier = harness_benchmark_card(
+    let terminal = harness_benchmark_card(
         run,
         "frontier",
-        "Frontier Sprint",
+        "Terminal Sprint",
         "5 görev · görev başına 120 sn",
     );
     let ram = harness_benchmark_card(
@@ -727,20 +745,40 @@ fn harness_stepper(run: &HarnessRun) -> String {
     );
     let cards = match run.benchmark_kind.as_str() {
         "arc" => format!("{arc}{ram}"),
-        "frontier" => format!("{frontier}{ram}"),
-        _ => format!("{arc}{frontier}{ram}"),
+        "frontier" => format!("{terminal}{ram}"),
+        _ => format!("{arc}{terminal}{ram}"),
+    };
+    // Shown whenever a run is live, not only after a blocked submit: a teammate who just
+    // opens the page wants the same button. The live tab resolves the team's latest run
+    // per request, so no run id has to be threaded through the link.
+    let watch = r#"<a class="btn-outline small harness-watch" href="/agentic-harness?tab=live">Canlı izle →</a>"#;
+    let warning = if busy {
+        let who = match submitter {
+            Some(name) => format!("{} zaten bir çalıştırma başlattı.", esc(name)),
+            None => "Takımından biri zaten bir çalıştırma başlattı.".into(),
+        };
+        format!(
+            r##"<div class="harness-busy">
+    <p><span aria-hidden="true">⚠</span> {who} Aynı anda tek koşu yapılabilir.</p>
+    <a class="btn-dark small" href="/agentic-harness?tab=live">Canlı izle →</a>
+  </div>"##
+        )
+    } else {
+        String::new()
     };
     format!(
         r##"<div class="harness-live" id="harness-live" data-active="true" data-run="{run_id}" data-kind="{kind}" data-deadline="{deadline}">
+  {warning}
   <div class="harness-live-head">
     <span id="harness-run-status" class="substatus {stage_class}">{stage_label}</span>
     <div class="harness-live-actions">
       <span class="harness-countdown" id="harness-countdown"></span>
+      {watch}
       {stop}
     </div>
   </div>
   <p class="fieldnote harness-repo">{repo} · <code id="harness-commit">{sha}</code></p>
-  <p class="harness-run-meta"><span lang="en">{version}</span> · {provider}: <span id="harness-profile">{profile}</span></p>
+  <p class="harness-run-meta"><span lang="en">{version}</span> · {provider}: <span id="harness-profile">{profile}</span>{by}</p>
   <div class="harness-benchmark-grid">{cards}</div>
 </div>"##,
         deadline = esc(&deadline),
@@ -750,16 +788,20 @@ fn harness_stepper(run: &HarnessRun) -> String {
         repo = harness_source_label(&run.repo_url),
         version = esc(&run.benchmark_version),
         stop = harness_stop_form(run.id),
+        by = submitter
+            .map(|name| format!(" · gönderen: {}", esc(name)))
+            .unwrap_or_default(),
     )
 }
 
 /// Main tab: submit panel on the left, the switchable leaderboards on the right.
-/// `rows` carries ARC/Frontier standings, `ram_rows` the RAM ones — whichever
+/// `rows` carries ARC/Terminal standings, `ram_rows` the RAM ones — whichever
 /// matches `bench` is populated, the other is empty.
 fn provider_model_options(provider: ModelProvider, select_default: bool) -> String {
     let (models, default) = match provider {
         ModelProvider::Cerebras => (CEREBRAS_MODEL_IDS, DEFAULT_CEREBRAS_MODEL),
         ModelProvider::Bedrock => (BEDROCK_MODEL_IDS, DEFAULT_BEDROCK_MODEL),
+        ModelProvider::DeepInfra => (DEEPINFRA_MODEL_IDS, DEFAULT_DEEPINFRA_MODEL),
     };
     models
         .iter()
@@ -784,9 +826,10 @@ fn provider_model_options(provider: ModelProvider, select_default: bool) -> Stri
         .join("")
 }
 
-fn builtin_harness_options() -> String {
+fn builtin_harness_options(bench: &str) -> String {
     let options = BUILTIN_HARNESSES
         .iter()
+        .filter(|(id, _, _)| bench == "frontier" || *id != "terminus-2")
         .map(|(id, _, label)| format!(r#"<option value="{}">{}</option>"#, esc(id), esc(label)))
         .collect::<Vec<_>>()
         .join("");
@@ -803,6 +846,9 @@ pub fn agentic_harness_main(
     team: Option<&HarnessTeam>,
     members: &[TeamMemberRow],
     active_run: Option<&HarnessRun>,
+    // who started active_run, and what just happened (?msg= — see HarnessQ)
+    submitter: Option<&str>,
+    msg: Option<&str>,
     rows: &[HarnessLeaderRow],
     ram_rows: &[HarnessRamRow],
 ) -> String {
@@ -825,7 +871,8 @@ pub fn agentic_harness_main(
             r##"<section class="harness-left">
   <div class="gate-lock">{lock}</div>
   <h2>Takımın henüz yok</h2>
-  <p class="fieldnote">Henüz bir takımda değilsin — eğitmenine yaz. Takımlar şimdilik eğitmen tarafından atanıyor.</p>
+  <p class="fieldnote">Takımın olmadığı için gönderim yapamazsın. Eğitmenine yaz — takımlar
+  şimdilik eğitmen tarafından atanıyor.</p>
 </section>"##,
             lock = ico(P_LOCK)
         ),
@@ -838,43 +885,11 @@ pub fn agentic_harness_main(
             // the stepper replaces the form while a run is in flight — this is the
             // visible half of the double-submit guard (the DB index is the other)
             let action = match active_run {
-                Some(run) => harness_stepper(run),
-                None => {
-                    let builtin_picker = if user.is_admin {
-                        format!(
-                            r#"<label>agent:
-      <select name="builtin_harness">{}</select>
-    </label>"#,
-                            builtin_harness_options()
-                        )
-                    } else {
-                        String::new()
-                    };
-                    let provider_picker = if user.is_admin {
-                        r#"<label>provider:
-      <select name="provider" onchange="const m=this.form.elements.model_id;for(const o of m.options)o.disabled=o.dataset.provider!==this.value;const first=[...m.options].find(o=>!o.disabled);if(m.selectedOptions[0]?.disabled&amp;&amp;first)m.value=first.value">
-        <option value="cerebras" selected>Cerebras</option><option value="bedrock">Bedrock</option>
-      </select>
-    </label>"#
-                    } else {
-                        ""
-                    };
-                    let model_options = if user.is_admin {
-                        format!(
-                            "{}{}",
-                            provider_model_options(ModelProvider::Cerebras, true),
-                            provider_model_options(ModelProvider::Bedrock, false)
-                        )
-                    } else {
-                        provider_model_options(ModelProvider::Cerebras, true)
-                    };
-                    let repo_required = if user.is_admin { "" } else { " required" };
-                    format!(
-                        r##"<form method="post" action="/agentic-harness/submit" class="subform">
+                Some(run) => harness_stepper(run, submitter, msg == Some("busy")),
+                None => format!(
+                    r##"<form method="post" action="/agentic-harness/submit" class="subform">
     <input type="hidden" name="benchmark_kind" value="{bench}">
-    <input name="repo_url" type="url" placeholder="https://github.com/..."{repo_required}>
-    {builtin_picker}
-    {provider_picker}
+    <input name="repo_url" type="url" placeholder="https://github.com/..." required>
     <label>model:
       <select name="model_id" required>{model_options}</select>
     </label>
@@ -882,17 +897,34 @@ pub fn agentic_harness_main(
   </form>
   <p class="fieldnote">Herhangi bir takım üyesi gönderebilir. Her benchmark için aynı anda tek çalıştırma.
   Kurallar için <a href="/agentic-harness?tab=instructions" lang="en">Instructions</a> sekmesine bak.</p>"##,
-                        model_options = model_options,
-                    )
+                    model_options = provider_model_options(ModelProvider::Cerebras, true),
+                ),
+            };
+            // The name IS the input — no edit button, no modal. A one-field form submits
+            // on Enter with no JS at all; harness.js adds save-on-blur on top. Kids
+            // rename as often as they like, so the only feedback needed is a clash.
+            let note = match msg {
+                Some("named") => r#"<p class="teamname-note ok">Takım adı güncellendi ✓</p>"#,
+                Some("name-taken") => {
+                    r#"<p class="teamname-note bad">Bu isim başka bir takımda kullanılıyor.</p>"#
                 }
+                Some("name-long") => {
+                    r#"<p class="teamname-note bad">Takım adı boş olamaz, en fazla 40 karakter.</p>"#
+                }
+                _ => "",
             };
             format!(
                 r##"<section class="harness-left">
-  <h2>{name}</h2>
+  <form method="post" action="/agentic-harness/team/name" class="teamname">
+    <input name="name" value="{name}" maxlength="{max}" required spellcheck="false"
+           aria-label="Takım adı" title="Takım adını değiştirmek için buraya yaz">
+  </form>
+  {note}
   <div class="chips interest-names">{member_chips}</div>
   {action}
 </section>"##,
-                name = esc(&t.name)
+                name = esc(&t.name),
+                max = HARNESS_TEAM_NAME_MAX
             )
         }
     };
@@ -1053,7 +1085,7 @@ pub fn agentic_harness_main(
     </div>
   </div>
 </a>
-<script src="/static/arc.js?v=4" defer></script>"##,
+<script src="/static/arc.js?v=7" defer></script>"##,
             run_id = run.id
         ),
         _ => String::new(),
@@ -1069,13 +1101,120 @@ pub fn agentic_harness_main(
 </div>
 </div>
 {preview}
-<script src="/static/harness.js?v=5" defer></script>"##
+<script src="/static/harness.js?v=6" defer></script>"##
     );
     harness_shell(
         user,
         "main",
         "25 ARC oyunu beşerli çalışır; koşuyu istediğiniz zaman durdurabilirsiniz.",
         &inner,
+    )
+}
+
+/// The admin-only submit form: agent/provider/model pickers plus an optional repo URL,
+/// moved off the student-facing page so `agentic_harness_main` renders the same form for
+/// everyone. Still posts to the shared `/agentic-harness/submit`, which already checks the
+/// real session's `user.is_admin` — this page is just the only place that shows the extra
+/// fields now.
+fn admin_harness_form(bench: &str) -> String {
+    let builtin_picker = format!(
+        r#"<label>agent:
+      <select name="builtin_harness">{}</select>
+    </label>"#,
+        builtin_harness_options(bench)
+    );
+    let provider_picker = r#"<label>provider:
+      <select name="provider" onchange="const m=this.form.elements.model_id;for(const o of m.options)o.disabled=o.dataset.provider!==this.value;const first=[...m.options].find(o=>!o.disabled);if(m.selectedOptions[0]?.disabled&amp;&amp;first)m.value=first.value">
+        <option value="cerebras" selected>Cerebras</option><option value="bedrock">Bedrock</option><option value="deepinfra">DeepInfra</option>
+      </select>
+    </label>"#;
+    let model_options = format!(
+        "{}{}{}",
+        provider_model_options(ModelProvider::Cerebras, true),
+        provider_model_options(ModelProvider::Bedrock, false),
+        provider_model_options(ModelProvider::DeepInfra, false)
+    );
+    format!(
+        r##"<form method="post" action="/agentic-harness/submit" class="subform">
+    <input type="hidden" name="benchmark_kind" value="{bench}">
+    <input name="repo_url" type="url" placeholder="https://github.com/...">
+    {builtin_picker}
+    {provider_picker}
+    <label>model:
+      <select name="model_id" required>{model_options}</select>
+    </label>
+    <button class="btn-dark">Ajanı Gönder →</button>
+  </form>
+  <p class="fieldnote">Takımın adına gönderiyorsun. Her benchmark için aynı anda tek çalıştırma.</p>"##,
+        model_options = model_options,
+    )
+}
+
+/// Admin-only page living under "Yönetici paneli" in the sidebar: the team's roster plus
+/// `admin_harness_form`. Leaderboard, Canlı/Geçmiş/Instructions stay on `/agentic-harness`
+/// only — they already render the same for admins and students, so this page just links
+/// back to them instead of duplicating them.
+pub fn admin_harness_page(
+    user: &User,
+    bench: &str,
+    team: Option<&HarnessTeam>,
+    members: &[TeamMemberRow],
+    active_run: Option<&HarnessRun>,
+) -> String {
+    let content = match team {
+        None => format!(
+            r##"<div class="arcade">
+<link rel="stylesheet" href="/static/harness.css?v=6">
+<h1 class="pagetitle" lang="en">Agentic Harness — Admin</h1>
+<section class="harness-left">
+  <div class="gate-lock">{lock}</div>
+  <h2>Takımın yok</h2>
+  <p class="fieldnote">Bir takıma atanmadan buradan gönderim yapılamaz.</p>
+</section>
+</div>"##,
+            lock = ico(P_LOCK)
+        ),
+        Some(t) => {
+            let member_chips: String = members
+                .iter()
+                .filter(|m| m.team_id == t.id)
+                .map(|m| format!(r#"<span class="chip">{}</span>"#, esc(&m.display_name)))
+                .collect();
+            let action = match active_run {
+                Some(run) => harness_stepper(run, None, false),
+                None => admin_harness_form(bench),
+            };
+            let bench_chips: String = [("arc", "ARC-AGI-3"), ("frontier", "Terminal Sprint")]
+                .iter()
+                .map(|(k, label)| {
+                    let active = if bench == *k { "active" } else { "" };
+                    format!(
+                        r#"<a class="chip {active}" href="/admin/harness?bench={k}" lang="en">{label}</a>"#
+                    )
+                })
+                .collect();
+            format!(
+                r##"<div class="arcade">
+<link rel="stylesheet" href="/static/harness.css?v=6">
+<h1 class="pagetitle" lang="en">Agentic Harness — Admin</h1>
+<p class="muted">Takım adına doğrudan çalıştırma gönder.</p>
+<section class="harness-left">
+  <h2>{name}</h2>
+  <div class="chips interest-names">{member_chips}</div>
+  <div class="chips">{bench_chips}</div>
+  {action}
+</section>
+<p class="fieldnote"><a href="/agentic-harness">← Agentic Harness</a> sayfasında sıralamayı, canlı izlemeyi ve geçmişi görebilirsin.</p>
+</div>"##,
+                name = esc(&t.name)
+            )
+        }
+    };
+    layout(
+        "Agentic Harness (Admin)",
+        Some(user),
+        "harness-admin",
+        &content,
     )
 }
 
@@ -1158,7 +1297,8 @@ pub fn agentic_harness_live(user: &User, run: Option<&HarnessRun>, replay: bool)
   <div class="arc-focus" id="arc-focus" hidden></div>
   <div class="arc-grid" id="arc-boards"></div>
 </div>
-<script src="/static/arc.js?v=4" defer></script>"##
+<link href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&display=swap" rel="stylesheet">
+<script src="/static/arc.js?v=7" defer></script>"##
     );
     harness_shell(
         user,
@@ -1283,15 +1423,15 @@ pub fn agentic_harness_history(
             };
             format!(
                 "<tr><td>{date}</td><td>{commit}</td><td><span class=\"substatus {class}\">{label}</span></td>\
-                 <td>{arc}</td><td>{frontier}</td><td>{r1}</td><td>{r10}</td><td>{official_cell}</td><td>{replay}</td><td>{log}</td></tr>",
+                 <td>{arc}</td><td>{terminal}</td><td>{r1}</td><td>{r10}</td><td>{official_cell}</td><td>{replay}</td><td>{log}</td></tr>",
                 date = r.created_at.format("%d.%m.%Y %H:%M"),
-                arc = fmt(r.score_arc), frontier = fmt(r.score_frontier),
+                arc = fmt(r.score_arc), terminal = fmt(r.score_frontier),
                 r1 = fmt(r.ram_1session_mb), r10 = fmt(r.ram_10session_mb),
             )
         }).collect();
         format!(
             r##"<section class="panel wide">
-  <table><tr><th>Tarih</th><th>Commit</th><th>Durum</th><th lang="en">ARC-AGI-3</th><th lang="en">Frontier Sprint</th><th>RAM 1 oturum (MB)</th><th>RAM 10 oturum (MB)</th><th>Official Kaggle</th><th>Tekrar</th><th></th></tr>{table_rows}</table>
+  <table><tr><th>Tarih</th><th>Commit</th><th>Durum</th><th lang="en">ARC-AGI-3</th><th lang="en">Terminal Sprint</th><th>RAM 1 oturum (MB)</th><th>RAM 10 oturum (MB)</th><th>Official Kaggle</th><th>Tekrar</th><th></th></tr>{table_rows}</table>
 </section>"##
         )
     };
@@ -1311,7 +1451,7 @@ pub fn agentic_harness_instructions(user: &User) -> String {
 <section class="panel">
   <h2>Nasıl çalışır</h2>
   <p>Takımınız bir AI ajanı oluşturur ve onu bir kez gönderir. Aynı gönderim üç skor tablosunda da
-  puanlanır: <b lang="en">ARC-AGI-3</b>, <b lang="en">Frontier-bench</b> ve <b lang="en">RAM-bench</b>.</p>
+  puanlanır: <b lang="en">ARC-AGI-3</b>, <b lang="en">Terminal-Bench</b> ve <b lang="en">RAM-bench</b>.</p>
   <p>Repo herkese açık olmalı ve bağlantı <code>https://github.com/</code> ile başlamalıdır.
   Herhangi bir takım üyesi tüm takım adına gönderebilir. Aynı anda yalnızca bir çalıştırma devam edebilir.
   En iyi puanınız her skor tablosunda dikkate alınır; RAM-bench için en düşük değer sayılır.</p>
@@ -1319,12 +1459,12 @@ pub fn agentic_harness_instructions(user: &User) -> String {
 <section class="panel">
   <h2>Repo yapısı</h2>
   <p>Deponuzda iki ajan bulunmalıdır: biri <span lang="en">ARC-AGI-3</span> için, diğeri
-  <span lang="en">Frontier-bench</span> için. Depoyu klonlayıp tam otomatik olarak çalıştırıyoruz;
+  <span lang="en">Terminal-Bench</span> için. Depoyu klonlayıp tam otomatik olarak çalıştırıyoruz;
   yapıya uymayan bir gönderim puanlanmadan başarısız olur.</p>
   <pre class="plan-pre" lang="en">takim-repo/
 ├── agent/
 │   ├── my_agent.py       # ARC-AGI-3: class MyAgent(Agent)
-│   ├── harbor_agent.py   # Frontier-bench: class HarborAgent(BaseAgent)
+│   ├── harbor_agent.py   # Terminal-Bench: class HarborAgent(BaseAgent)
 │   └── ...               # geri kalanı size kalmış
 ├── main.py               # RAM-bench oturum giriş noktası
 └── requirements.txt      # bağımlılıklar</pre>
@@ -1379,8 +1519,8 @@ class MyAgent(LLM):
   çalıştırmayı iptal etmez; oyunlar bitene, ajan durana veya siz koşuyu durdurana kadar devam eder.</p>
 </section>
 <section class="panel">
-  <h2 lang="en">agent/harbor_agent.py — Frontier Sprint</h2>
-  <p>Bu dosya <span lang="en">Frontier Sprint (Harbor)</span> ortamının içinde çalışır. Her görevi,
+  <h2 lang="en">agent/harbor_agent.py — Terminal Sprint</h2>
+  <p>Bu dosya <span lang="en">Terminal Sprint (Harbor)</span> ortamının içinde çalışır. Her görevi,
   yalıtılmış bir konteyner içinde kabuk komutları çalıştırarak çözer.</p>
   <p>En kolay yol, <span lang="en">Harbor</span> içinde hazır gelen referans terminal ajanı
   <span lang="en">Terminus 2</span>'yi devralmaktır: konteynerde bir <span lang="en">tmux</span>
@@ -1406,7 +1546,7 @@ class HarborAgent(Terminus2):
   Model, çalıştırıcı tarafından verilir; deponuzda hiçbir anahtar durmaz. Kendi
   <span lang="en">HTTP</span> çağrınızı <code>urllib</code> ile yazarsanız bir
   <code lang="en">User-Agent</code> başlığı ekleyin — varsayılan başlık 403 ile reddedilir.</p>
-  <p>Sprint tam Frontier-bench değildir: sürümlenmiş beş görev aynı anda başlar. Her ajanın
+  <p>Sprint tam Terminal-Bench değildir: sürümlenmiş beş görev aynı anda başlar. Her ajanın
   sert süresi 120 saniye, doğrulayıcının süresi 60 saniyedir. İki dakika bilinçli bir sprint
   bütçesidir; derin görevler zaman aşımına uğrayabilir ve bu puanın parçasıdır. Konteyner
   çalıştırması 15 dakikalık toplam bütçeye ulaştığında durdurulur ve ardından temizlenir.</p>
@@ -1433,9 +1573,9 @@ class HarborAgent(Terminus2):
     <li>Tüm bağımlılıklar <code>requirements.txt</code> dosyasında listelenmelidir.</li>
     <li>Ajanın başsız (<span lang="en">headless</span>) çalışması gerekir: GUI penceresi ve
     etkileşimli bilgi istemi yok.</li>
-    <li><span lang="en">Frontier Sprint</span>, sürümlenmiş 5 görevi paralel ve görev başına
+    <li><span lang="en">Terminal Sprint</span>, sürümlenmiş 5 görevi paralel ve görev başına
     tek denemeyle çalıştırır. Puan, doğrulayıcı ödüllerinin 0–100 ortalamasıdır.</li>
-    <li>RAM, ARC ve Frontier bağımsız sonuç verir. Biri başarısız olsa bile biten benchmark'ın
+    <li>RAM, ARC ve Terminal bağımsız sonuç verir. Biri başarısız olsa bile biten benchmark'ın
     puanı korunur. Tüm yerel çalıştırma hazırlık dahil en fazla 9 saattir ve elle durdurulabilir.</li>
     <li><code>requirements.txt</code> doğrudan URL, git, yerel dosya veya pip seçeneği içeremez;
     repo 100 MiB, tek dosya 10 MiB ile sınırlıdır.</li>
@@ -1455,7 +1595,7 @@ class HarborAgent(Terminus2):
     <li><a href="https://github.com/Darkosxl/harness-mockup-agent" target="_blank" rel="noopener">harness-mockup-agent — reference example</a></li>
     <li><a href="https://docs.arcprize.org/arc-prize-2026" target="_blank" rel="noopener">ARC Prize 2026 SDK docs</a></li>
     <li><a href="https://arcprize.org/arc-agi/3" target="_blank" rel="noopener">ARC-AGI-3 — what it tests</a></li>
-    <li><a href="https://www.frontierbench.ai/run" target="_blank" rel="noopener">Frontier-bench run instructions</a></li>
+    <li><a href="https://www.tbench.ai/" target="_blank" rel="noopener">Terminal-Bench — official site</a></li>
     <li><a href="https://harborframework.com/" target="_blank" rel="noopener">Harbor — BaseAgent docs</a></li>
   </ul>
 </section>
@@ -2169,8 +2309,8 @@ pub fn demos(user: &User, lang: &str) -> String {
     layout("İnteraktif Demolar", Some(user), "demos", &content)
 }
 
-/// Ana Sayfa — portalın giriş kapısı. İçerik yok, yalnızca üç büyük hedef:
-/// solda videolar, sağda görevler, altta puan tablosu.
+/// Ana Sayfa — portalın giriş kapısı. İçerik yok, yalnızca dört büyük hedef:
+/// Online, Beginner Track, Advanced Track ve Veli Onay Formları.
 pub fn home(
     user: &User,
     videos_done: i64,
@@ -2203,33 +2343,25 @@ pub fn home(
 <p class="muted">Nereden devam etmek istersin?</p>
 {consent_alert}
 <div class="hubgrid">
-  <a class="hubcard" href="/videos">
-    <span class="hubico">{ico_video}</span>
-    <h2>Videolar</h2>
-    <p>Ders videolarını izle, kaldığın yerden devam et.</p>
-    <span class="hubstat">{videos_done}/{videos_total} video tamamlandı</span>
-    <span class="hubgo">Videolara git →</span>
+  <a class="hubcard" href="/online">
+    <span class="hubico">{ico_online}</span>
+    <h2>Online</h2>
+    <p>Videolar, görev panosu, demolar ve puan tablosu — hepsi burada.</p>
+    <span class="hubstat">{videos_done}/{videos_total} video · {open_tasks} açık görev · {points} puan · {rank_line}</span>
+    <span class="hubgo">Online'a git →</span>
   </a>
-  <a class="hubcard" href="/board">
-    <span class="hubico">{ico_board}</span>
-    <h2>Görevler</h2>
-    <p>Projeni yap, GitHub bağlantısını gönder, geri bildirim al.</p>
-    <span class="hubstat">{open_tasks} açık görev</span>
-    <span class="hubgo">Görev panosuna git →</span>
+  <a class="hubcard" href="/beginner-track">
+    <span class="hubico">{ico_beginner}</span>
+    <h2>Beginner Track</h2>
+    <p>Başlangıç seviyesindeki öğrenciler için içerikler.</p>
+    <span class="hubstat">Yakında</span>
+    <span class="hubgo">Beginner Track'a git →</span>
   </a>
-  <a class="hubcard" href="/leaderboard">
-    <span class="hubico">{ico_trophy}</span>
-    <h2>Puan Tablosu</h2>
-    <p>Her görev ve videodan puan kazanın! Video {PTS_VIDEO}; proje Beginner {PTS_PROJECT_L1}, Intermediate {PTS_PROJECT_L2}, Advanced {PTS_PROJECT_L3}.</p>
-    <span class="hubstat">{points} puan · {rank_line}</span>
-    <span class="hubgo">Sıralamayı gör →</span>
-  </a>
-  <a class="hubcard" href="/demos">
-    <span class="hubico">{ico_demo}</span>
-    <h2>İnteraktif Demolar</h2>
-    <p>Derslerde kullanılan interaktif anlatımlar.</p>
-    <span class="hubstat">{demo_count} demo</span>
-    <span class="hubgo">Demolara git →</span>
+  <a class="hubcard" href="/advanced-track">
+    <span class="hubico">{ico_advanced}</span>
+    <h2>Advanced Track</h2>
+    <p>Agentic Harness ve AI Monopoly — ileri seviye yarışmalı bölümler.</p>
+    <span class="hubgo">Advanced Track'a git →</span>
   </a>
   <a class="hubcard" href="/documents">
     <span class="hubico">{ico_doc}</span>
@@ -2240,14 +2372,187 @@ pub fn home(
   </a>
 </div>"##,
         name = esc(u_first_name(user)),
-        ico_video = ico(P_PLAY),
-        ico_board = ico(P_BOARD),
-        ico_trophy = ico(P_TROPHY),
-        ico_demo = ico(P_DEMO),
+        ico_online = ico(P_GLOBE),
+        ico_beginner = ico(P_FLAG),
+        ico_advanced = ico(P_ROCKET),
         ico_doc = ico(P_DOC),
-        demo_count = DEMOS.len(),
     );
     layout("Ana Sayfa", Some(user), "home", &content)
+}
+
+/// Online — the four day-to-day student surfaces (videos, tasks, demos, standings)
+/// behind one sidebar entry, presented as its own hub the same way Ana Sayfa is.
+pub fn online(
+    user: &User,
+    videos_done: i64,
+    videos_total: i64,
+    open_tasks: i64,
+    points: i64,
+    rank: Option<i64>,
+) -> String {
+    let rank_line = match rank {
+        Some(r) => format!("{r}. sıradasın"),
+        None => "Henüz sıralamada değilsin".into(),
+    };
+    let content = format!(
+        r##"<h1 class="pagetitle">Online</h1>
+<p class="muted">Videolar, görevler, demolar ve puan tablosu — hepsi burada.</p>
+<div class="hubgrid">
+  <a class="hubcard" href="/videos">
+    <span class="hubico">{ico_video}</span>
+    <h2>Videolar</h2>
+    <p>Ders videolarını izle, kaldığın yerden devam et.</p>
+    <span class="hubstat">{videos_done}/{videos_total} video tamamlandı</span>
+    <span class="hubgo">Videolara git →</span>
+  </a>
+  <a class="hubcard" href="/board">
+    <span class="hubico">{ico_board}</span>
+    <h2>Görev Panosu</h2>
+    <p>Projeni yap, GitHub bağlantısını gönder, geri bildirim al.</p>
+    <span class="hubstat">{open_tasks} açık görev</span>
+    <span class="hubgo">Görev panosuna git →</span>
+  </a>
+  <a class="hubcard" href="/demos">
+    <span class="hubico">{ico_demo}</span>
+    <h2>İnteraktif Demolar</h2>
+    <p>Derslerde kullanılan interaktif anlatımlar.</p>
+    <span class="hubstat">{demo_count} demo</span>
+    <span class="hubgo">Demolara git →</span>
+  </a>
+  <a class="hubcard" href="/leaderboard">
+    <span class="hubico">{ico_trophy}</span>
+    <h2>Puan Tablosu</h2>
+    <p>Her görev ve videodan puan kazanın! Video {PTS_VIDEO}; proje Beginner {PTS_PROJECT_L1}, Intermediate {PTS_PROJECT_L2}, Advanced {PTS_PROJECT_L3}.</p>
+    <span class="hubstat">{points} puan · {rank_line}</span>
+    <span class="hubgo">Sıralamayı gör →</span>
+  </a>
+</div>"##,
+        ico_video = ico(P_PLAY),
+        ico_board = ico(P_BOARD),
+        ico_demo = ico(P_DEMO),
+        ico_trophy = ico(P_TROPHY),
+        demo_count = DEMOS.len(),
+    );
+    layout("Online", Some(user), "online", &content)
+}
+
+/// Advanced Track — the two competitive surfaces, grouped behind one sidebar entry and
+/// presented the same hub-card way as Ana Sayfa / Online.
+pub fn advanced_track(user: &User) -> String {
+    let content = format!(
+        r##"<h1 class="pagetitle">Advanced Track</h1>
+<p class="muted">İleri seviye yarışmalı bölümler.</p>
+<div class="hubgrid">
+  <a class="hubcard" href="/agentic-harness">
+    <span class="hubico">{ico_harness}</span>
+    <h2 lang="en">Agentic Harness</h2>
+    <p>Ajanını kur, karşılaştırma setlerinde çalıştır, sıralamada yerini gör.</p>
+    <span class="hubgo">Agentic Harness'a git →</span>
+  </a>
+  <a class="hubcard" href="/ai-monopoly">
+    <span class="hubico">{ico_monopoly}</span>
+    <h2 lang="en">AI Monopoly</h2>
+    <p>Modelini Monopoly masasına oturt, rakiplerine karşı oynat.</p>
+    <span class="hubgo">AI Monopoly'ye git →</span>
+  </a>
+</div>"##,
+        ico_harness = ico(P_HARNESS),
+        ico_monopoly = ico(P_MONOPOLY),
+    );
+    layout("Advanced Track", Some(user), "advanced-track", &content)
+}
+
+// (key, title, one-line summary, pdf filename in static/beginner-projects/). ponytail:
+// hardcoded list, same pattern as DEMOS — these are fixed, code-and-deploy content, not
+// something an admin edits day to day. Add a row here (and the PDF) for a new project.
+pub const BEGINNER_PROJECTS: [(&str, &str, &str, &str); 5] = [
+    (
+        "kisisel-web-sitesi",
+        "Proje 1 — Kişisel Web Sitesi",
+        "İlgi alanlarını ve ürettiklerini anlatan, yayında olan kişisel bir web sitesi kur.",
+        "01-kisisel-web-sitesi.pdf",
+    ),
+    (
+        "kisisel-web-sitesi-chatbotu",
+        "Proje 2 — Kişisel Web Sitesi Chatbotu",
+        "Web siteni, profile.md dosyasından seni tanıtan bir chatbot ile genişlet.",
+        "02-kisisel-web-sitesi-chatbotu.pdf",
+    ),
+    (
+        "ai-bouquet-maker",
+        "Proje 3 — AI Bouquet Maker",
+        "Annen için kişiselleştirilmiş yapay zekâ çiçek buketleri oluşturan bir uygulama geliştir.",
+        "03-ai-bouquet-maker.pdf",
+    ),
+    (
+        "renovate-your-room",
+        "Proje 4 — Renovate Your Room",
+        "Oda fotoğrafını yükleyip yapay zekâ ile farklı dekorasyon stillerinde yeniden tasarla.",
+        "04-renovate-your-room.pdf",
+    ),
+    (
+        "character-voice-studio",
+        "Proje 5 — Character Voice Studio",
+        "Kendi karakterini oluştur, görsel ve sesle hayata geçirip konuştur.",
+        "05-character-voice-studio.pdf",
+    ),
+];
+
+/// Beginner Track — the five fixed projects above, each with a downloadable brief and a
+/// save-your-links form. Self-reported, no grading: the form always shows, pre-filled
+/// with whatever was last saved, and resaving just overwrites it.
+pub fn beginner_track(user: &User, subs: &[BeginnerSubmission]) -> String {
+    let cards: String = BEGINNER_PROJECTS
+        .iter()
+        .map(|(key, title, summary, pdf)| {
+            let saved = subs.iter().find(|s| s.project_key == *key);
+            let (repo_val, vercel_val) = saved
+                .map(|s| (s.repo_url.clone(), s.vercel_url.clone()))
+                .unwrap_or_default();
+            let saved_note = if saved.is_some() {
+                r#"<p class="fieldnote">Kaydedildi ✓</p>"#
+            } else {
+                ""
+            };
+            format!(
+                r##"<div class="taskcard">
+  <div class="taskhead"><h3>{title}</h3></div>
+  <p class="desc">{summary}</p>
+  <div class="cardactions">
+    <a class="btn-outline small" href="/static/beginner-projects/{pdf}" target="_blank" rel="noopener">Brifi indir ⬇</a>
+  </div>
+  {saved_note}
+  <form method="post" action="/beginner-track/submit" class="subform">
+    <input type="hidden" name="project_key" value="{key}">
+    <input name="repo_url" type="url" placeholder="https://github.com/..." value="{repo_val}" required>
+    <input name="vercel_url" type="url" placeholder="https://...vercel.app" value="{vercel_val}" required>
+    <button class="btn-dark">Kaydet →</button>
+  </form>
+</div>"##,
+                title = esc(title),
+                summary = esc(summary),
+                repo_val = esc(&repo_val),
+                vercel_val = esc(&vercel_val),
+            )
+        })
+        .collect();
+    layout(
+        "Beginner Track",
+        Some(user),
+        "beginner-track",
+        &format!(
+            r##"<h1 class="pagetitle">Beginner Track</h1>
+<p class="muted">Başlangıç seviyesindeki 5 proje. Her biri için brifi indir, projeni yap, sonra GitHub ve Vercel bağlantılarını kaydet.</p>
+<div class="taskcard">
+  <div class="taskhead"><h3>Vibe Coding Cheat Sheet</h3></div>
+  <p class="desc">Tüm beginner track projelerinde işine yarayacak hızlı referans rehberi.</p>
+  <div class="cardactions">
+    <a class="btn-outline small" href="/static/beginner-projects/vibe-coding-cheat-sheet.pdf" target="_blank" rel="noopener">Cheat sheet indir ⬇</a>
+  </div>
+</div>
+<div class="tasks">{cards}</div>"##
+        ),
+    )
 }
 
 /// Kartta tam ad yerine yalnızca ilk isim — selamlama kısa kalsın.
@@ -3464,12 +3769,7 @@ pub fn admin(
             )
         }).collect()
     };
-    // Interim harness-team management (until real team onboarding lands).
-    let harness_team_opts: String = harness
-        .teams
-        .iter()
-        .map(|t| format!(r#"<option value="{}">{}</option>"#, t.id, esc(&t.name)))
-        .collect();
+    // Shared by the Monopoly assign form below; the harness one moved to /admin/takimlar.
     let harness_student_opts: String = members
         .iter()
         .filter(|m| !m.is_admin)
@@ -3481,29 +3781,6 @@ pub fn admin(
             )
         })
         .collect();
-    let harness_team_rows: String = if harness.teams.is_empty() {
-        "<p class='muted'>Henüz takım yok</p>".into()
-    } else {
-        harness.teams.iter().map(|t| {
-            let kid_buttons: String = harness.members.iter().filter(|m| m.team_id == t.id).map(|m| format!(
-                r#"<form method="post" action="/admin/harness/member/remove" class="inline">
-      <input type="hidden" name="id" value="{uid}">
-      <button class="btn-outline small" title="Takımdan çıkar">{name} ✕</button>
-    </form>"#,
-                uid = m.user_id, name = esc(&m.display_name))).collect();
-            format!(
-                r##"<div class="itemrow">
-  <div class="item-title"><span>{name}</span></div>
-  <div class="item-controls">{kid_buttons}
-    <form method="post" action="/admin/harness/team/delete" class="inline" onsubmit="return confirm('Bu takımı silersen tüm çalıştırmaları ve skorları da silinir. Emin misin?')">
-      <input type="hidden" name="id" value="{id}">
-      <button class="btn-dark small">Sil</button>
-    </form>
-  </div>
-</div>"##,
-                name = esc(&t.name), id = t.id)
-        }).collect()
-    };
     // "Başarısız say" is the stuck-run escape hatch: a worker that died mid-run
     // otherwise blocks the team's resubmits forever (one-active-run index).
     let harness_run_rows: String = if harness.active_runs.is_empty() {
@@ -3685,19 +3962,10 @@ pub fn admin(
 </section>
 
 <section class="panel">
-  <h2 lang="en">Agentic Harness — <span lang="tr">Takımlar</span></h2>
-  <p class="fieldnote">Geçici yönetim: takım katılımı gelene kadar takımları buradan oluştur ve
-  öğrencileri ata. Bir öğrenci aynı anda tek takımda olabilir; yeniden atamak takım değiştirir.</p>
-  <form method="post" action="/admin/harness/team">
-    <label>Takım adı<input name="name" required></label>
-    <button class="btn-dark">Takım oluştur</button>
-  </form>
-  <form method="post" action="/admin/harness/member">
-    <label>Öğrenci<select name="user_id">{harness_student_opts}</select></label>
-    <label>Takım<select name="team_id">{harness_team_opts}</select></label>
-    <button class="btn-dark">Takıma ata</button>
-  </form>
-  <div class="minilist">{harness_team_rows}</div>
+  <h2 lang="en">Agentic Harness — <span lang="tr">Çalıştırmalar</span></h2>
+  <p class="fieldnote">Takımları kurmak ve öğrencileri sürükleyip atamak için
+  <a href="/admin/takimlar">Takım formasyonu</a> sayfasına git. Burada yalnızca
+  takılı kalmış çalıştırmalar kurtarılır.</p>
   <p class="muted">Aktif çalıştırmalar</p>
   <div class="minilist">{harness_run_rows}</div>
 </section>
@@ -3742,6 +4010,154 @@ pub fn admin(
 </section>
 </div>
 <script src="/static/admin.js?v=6" defer></script>"##
+        ),
+    )
+}
+
+/// One column of the formation board. `team` is `None` for the Takımsız bucket, whose
+/// drop target posts to member/remove instead of member.
+fn formation_column(
+    team: Option<&HarnessTeam>,
+    kids: &[&FormationKid],
+    busy: bool,
+    student_opts: &str,
+) -> String {
+    // A <button> rather than a <div>: focusable and tab-ordered for free, which is the
+    // only keyboard path onto a card. The <select> fallback below is the real one.
+    let cards: String = kids
+        .iter()
+        .map(|k| {
+            format!(
+                r#"<button type="button" class="kid" draggable="true" data-user="{id}">{name}</button>"#,
+                id = k.id,
+                name = esc(&k.display_name)
+            )
+        })
+        .collect();
+    let empty = if kids.is_empty() {
+        r#"<p class="fempty">Buraya sürükle</p>"#
+    } else {
+        ""
+    };
+    let (id_attr, head) = match team {
+        None => (
+            String::new(),
+            format!(
+                r##"<div class="fhead">
+    <h2>Takımsız</h2>
+    <span class="item-meta">{n} öğrenci · gönderim yapamaz</span>
+  </div>"##,
+                n = kids.len()
+            ),
+        ),
+        Some(t) => {
+            // Moving a kid out mid-run is allowed on purpose — the run belongs to the
+            // team. The badge is so it isn't a surprise.
+            let badge = if busy {
+                r#"<span class="substatus st-reviewing">çalışıyor</span>"#
+            } else {
+                ""
+            };
+            (
+                format!(r#" data-team="{}""#, t.id),
+                format!(
+                    r##"<div class="fhead">
+    <form method="post" action="/admin/takimlar/team/rename" class="inline frename">
+      <input type="hidden" name="id" value="{id}">
+      <input name="name" value="{name}" required aria-label="Takım adı">
+      <button class="btn-dark small">Kaydet</button>
+    </form>
+    {badge}
+    <form method="post" action="/admin/takimlar/team/delete" class="inline" onsubmit="return confirm('Bu takımı silersen tüm çalıştırmaları ve skorları da silinir. Emin misin?')">
+      <input type="hidden" name="id" value="{id}">
+      <button class="btn-dark small">Sil</button>
+    </form>
+  </div>
+  <span class="item-meta">{n} öğrenci</span>"##,
+                    id = t.id,
+                    name = esc(&t.name),
+                    n = kids.len()
+                ),
+            )
+        }
+    };
+    // Same-column assign form per team, so the no-JS and touch paths never need the
+    // team dropdown the board replaced.
+    let assign = match team {
+        None => String::new(),
+        Some(t) => format!(
+            r#"<form method="post" action="/admin/takimlar/member" class="inline fassign">
+    <input type="hidden" name="team_id" value="{id}">
+    <select name="user_id" aria-label="Öğrenci">{student_opts}</select>
+    <button class="btn-dark small">Ata</button>
+  </form>"#,
+            id = t.id
+        ),
+    };
+    format!(
+        r##"<section class="fcol"{id_attr}>
+  {head}
+  <div class="fkids">{cards}{empty}</div>
+  {assign}
+</section>"##
+    )
+}
+
+/// Takım formasyonu: the admin drag-and-drop board for Agentic Harness teams.
+/// Harness only — AI Monopoly keeps its own rosters and its own panel on /admin.
+pub fn teams_page(
+    user: &User,
+    teams: &[HarnessTeam],
+    kids: &[FormationKid],
+    busy: &[Uuid],
+    saved: bool,
+) -> String {
+    let student_opts: String = kids
+        .iter()
+        .map(|k| {
+            format!(
+                r#"<option value="{}">{}</option>"#,
+                k.id,
+                esc(&k.display_name)
+            )
+        })
+        .collect();
+    let unassigned: Vec<&FormationKid> = kids.iter().filter(|k| k.team_id.is_none()).collect();
+    let columns: String = std::iter::once(formation_column(None, &unassigned, false, ""))
+        .chain(teams.iter().map(|t| {
+            let mine: Vec<&FormationKid> =
+                kids.iter().filter(|k| k.team_id == Some(t.id)).collect();
+            formation_column(Some(t), &mine, busy.contains(&t.id), &student_opts)
+        }))
+        .collect();
+    let flash = if saved {
+        r#"<p class="fsaved">Kaydedildi ✓</p>"#
+    } else {
+        ""
+    };
+    layout(
+        "Takım formasyonu",
+        Some(user),
+        "teams",
+        // .formation is the only hook this page's stylesheet matches, and the <link> rides
+        // in the content so layout() stays byte-identical for every other page — same
+        // arrangement harness.css uses.
+        &format!(
+            r##"<div class="formation" id="formation-root">
+<link rel="stylesheet" href="/static/teams.css?v=1">
+<h1 class="pagetitle">Takım formasyonu</h1>
+<p class="muted">Öğrencileri sürükleyip takımlara bırak. Bir öğrenci aynı anda tek takımda
+olabilir; sürüklemek takımını değiştirir. Takımı olmayan öğrenci gönderim yapamaz.</p>
+<p class="fieldnote">Bir takımın çalıştırması sürerken öğrenci taşımak serbest — çalıştırma
+takımın, gönderen kişinin değil, bu yüzden durmaz.</p>
+{flash}
+<form method="post" action="/admin/takimlar/team" class="inline fcreate">
+  <input name="name" placeholder="Takım adı" required aria-label="Takım adı">
+  <button class="btn-dark">Takım oluştur</button>
+</form>
+<div class="fboard">{columns}</div>
+<script src="/static/teams.js?v=1" defer></script>
+</div>"##
         ),
     )
 }
@@ -3804,6 +4220,21 @@ mod tests {
     }
 
     #[test]
+    fn beginner_track_links_cheat_sheet() {
+        let user = User {
+            id: Uuid::nil(),
+            display_name: "A".into(),
+            nickname: Some("a".into()),
+            is_admin: false,
+        };
+        let html = beginner_track(&user, &[]);
+        assert!(
+            html.contains(r#"href="/static/beginner-projects/vibe-coding-cheat-sheet.pdf""#),
+            "beginner track should link the vibe coding cheat sheet"
+        );
+    }
+
+    #[test]
     fn gallery_empty_state() {
         let user = User {
             id: Uuid::nil(),
@@ -3834,7 +4265,7 @@ mod tests {
             id: Uuid::nil(),
             name: "Test".into(),
         };
-        let html = agentic_harness_main(&user, "arc", Some(&team), &[], None, &[], &[]);
+        let html = agentic_harness_main(&user, "arc", Some(&team), &[], None, None, None, &[], &[]);
         assert!(html.contains("<label>model:"));
         assert!(html.contains(r#"<select name="model_id" required>"#));
         assert!(html.contains(r#"name="benchmark_kind" value="arc""#));
@@ -3861,11 +4292,21 @@ mod tests {
             id: Uuid::nil(),
             name: "Test".into(),
         };
-        let html = agentic_harness_main(&admin, "arc", Some(&team), &[], None, &[], &[]);
+        // The pickers moved off the student page onto /admin/harness, so assert them
+        // where they now live — and assert the student page no longer carries them.
+        let html = admin_harness_page(&admin, "arc", Some(&team), &[], None);
+        assert!(
+            !agentic_harness_main(&admin, "arc", Some(&team), &[], None, None, None, &[], &[])
+                .contains("<label>agent:")
+        );
         assert!(html.contains("<label>agent:"));
         assert!(html.contains(r#"<select name="provider""#));
         assert!(html.contains(r#"<option value="cerebras" selected>Cerebras</option>"#));
         assert!(html.contains(r#"<option value="bedrock">Bedrock</option>"#));
+        assert!(html.contains(r#"<option value="deepinfra">DeepInfra</option>"#));
+        assert!(html.contains(
+            r#"<option value="Qwen/Qwen3.6-27B" data-provider="deepinfra" data-image="true">"#
+        ));
         assert!(html.contains(r#"<select name="builtin_harness""#));
         assert!(html.contains(r#"<option value="forge">Forge</option>"#));
         assert!(html.contains(r#"<option value="reki">Reki</option>"#));
@@ -3880,6 +4321,200 @@ mod tests {
             )
         );
         assert!(!html.contains(r#"placeholder="https://github.com/..." required"#));
+    }
+
+    fn admin_user() -> User {
+        User {
+            id: Uuid::nil(),
+            display_name: "Admin".into(),
+            nickname: None,
+            is_admin: true,
+        }
+    }
+
+    fn team_at(n: u128, name: &str) -> HarnessTeam {
+        HarnessTeam {
+            id: Uuid::from_u128(n),
+            name: name.into(),
+        }
+    }
+
+    fn kid(n: u128, name: &str, team: Option<u128>) -> FormationKid {
+        FormationKid {
+            id: Uuid::from_u128(n),
+            display_name: name.into(),
+            team_id: team.map(Uuid::from_u128),
+        }
+    }
+
+    #[test]
+    fn formation_board_puts_every_kid_in_exactly_one_column() {
+        let teams = [team_at(1, "Alfa"), team_at(2, "Beta")];
+        let kids = [
+            kid(10, "Ada", Some(1)),
+            kid(11, "Bora", Some(1)),
+            kid(12, "Cem", Some(2)),
+            kid(13, "Deniz", None),
+        ];
+        let html = teams_page(&admin_user(), &teams, &kids, &[], false);
+        // one card per kid, never two — a drop is a move, the DB PK guarantees it
+        for name in ["Ada", "Bora", "Cem", "Deniz"] {
+            assert_eq!(
+                html.matches(&format!(
+                    r#"draggable="true" data-user="{}""#,
+                    kids.iter().find(|k| k.display_name == name).unwrap().id
+                ))
+                .count(),
+                1,
+                "{name} should appear on exactly one card"
+            );
+        }
+        // three columns: Takımsız + two teams
+        assert_eq!(html.matches(r#"<section class="fcol""#).count(), 3);
+        assert!(html.contains("Takımsız"));
+        assert!(html.contains("gönderim yapamaz"));
+        // the unassigned bucket has no data-team, so its drop posts to member/remove
+        assert!(html.contains(r#"<section class="fcol">"#));
+        assert!(html.contains(r#"action="/admin/takimlar/team/rename""#));
+    }
+
+    #[test]
+    fn formation_board_survives_an_empty_database() {
+        let html = teams_page(&admin_user(), &[], &[], &[], false);
+        assert_eq!(html.matches(r#"<section class="fcol""#).count(), 1);
+        assert!(html.contains("Buraya sürükle"));
+        // create still reachable with nothing on the board
+        assert!(html.contains(r#"action="/admin/takimlar/team""#));
+    }
+
+    #[test]
+    fn formation_board_flags_a_team_with_a_live_run() {
+        let teams = [team_at(1, "Alfa"), team_at(2, "Beta")];
+        let busy = [Uuid::from_u128(1)];
+        let html = teams_page(
+            &admin_user(),
+            &teams,
+            &[kid(10, "Ada", Some(1))],
+            &busy,
+            true,
+        );
+        assert_eq!(html.matches("çalışıyor").count(), 1);
+        assert!(html.contains("Kaydedildi ✓"));
+    }
+
+    fn running_run() -> HarnessRun {
+        HarnessRun {
+            id: Uuid::from_u128(7),
+            repo_url: "https://github.com/kid/agent".into(),
+            model_id: "m".into(),
+            provider: "cerebras".into(),
+            benchmark_kind: "arc".into(),
+            commit_sha: None,
+            stage: "running".into(),
+            benchmark_version: "v3".into(),
+            benchmark_state: serde_json::Value::Null,
+            bedrock_profile: None,
+            deadline_at: None,
+            score_arc: None,
+            score_frontier: None,
+            ram_1session_mb: None,
+            ram_10session_mb: None,
+            error_log: None,
+            created_at: chrono::Utc::now(),
+        }
+    }
+
+    #[test]
+    fn a_live_run_always_offers_a_watch_link() {
+        let html = harness_stepper(&running_run(), Some("Ada"), false);
+        assert!(html.contains(r#"href="/agentic-harness?tab=live""#));
+        assert!(html.contains("Canlı izle"));
+        assert!(html.contains("gönderen: Ada"));
+        // no warning unless this student actually collided with the run
+        assert!(!html.contains("harness-busy"));
+    }
+
+    #[test]
+    fn a_blocked_submit_names_the_teammate_and_links_to_the_live_tab() {
+        let html = harness_stepper(&running_run(), Some("Ada"), true);
+        assert!(html.contains("harness-busy"));
+        assert!(html.contains("Ada zaten bir çalıştırma başlattı."));
+        assert!(html.contains(r#"href="/agentic-harness?tab=live""#));
+        // submitted_by is `on delete set null`, so the name can be gone
+        let anon = harness_stepper(&running_run(), None, true);
+        assert!(anon.contains("Takımından biri zaten bir çalıştırma başlattı."));
+    }
+
+    #[test]
+    fn the_team_name_is_the_input_with_no_button_to_press() {
+        let user = User {
+            id: Uuid::nil(),
+            display_name: "Kid".into(),
+            nickname: None,
+            is_admin: false,
+        };
+        let team = team_at(1, "Neural Ninjas");
+        let html = agentic_harness_main(&user, "arc", Some(&team), &[], None, None, None, &[], &[]);
+        assert!(html.contains(r#"action="/agentic-harness/team/name""#));
+        assert!(html.contains(r#"value="Neural Ninjas""#));
+        assert!(html.contains(&format!(r#"maxlength="{HARNESS_TEAM_NAME_MAX}""#)));
+        // exactly one field and no submit button is what makes Enter submit it
+        let form = &html[html.find(r#"class="teamname""#).unwrap()..];
+        let form = &form[..form.find("</form>").unwrap()];
+        assert_eq!(form.matches("<input").count(), 1);
+        assert!(!form.contains("<button"));
+        // nothing to say until something happened
+        assert!(!html.contains("teamname-note"));
+    }
+
+    #[test]
+    fn a_name_clash_is_explained_next_to_the_field() {
+        let user = User {
+            id: Uuid::nil(),
+            display_name: "Kid".into(),
+            nickname: None,
+            is_admin: false,
+        };
+        let team = team_at(1, "Neural Ninjas");
+        let taken = agentic_harness_main(
+            &user,
+            "arc",
+            Some(&team),
+            &[],
+            None,
+            None,
+            Some("name-taken"),
+            &[],
+            &[],
+        );
+        assert!(taken.contains("başka bir takımda kullanılıyor"));
+        let ok = agentic_harness_main(
+            &user,
+            "arc",
+            Some(&team),
+            &[],
+            None,
+            None,
+            Some("named"),
+            &[],
+            &[],
+        );
+        assert!(ok.contains("Takım adı güncellendi"));
+        // a rename note must never be mistaken for the busy warning and vice versa
+        assert!(!ok.contains("harness-busy"));
+    }
+
+    #[test]
+    fn a_team_less_student_is_told_submission_is_blocked() {
+        let user = User {
+            id: Uuid::nil(),
+            display_name: "Kid".into(),
+            nickname: None,
+            is_admin: false,
+        };
+        let html = agentic_harness_main(&user, "arc", None, &[], None, None, None, &[], &[]);
+        assert!(html.contains("gönderim yapamazsın"));
+        assert!(!html.contains(r#"action="/agentic-harness/submit""#));
     }
 
     #[test]
@@ -4355,7 +4990,8 @@ mod tests {
     }
 
     /// The placeholder must not leak the section it is standing in for: no tab strip, no
-    /// submit form. It keeps the sidebar link so students can still see it is coming.
+    /// submit form. It keeps the Advanced Track sidebar entry active so students can still
+    /// find their way to it.
     #[test]
     fn monopoly_placeholder_shows_nothing_but_the_promise() {
         let page = monopoly_coming_soon(&viewer());
@@ -4363,7 +4999,7 @@ mod tests {
         assert!(!page.contains(r#"class="chips""#), "tab strip leaked");
         assert!(!page.contains("subform"), "submit form leaked");
         assert!(
-            page.contains(r#"href="/ai-monopoly""#),
+            page.contains(r#"href="/advanced-track" class="active""#),
             "sidebar link dropped"
         );
     }
@@ -4378,7 +5014,7 @@ mod tests {
             leader(3, "Uc", 70.0),
             leader(4, "Dort", 60.0),
         ];
-        let html = agentic_harness_main(&viewer(), "arc", None, &[], None, &rows, &[]);
+        let html = agentic_harness_main(&viewer(), "arc", None, &[], None, None, None, &rows, &[]);
         assert_eq!(html.matches(r#"<div class="pod p"#).count(), 3);
         assert_eq!(html.matches(r#"<div class="lbrow "#).count(), 1);
         assert!(html.contains(r#"<span class="lbrank">4</span>"#));
@@ -4399,7 +5035,7 @@ mod tests {
             leader(4, "Dort", 70.0), // both render 70.0 -> both rank 3
             leader(5, "Bes", 60.0),
         ];
-        let html = agentic_harness_main(&viewer(), "arc", None, &[], None, &rows, &[]);
+        let html = agentic_harness_main(&viewer(), "arc", None, &[], None, None, None, &rows, &[]);
         assert_eq!(html.matches(r#"<div class="pod p"#).count(), 4);
         assert!(html.contains(r#"<span class="lbrank">4</span>"#));
         assert!(!html.contains(r#"<span class="lbrank">3</span>"#));
@@ -4409,7 +5045,7 @@ mod tests {
     #[test]
     fn harness_podium_is_skipped_for_a_short_board() {
         let rows = [leader(1, "Bir", 90.0), leader(2, "Iki", 80.0)];
-        let html = agentic_harness_main(&viewer(), "arc", None, &[], None, &rows, &[]);
+        let html = agentic_harness_main(&viewer(), "arc", None, &[], None, None, None, &rows, &[]);
         assert!(!html.contains(r#"class="pod p"#));
         assert!(html.contains(r#"<span class="lbrank">1</span>"#));
     }
@@ -4478,15 +5114,35 @@ mod tests {
         let pages: Vec<(&str, String)> = vec![
             (
                 "main-idle",
-                agentic_harness_main(&user, "arc", Some(&team), &members, None, &rows, &[]),
+                agentic_harness_main(
+                    &user,
+                    "arc",
+                    Some(&team),
+                    &members,
+                    None,
+                    None,
+                    None,
+                    &rows,
+                    &[],
+                ),
             ),
             (
                 "main-running",
-                agentic_harness_main(&user, "arc", Some(&team), &members, Some(&run), &rows, &[]),
+                agentic_harness_main(
+                    &user,
+                    "arc",
+                    Some(&team),
+                    &members,
+                    Some(&run),
+                    Some("Ada"),
+                    Some("busy"),
+                    &rows,
+                    &[],
+                ),
             ),
             (
                 "main-empty",
-                agentic_harness_main(&user, "arc", None, &[], None, &[], &[]),
+                agentic_harness_main(&user, "arc", None, &[], None, None, None, &[], &[]),
             ),
             (
                 "live-running",

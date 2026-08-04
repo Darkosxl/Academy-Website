@@ -10,6 +10,7 @@ mod html;
 mod model;
 mod monopoly;
 mod portal;
+mod teams;
 
 use axum::extract::DefaultBodyLimit;
 use axum::{
@@ -17,7 +18,7 @@ use axum::{
     routing::{get, post},
 };
 use rand::RngCore;
-use sqlx::PgPool;
+use sqlx::{PgPool, postgres::PgPoolOptions};
 use uuid::Uuid;
 
 use admin::*;
@@ -27,6 +28,7 @@ use consent::*;
 use harness::*;
 use monopoly::*;
 use portal::*;
+use teams::*;
 
 #[derive(Clone)]
 pub struct App {
@@ -66,7 +68,13 @@ async fn main() {
     let db_url = std::env::var("DATABASE_URL").expect("DATABASE_URL missing (.env)");
     // NOTE: use Supabase's SESSION pooler (port 5432), not transaction pooler (6543) —
     // transaction mode can't do prepared statements, which sqlx relies on.
-    let pool = PgPool::connect(&db_url).await.expect("db connect failed");
+    // Supabase session mode allows 15 clients. Five per instance leaves room for a
+    // rolling deploy's old and new containers without starving worker heartbeats.
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&db_url)
+        .await
+        .expect("db connect failed");
 
     // idempotent schema + seed admin
     sqlx::raw_sql(include_str!("../migrations/001_init.sql"))
@@ -101,6 +109,14 @@ async fn main() {
         .execute(&pool)
         .await
         .expect("consent/schedule/venue migration failed");
+    sqlx::raw_sql(include_str!("../migrations/009_beginner_projects.sql"))
+        .execute(&pool)
+        .await
+        .expect("beginner projects migration failed");
+    sqlx::raw_sql(include_str!("../migrations/010_deepinfra_provider.sql"))
+        .execute(&pool)
+        .await
+        .expect("deepinfra provider migration failed");
     seed_admin(&pool).await;
     seed_invite_code(&pool).await;
     seed_videos(&pool).await;
@@ -145,6 +161,10 @@ async fn main() {
         .route("/logout", post(logout))
         .route("/profile", get(profile_page).post(profile_post))
         .route("/app", get(home))
+        .route("/online", get(online_hub))
+        .route("/beginner-track", get(beginner_track_hub))
+        .route("/beginner-track/submit", post(beginner_track_submit))
+        .route("/advanced-track", get(advanced_track_hub))
         .route("/schedule", get(schedule))
         .route("/schedule/image/{track}", get(schedule_image))
         .route("/location", get(location))
@@ -162,6 +182,7 @@ async fn main() {
         .route("/agentic-harness/arc", get(agentic_harness_arc))
         .route("/agentic-harness/frontier", get(agentic_harness_frontier))
         .route("/agentic-harness/submit", post(harness_submit))
+        .route("/agentic-harness/team/name", post(harness_team_rename))
         .route("/agentic-harness/stop", post(harness_stop))
         .route("/agentic-harness/status", get(harness_status))
         .route("/agentic-harness/arc/live", get(harness_arc_live))
@@ -195,6 +216,7 @@ async fn main() {
         .route("/board/interest", post(board_interest))
         .route("/board/sites/{task_id}", get(board_sites))
         .route("/admin", get(admin_page))
+        .route("/admin/harness", get(admin_harness_page))
         .route("/admin/video", post(admin_video))
         .route("/admin/video/level", post(admin_video_level))
         .route("/admin/video/delete", post(admin_video_delete))
@@ -224,17 +246,14 @@ async fn main() {
         .route("/admin/prompts.txt", get(admin_prompts_txt))
         .route("/admin/invite", post(admin_rotate_invite))
         .route("/admin/submission/live", post(admin_submission_live))
-        .route("/admin/harness/team", post(admin_harness_team))
-        .route(
-            "/admin/harness/team/delete",
-            post(admin_harness_team_delete),
-        )
-        .route("/admin/harness/member", post(admin_harness_member))
-        .route(
-            "/admin/harness/member/remove",
-            post(admin_harness_member_remove),
-        )
         .route("/admin/harness/run/fail", post(admin_harness_run_fail))
+        // Takım formasyonu — harness team membership, split off /admin (teams.rs)
+        .route("/admin/takimlar", get(teams_page))
+        .route("/admin/takimlar/team", post(team_create))
+        .route("/admin/takimlar/team/rename", post(team_rename))
+        .route("/admin/takimlar/team/delete", post(team_delete))
+        .route("/admin/takimlar/member", post(member_assign))
+        .route("/admin/takimlar/member/remove", post(member_remove))
         .route("/admin/monopoly/team", post(admin_monopoly_team))
         .route(
             "/admin/monopoly/team/delete",

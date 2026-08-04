@@ -12,7 +12,7 @@ Supabase remain the durable control plane; browsers never connect to this host.
   adapters and rootless Podman/Bubblewrap sandboxes.
 - The executor has no Academy, Supabase, AWS, or model-provider credential. Student
   runtime containers have no external network, Linux capabilities, or Podman socket.
-- Python remains an adapter for ARC, Harbor, RAM-bench, Frontier, and Kaggle. Queue and
+- Python remains an adapter for ARC, Harbor, RAM-bench, Terminal-Bench, and Kaggle. Queue and
   credential ownership stays in Rust.
 
 The controller-to-executor socket and each run-scoped model socket are group-readable only
@@ -85,7 +85,7 @@ Recreate these pinned caches on EC2 instead of copying local virtual environment
 - `/var/lib/exposure-benchmark/cache/arc-starter` at ARC starter commit
   `eeb1535404f321d280a8f9194bbc1d7aca5f05fc`, ARC Agents commit
   `10213de83f01df0ef4f0149ee9f8408dcc3772fb`, and `arc-agi==0.9.9`.
-- `/var/lib/exposure-benchmark/cache/frontier-bench/frontier-bench` at dataset commit
+- `/var/lib/exposure-benchmark/cache/terminal-bench/terminal-bench` at dataset commit
   `3d694e919871dbf21ea5ff618782c99a3cb3663f` with Harbor `0.20.0` installed for the
   executor user.
 
@@ -110,7 +110,7 @@ Frames use a four-batch non-blocking queue. A full queue, Academy error, or stal
 drops visualization frames and increments `exposure_benchmark_frames_dropped_total`; it
 never blocks the scoring event loop.
 
-Frontier runs its five selected tasks concurrently. Agent and verifier phases are capped at
+Terminal Sprint runs its five selected tasks concurrently. Agent and verifier phases are capped at
 120 and 60 seconds respectively. Harbor execution, including cold environment builds, gets a
 15-minute total budget; bounded process and container cleanup follows that cutoff.
 

@@ -12,7 +12,6 @@ import datetime as dt
 import fcntl
 import hashlib
 import http.client
-import ipaddress
 import json
 import math
 import os
@@ -42,20 +41,69 @@ HARBOR_CLI = HARBOR_ROOT / "bin" / "harbor"
 HARNESS_VERSION = "harness-2026-sprint-v3"
 POLL_SECONDS = 2
 ARC_CONCURRENCY = 5
+# Terminal-Bench tasks retain their own benchmark-defined timeouts.  Running two at a
+# time leaves the Docker-compatible runtime enough headroom for agent and
+# verifier commands without stretching the total sprint past its deadline.
+TERMINAL_CONCURRENCY = 2
+# Turns, not seconds, are what bound the agent: measured Cerebras latency is about
+# 1.2 s per request, so 180 turns needs roughly ten minutes of wall clock, not 80
+# seconds. TERMINAL_AGENT_SECONDS is what rewrite_timeouts stamps into each task.
+TERMINAL_MAX_TURNS = 180
+# Terminal-Bench 2.0 grants its own agents 750-900s. Stamping anything lower just
+# reintroduces the wall that made every task time out; 900 matches the dataset.
+TERMINAL_AGENT_SECONDS = 900.0
 RUN_DEADLINE_SECONDS = 9 * 60 * 60
-FRONTIER_DEADLINE_SECONDS = 15 * 60
+# Five tasks at TERMINAL_CONCURRENCY=2 is three waves, so the stage budget has to
+# clear 3 * TERMINAL_AGENT_SECONDS with room left for image pulls and verifiers.
+TERMINAL_DEADLINE_SECONDS = 60 * 60
+TERMINUS_RESPONSE_FORMAT = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "terminus_action",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "properties": {
+                "analysis": {"type": "string"},
+                "plan": {"type": "string"},
+                "commands": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "keystrokes": {"type": "string"},
+                            "duration": {"type": "number"},
+                        },
+                        "required": ["keystrokes", "duration"],
+                        "additionalProperties": False,
+                    },
+                },
+                "task_complete": {"type": "boolean"},
+            },
+            "required": ["analysis", "plan", "commands", "task_complete"],
+            "additionalProperties": False,
+        },
+    },
+}
 
 ARC_GAMES = (
     "bp35", "m0r0", "ft09", "ar25", "s5i5", "sp80", "g50t", "lp85", "r11l", "sc25",
     "tn36", "sk48", "re86", "wa30", "cn04", "tu93", "tr87", "sb26", "su15", "ls20",
     "ka59", "cd82", "dc22", "vc33", "lf52",
 )
-FRONTIER_TASKS = (
-    "html-js-filter",
-    "vllm-deepseek-streaming",
-    "session-window-debug",
-    "mvcc-lsm-compaction",
-    "embedding-drift-monitor",
+# The Academy rejects a progress post over 8000 bytes outright, and every one of the 25
+# games carries its own error, so a per-game budget is the only thing keeping the payload
+# legal: a shared failure mode fails all 25 identically and multiplies by 25. 200 leaves
+# room for the JSON around them; the untruncated text still reaches the worker log.
+ARC_GAME_ERROR_CHARS = 200
+# Terminal-Bench 2.0's four `easy` tasks plus one concrete medium. The sprint scores a
+# five-task subset, so it is chosen for a reachable signal rather than for coverage.
+TERMINAL_TASKS = (
+    "fix-git",
+    "cobol-modernization",
+    "overfull-hbox",
+    "prove-plus-comm",
+    "openssl-selfsigned-cert",
 )
 REQUIRED_FILES = ("agent/my_agent.py", "agent/harbor_agent.py", "main.py", "requirements.txt")
 TERMINAL = {"done", "partial", "failed", "infra_failed"}
@@ -65,6 +113,7 @@ MAX_REQUIREMENTS_BYTES = 32 * 1024
 BUILTIN_SUBMISSIONS = {
     "builtin://forge": ROOT / "builtin_submissions" / "forge",
     "builtin://reki": ROOT / "builtin_submissions" / "reki",
+    "builtin://terminus-2": ROOT / "builtin_submissions" / "terminus-2",
 }
 
 
@@ -107,7 +156,7 @@ DEFAULT_CACHE = (
 )
 CACHE = Path(CONFIG.get("HARNESS_CACHE_DIRECTORY", DEFAULT_CACHE))
 ARC_STARTER = CACHE / "arc-starter"
-FRONTIER_SOURCE = CACHE / "frontier-bench" / "frontier-bench"
+TERMINAL_SOURCE = CACHE / "terminal-bench" / "terminal-bench"
 ARC_PYTHON = ARC_STARTER / ".venv" / "bin" / "python"
 KAGGLE_CLI = ARC_STARTER / ".venv" / "bin" / "kaggle"
 HARNESS_IMAGE = CONFIG.get("HARNESS_IMAGE", "localhost/exposure-harness-arc:0.9.9")
@@ -204,28 +253,6 @@ def bounded_timeout(deadline: float, cap: float) -> float:
     if remaining <= 0:
         raise InfrastructureFailed("the benchmark deadline expired")
     return max(0.1, min(cap, remaining))
-
-
-def buildkit_nameservers(paths: tuple[Path, ...] = (
-    Path("/run/systemd/resolve/resolv.conf"),
-    Path("/etc/resolv.conf"),
-)) -> list[str]:
-    nameservers: list[str] = []
-    for path in paths:
-        with contextlib.suppress(OSError):
-            for line in path.read_text().splitlines():
-                parts = line.split()
-                if len(parts) != 2 or parts[0] != "nameserver":
-                    continue
-                with contextlib.suppress(ValueError):
-                    address = ipaddress.ip_address(parts[1].split("%", 1)[0])
-                    if not address.is_loopback and not address.is_unspecified:
-                        value = str(address)
-                        if value not in nameservers:
-                            nameservers.append(value)
-        if nameservers:
-            return nameservers
-    raise InfrastructureFailed("no non-loopback DNS resolver is available for BuildKit")
 
 
 def parse_deadline(value: str) -> float:
@@ -461,8 +488,9 @@ def ensure_arc_host(*, require_worker_token: bool = False) -> None:
         ["podman", "info", "--format", "{{.Host.Security.Rootless}} {{.Host.CgroupsVersion}}"],
         timeout=15,
     )
-    if info.stdout.strip() != "true v2":
-        raise SystemExit("the harness requires rootless Podman with cgroup v2")
+    expected = "false v2" if CONFIG.get("HARNESS_PODMAN_ROOTFUL") == "1" else "true v2"
+    if info.stdout.strip() != expected:
+        raise SystemExit(f"the harness requires Podman {expected}")
 
 
 def ensure_host() -> None:
@@ -475,7 +503,7 @@ def ensure_host() -> None:
                 "production worker must run as the dedicated HARNESS_HARBOR_USER account"
             )
     for path in (
-        KAGGLE_CLI, ARC_STARTER / "scripts" / "build_notebook.py", FRONTIER_SOURCE,
+        KAGGLE_CLI, ARC_STARTER / "scripts" / "build_notebook.py", TERMINAL_SOURCE,
         HARBOR_CLI,
     ):
         if not path.exists():
@@ -491,7 +519,7 @@ def ensure_image() -> None:
         return
     log(f"building sandbox image {HARNESS_IMAGE}")
     run_checked([
-        "podman", "build", "--label", f"academy.harness.version={HARNESS_VERSION}",
+        "podman", "build", "--network=host", "--label", f"academy.harness.version={HARNESS_VERSION}",
         "-t", HARNESS_IMAGE, "-f", str(SANDBOX_CONTAINERFILE), str(ARC_STARTER),
     ], timeout=900)
 
@@ -629,6 +657,23 @@ def validate_submission(repo: Path) -> None:
             raise RunFailed(f"requirements.txt line {number} uses a forbidden direct source or option")
 
 
+# socat binds asynchronously, so `sleep 0.1` was a bet that it wins a race against the
+# submission's very first request. Under load it loses, and the submission sees
+# `APIConnectionError: Connection error` -- which reads like a broken gateway rather than
+# a listener that is 20ms late. Wait for the listener instead of guessing at it; this
+# normally costs one attempt, and the scenario's own 10.5s budget bounds the rest.
+GATEWAY_READY_PROBE = (
+    "/venv/bin/python -c 'import socket,time\n"
+    "deadline = time.monotonic() + 2\n"
+    "while time.monotonic() < deadline:\n"
+    "    try:\n"
+    '        socket.create_connection(("127.0.0.1", 8000), 0.2).close()\n'
+    "        break\n"
+    "    except OSError:\n"
+    "        time.sleep(0.02)' && "
+)
+
+
 def gateway_env(gateway: Gateway) -> dict[str, str]:
     return {
         "OPENAI_BASE_URL": "http://127.0.0.1:8000/v1",
@@ -672,6 +717,7 @@ def run_ram_scenario(run_id: str, sessions: int, repo: Path, venv: Path, gateway
     cpus = "1" if sessions == 1 else "10"
     command = [
         "podman", "run", "-d", "--name", name, "--network=none", "--cap-drop=all",
+        "--group-add", "keep-groups",
         "--security-opt=no-new-privileges", "--pids-limit", "128" if sessions == 1 else "512",
         "--memory", memory, "--cpus", cpus, "--read-only",
         "--tmpfs", "/tmp:rw,noexec,nosuid,size=256m",
@@ -688,16 +734,19 @@ def run_ram_scenario(run_id: str, sessions: int, repo: Path, venv: Path, gateway
         HARNESS_IMAGE, "sh", "-lc",
         "mkdir -p /tmp/home && "
         "socat TCP-LISTEN:8000,bind=127.0.0.1,reuseaddr,fork UNIX-CONNECT:/run/harness/bedrock.sock & "
+        + GATEWAY_READY_PROBE +
         f"exec /venv/bin/python /opt/harness/ram_session.py --sessions {sessions}",
     ]
-    run_checked(command, timeout=bounded_timeout(deadline, 5))
+    # First use may initialize persistent Podman storage before returning the container ID.
+    # The measured scenario still has its separate strict ten-second deadline below.
+    run_checked(command, timeout=30)
     peak = 0
     memory_peak = 0
     try:
         pid = 0
-        start_deadline = time.monotonic() + 2
+        start_deadline = min(deadline, time.monotonic() + 10)
         while pid <= 0 and time.monotonic() < start_deadline:
-            inspected = run_checked(["podman", "inspect", "--format", "{{.State.Pid}}", name], timeout=2)
+            inspected = run_checked(["podman", "inspect", "--format", "{{.State.Pid}}", name], timeout=5)
             pid = int(inspected.stdout.strip())
             if pid <= 0:
                 time.sleep(0.02)
@@ -717,8 +766,8 @@ def run_ram_scenario(run_id: str, sessions: int, repo: Path, venv: Path, gateway
             raise RunFailed(f"RAM {sessions}-session scenario exceeded ten seconds")
         with contextlib.suppress(OSError, ValueError):
             memory_peak = int(group.joinpath("memory.peak").read_text())
-        status = run_checked(["podman", "wait", name], timeout=2).stdout.strip()
-        logs = run_checked(["podman", "logs", name], timeout=2).stdout
+        status = run_checked(["podman", "wait", name], timeout=5).stdout.strip()
+        logs = run_checked(["podman", "logs", name], timeout=5).stdout
         if status != "0":
             raise RunFailed(f"RAM {sessions}-session contract failed:\n{logs[-2000:]}")
         payload = json.loads(logs.strip().splitlines()[-1])
@@ -915,10 +964,15 @@ def run_arc(run_id: str, repo: Path, venv: Path, gateway: Gateway, reporter: Rep
                     result = parse_last_json(stdout)
                 except RunFailed:
                     result = {"game": game, "status": "failed", "score": 0.0,
-                              "error": (stderr or stdout)[-1000:]}
+                              "error": (stderr or stdout)[-ARC_GAME_ERROR_CHARS:]}
                 score = result.get("score")
                 if not isinstance(score, (int, float)) or not math.isfinite(score) or not 0 <= score <= 100:
                     result = {"game": game, "status": "failed", "score": 0.0, "error": "invalid score"}
+                # Clamp here rather than at each producer: the sandbox reports its own
+                # tracebacks through this same slot, and one uncapped path is enough to
+                # push all 25 games past the progress size cap.
+                if isinstance(result.get("error"), str):
+                    result["error"] = result["error"][-ARC_GAME_ERROR_CHARS:]
                 results[game] = result
                 del processes[game]
                 completed = True
@@ -959,45 +1013,22 @@ def run_arc(run_id: str, repo: Path, venv: Path, gateway: Gateway, reporter: Rep
 def rewrite_timeouts(path: Path) -> None:
     section = ""
     output: list[str] = []
-    protected_sections = {"agent", "verifier", "environment"}
-    found_sections: set[str] = set()
-    network_written = False
-
-    def finish_section() -> None:
-        nonlocal network_written
-        if section in protected_sections and not network_written:
-            output.append('network_mode = "no-network"')
 
     for line in path.read_text().splitlines():
         match = re.fullmatch(r"\[([^]]+)]", line.strip())
         if match:
-            finish_section()
             section = match.group(1)
-            network_written = False
-            if section in protected_sections:
-                found_sections.add(section)
         if line.strip().startswith("timeout_sec") and section == "agent":
-            line = "timeout_sec = 120.0"
-        elif line.strip().startswith("timeout_sec") and section == "verifier":
-            line = "timeout_sec = 60.0"
-        elif line.strip().startswith("network_mode") and section in protected_sections:
-            line = 'network_mode = "no-network"'
-            network_written = True
-        elif line.strip().startswith("allowed_hosts") and section in protected_sections:
-            line = "allowed_hosts = []"
+            line = f"timeout_sec = {TERMINAL_AGENT_SECONDS}"
         output.append(line)
-    finish_section()
-    if found_sections != protected_sections:
-        missing = ", ".join(sorted(protected_sections - found_sections))
-        raise InfrastructureFailed(f"Frontier task is missing required TOML sections: {missing}")
     path.write_text("\n".join(output) + "\n")
 
 
 def sprint_dataset(work: Path) -> Path:
-    target = work / "frontier-sprint"
+    target = work / "terminal-sprint"
     target.mkdir()
-    for task in FRONTIER_TASKS:
-        source = FRONTIER_SOURCE / task
+    for task in TERMINAL_TASKS:
+        source = TERMINAL_SOURCE / task
         destination = target / task
         # Work directories may live on a different filesystem from the pinned cache.
         shutil.copytree(source, destination, copy_function=shutil.copy2, symlinks=True)
@@ -1007,14 +1038,14 @@ def sprint_dataset(work: Path) -> Path:
     return target
 
 
-def scan_frontier(jobs: Path) -> tuple[dict[str, dict[str, Any]], int]:
+def scan_terminal_bench(jobs: Path) -> tuple[dict[str, dict[str, Any]], int]:
     results: dict[str, dict[str, Any]] = {}
     active = 0
     if not jobs.exists():
-        return results, len(FRONTIER_TASKS)
+        return results, len(TERMINAL_TASKS)
     job = next((path for path in jobs.iterdir() if path.is_dir()), None)
     if job is None:
-        return results, len(FRONTIER_TASKS)
+        return results, len(TERMINAL_TASKS)
     for trial in job.iterdir():
         if not trial.is_dir():
             continue
@@ -1043,7 +1074,7 @@ def scan_frontier(jobs: Path) -> tuple[dict[str, dict[str, Any]], int]:
             "reward": reward,
             "error": str(exception.get("exception_message") or "")[:1000] or None,
         }
-    active += max(0, len(FRONTIER_TASKS) - len(results) - active)
+    active += max(0, len(TERMINAL_TASKS) - len(results) - active)
     return results, active
 
 
@@ -1054,7 +1085,6 @@ def bubblewrap_harbor(
     gateway: Gateway,
     podman_socket: Path,
     docker_config: Path,
-    builder_name: str,
 ) -> list[str]:
     home = Path.home()
     sandbox_root = jobs.parent.resolve()
@@ -1063,21 +1093,23 @@ def bubblewrap_harbor(
         dataset.resolve().relative_to(sandbox_root)
         jobs.resolve().relative_to(sandbox_root)
     except ValueError as exc:
-        raise InfrastructureFailed("Frontier paths must share the run work directory") from exc
+        raise InfrastructureFailed("Terminal-Bench paths must share the run work directory") from exc
     repo_mount = repo.resolve()
     dataset_mount = dataset.resolve()
     jobs_mount = jobs.resolve()
     try:
         docker_config.resolve().relative_to(podman_socket.parent.resolve())
     except ValueError as exc:
-        raise InfrastructureFailed("Buildx config must share the Podman socket directory") from exc
+        raise InfrastructureFailed("Docker config must share the Podman socket directory") from exc
+    llm_call_kwargs = json.dumps(
+        {"response_format": TERMINUS_RESPONSE_FORMAT}, separators=(",", ":")
+    )
+    docker_bin = docker_config.parent / "bin"
     command = [
         "bwrap", "--die-with-parent", "--new-session", "--unshare-pid", "--unshare-uts",
-        "--unshare-ipc", "--unshare-net", "--ro-bind", "/", "/", "--tmpfs", "/home",
+        "--unshare-ipc", "--ro-bind", "/", "/", "--tmpfs", "/home",
         "--dir", str(home), "--dir", str(home / ".local"), "--dir", str(home / ".local/share"),
         "--dir", str(home / ".local/share/uv"), "--dir", str(home / ".local/share/uv/tools"),
-        "--dir", str(home / ".local/share/uv/python"),
-        "--ro-bind", str(home / ".local/share/uv/python"), str(home / ".local/share/uv/python"),
         "--ro-bind", str(HARBOR_ROOT), str(HARBOR_ROOT), "--tmpfs", "/run",
         "--dir", "/run/harness", "--ro-bind", str(gateway.directory), "/run/harness",
         "--tmpfs", "/tmp", "--dir", str(sandbox_root),
@@ -1089,160 +1121,159 @@ def bubblewrap_harbor(
         "--proc", "/proc", "--dev", "/dev",
         "--setenv", "HOME", "/tmp/home", "--setenv", "DOCKER_HOST", f"unix://{podman_socket}",
         "--setenv", "DOCKER_CONFIG", str(docker_config),
-        "--setenv", "BUILDX_BUILDER", builder_name,
+        "--setenv", "PATH", f"{docker_bin}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        # Podman's Docker-compatible API handles Docker's classic build endpoint but
+        # cannot start Buildx's init-enabled helper container on this Debian image.
+        "--setenv", "DOCKER_BUILDKIT", "0",
+        # Compose v2 routes `build` through `buildx bake` unless told not to, which walks
+        # straight past DOCKER_BUILDKIT=0 and back into the builder Podman cannot boot.
+        "--setenv", "COMPOSE_BAKE", "false",
         "--setenv", "PYTHONPATH", str(repo_mount), "--setenv", "OPENAI_API_KEY", gateway.token,
         "--setenv", "OPENAI_API_BASE", "http://127.0.0.1:8000/v1",
         "--setenv", "OPENAI_BASE_URL", "http://127.0.0.1:8000/v1",
         "--chdir", str(repo_mount), "sh", "-lc",
         "mkdir -p /tmp/home && "
         "socat TCP-LISTEN:8000,bind=127.0.0.1,reuseaddr,fork UNIX-CONNECT:/run/harness/bedrock.sock & "
-        f"exec {shlex.quote(str(HARBOR_CLI))} run -p {shlex.quote(str(dataset_mount))} "
+        f"exec {shlex.quote(str(HARBOR_ROOT / 'bin/python'))} "
+        f"{shlex.quote(str(HARBOR_CLI))} run -p {shlex.quote(str(dataset_mount))} "
         "-a agent.harbor_agent:HarborAgent "
-        f"-m openai/{BEDROCK_PROFILE_NAME} -n 5 -o {shlex.quote(str(jobs_mount))} "
+        f"-m openai/{BEDROCK_PROFILE_NAME} -n {TERMINAL_CONCURRENCY} -o {shlex.quote(str(jobs_mount))} "
         "-y --no-force-build "
         "--ak enable_summarize=false --ak proactive_summarization_threshold=0 "
-        "--ak max_turns=1000000 --ak temperature=0 --ak api_base=http://127.0.0.1:8000/v1",
+        f"--ak max_turns={TERMINAL_MAX_TURNS} --ak temperature=0.7 "
+        "--ak api_base=http://127.0.0.1:8000/v1 "
+        f"--ak {shlex.quote(f'llm_call_kwargs={llm_call_kwargs}')}",
     ]
     return command
 
 
-def frontier_cutoff(global_deadline: float, now: float | None = None) -> float:
+def install_harbor_docker_shim(docker_config: Path) -> None:
+    """Translate Harbor's forced Buildx call to Podman's supported classic build API."""
+    docker_bin = docker_config.parent / "bin"
+    docker_bin.mkdir(mode=0o700)
+    shim = docker_bin / "docker"
+    shim.write_text(
+        """#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${1:-}" == "buildx" ]]; then
+    if [[ "${2:-}" != "build" ]]; then
+        # create/inspect/use/rm and friends must never reach a real builder: bootstrapping
+        # one pulls moby/buildkit and asks Podman for an init-enabled container it cannot
+        # create on this image. Nothing downstream reads their output, so a silent success
+        # is enough, and the build itself is rewritten below to the classic API anyway.
+        exit 0
+    fi
+    shift 2
+    arguments=()
+    image=""
+    skip_next=0
+    for argument in "$@"; do
+        if (( skip_next )); then skip_next=0; continue; fi
+        case "$argument" in
+            --output=type=docker,name=*) image="${argument#--output=type=docker,name=}" ;;
+            # classic build rejects every one of these outright
+            --platform=*|--builder=*|--progress=*|--load) ;;
+            --platform|--builder|--progress) skip_next=1 ;;
+            *) arguments+=("$argument") ;;
+        esac
+    done
+    [[ -n "$image" && ${#arguments[@]} -gt 0 ]] || exit 2
+    last_index=$((${#arguments[@]} - 1))
+    context="${arguments[$last_index]}"
+    unset "arguments[$last_index]"
+    exec /usr/bin/docker build "${arguments[@]}" --tag "$image" "$context"
+fi
+
+exec /usr/bin/docker "$@"
+"""
+    )
+    shim.chmod(0o700)
+
+
+def terminal_cutoff(global_deadline: float, now: float | None = None) -> float:
     started = time.monotonic() if now is None else now
-    return min(global_deadline, started + FRONTIER_DEADLINE_SECONDS)
+    return min(global_deadline, started + TERMINAL_DEADLINE_SECONDS)
 
 
-def run_buildx_command(
-    command: list[str], env: dict[str, str], deadline: float, cap: float, operation: str,
-) -> subprocess.CompletedProcess[str]:
-    try:
-        result = subprocess.run(
-            command, env=env, capture_output=True, text=True,
-            timeout=bounded_timeout(deadline, cap),
-        )
-    except subprocess.TimeoutExpired as exc:
-        raise InfrastructureFailed(f"Buildx builder {operation} timed out") from exc
-    except OSError as exc:
-        raise InfrastructureFailed(f"Buildx builder {operation} could not run: {exc}") from exc
-    if result.returncode != 0:
-        detail = (result.stderr or result.stdout)[-2000:]
-        raise InfrastructureFailed(f"Buildx builder {operation} failed: {detail}")
-    return result
-
-
-def cleanup_buildx_builder(builder_name: str, builder_env: dict[str, str]) -> None:
-    builder_container = f"buildx_buildkit_{builder_name}0"
-    cleanup_ok = False
-    with contextlib.suppress(OSError, subprocess.TimeoutExpired):
-        cleanup_ok = subprocess.run(
-            ["docker", "buildx", "rm", "--force", builder_name],
-            env=builder_env, capture_output=True, timeout=15,
-        ).returncode == 0
-    if cleanup_ok:
-        return
-    with contextlib.suppress(OSError, subprocess.TimeoutExpired):
-        subprocess.run(
-            ["podman", "rm", "-f", builder_container],
-            capture_output=True, timeout=15,
-        )
-    with contextlib.suppress(OSError, subprocess.TimeoutExpired):
-        subprocess.run(
-            ["podman", "volume", "rm", "-f", f"{builder_container}_state"],
-            capture_output=True, timeout=15,
-        )
-
-
-def run_frontier(run_id: str, repo: Path, work: Path, gateway: Gateway, reporter: Reporter, deadline: float) -> float:
+def run_terminal_bench(run_id: str, repo: Path, work: Path, gateway: Gateway, reporter: Reporter, deadline: float) -> float:
     dataset = sprint_dataset(work)
-    jobs = work / "frontier-jobs"
+    jobs = work / "terminal-jobs"
     jobs.mkdir()
-    # AF_UNIX paths are limited to 107 bytes on Linux. Run work directories include a
-    # UUID and can exceed that locally, so keep the private Podman API socket short.
-    socket_directory = Path(tempfile.mkdtemp(prefix=f"exposure-hb-{run_id[:8]}-", dir="/tmp"))
-    socket_path = socket_directory / "podman.sock"
+    # Production keeps one rootful Podman API alive in the worker entrypoint. Reusing it
+    # avoids the Podman/Buildx init-path race seen when a short-lived API starts per run.
+    # Local development retains the old private service fallback.
+    shared_socket = Path("/tmp/exposure-benchmark-podman/podman.sock")
+    if shared_socket.is_socket():
+        socket_path = shared_socket
+        socket_directory = Path(tempfile.mkdtemp(
+            prefix=f"exposure-hb-{run_id[:8]}-", dir=shared_socket.parent
+        ))
+    else:
+        # AF_UNIX paths are limited to 107 bytes on Linux. Run work directories include a
+        # UUID and can exceed that locally, so keep the private Podman API socket short.
+        socket_directory = Path(tempfile.mkdtemp(prefix=f"exposure-hb-{run_id[:8]}-", dir="/tmp"))
+        socket_path = socket_directory / "podman.sock"
     docker_config = socket_directory / "docker"
-    builder_name = f"exposure-harbor-{run_id[:8]}-{secrets.token_hex(3)}"
-    builder_env = os.environ.copy()
-    builder_env.update({
-        "DOCKER_HOST": f"unix://{socket_path}",
-        "DOCKER_CONFIG": str(docker_config),
-        "BUILDX_BUILDER": builder_name,
-    })
     service: subprocess.Popen | None = None
     process: subprocess.Popen | None = None
     stage_timed_out = False
-    log_file = work / "frontier.log"
+    log_file = work / "terminal.log"
     try:
-        service = subprocess.Popen(
-            ["podman", "system", "service", "--time=0", f"unix://{socket_path}"],
-            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
-        )
-        service_ready_deadline = min(deadline, time.monotonic() + 5)
-        while (not socket_path.exists() and service.poll() is None
-               and time.monotonic() < service_ready_deadline):
-            time.sleep(0.05)
-        if not socket_path.exists():
-            if service.poll() is None:
-                service.terminate()
-                with contextlib.suppress(subprocess.TimeoutExpired):
-                    service.wait(timeout=2)
-            if service.poll() is None:
-                service.kill()
-                with contextlib.suppress(subprocess.TimeoutExpired):
-                    service.wait(timeout=2)
-            detail = ""
-            if service.stderr:
-                with contextlib.suppress(OSError):
-                    os.set_blocking(service.stderr.fileno(), False)
-                with contextlib.suppress(OSError, BlockingIOError):
-                    detail = (service.stderr.read() or "")[-1000:]
-            raise InfrastructureFailed(f"rootless Podman API did not start: {detail}")
+        if not socket_path.is_socket():
+            service = subprocess.Popen(
+                ["podman", "system", "service", "--time=0", f"unix://{socket_path}"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
+            )
+            service_ready_deadline = min(deadline, time.monotonic() + 5)
+            while (not socket_path.exists() and service.poll() is None
+                   and time.monotonic() < service_ready_deadline):
+                time.sleep(0.05)
+            if not socket_path.exists():
+                if service.poll() is None:
+                    service.terminate()
+                    with contextlib.suppress(subprocess.TimeoutExpired):
+                        service.wait(timeout=2)
+                if service.poll() is None:
+                    service.kill()
+                    with contextlib.suppress(subprocess.TimeoutExpired):
+                        service.wait(timeout=2)
+                detail = ""
+                if service.stderr:
+                    with contextlib.suppress(OSError):
+                        os.set_blocking(service.stderr.fileno(), False)
+                    with contextlib.suppress(OSError, BlockingIOError):
+                        detail = (service.stderr.read() or "")[-1000:]
+                raise InfrastructureFailed(f"Podman API did not start: {detail}")
         docker_config.mkdir(mode=0o700)
-        buildkit_config = socket_directory / "buildkitd.toml"
-        buildkit_config.write_text(
-            "[dns]\n  nameservers = " + json.dumps(buildkit_nameservers()) + "\n"
-        )
-        run_buildx_command(
-            [
-                "docker", "buildx", "create", "--name", builder_name,
-                "--driver", "docker-container", "--driver-opt", "network=host",
-                "--driver-opt", "memory=2g", "--driver-opt", "memory-swap=2g",
-                "--driver-opt", "cpu-quota=200000",
-                "--buildkitd-config", str(buildkit_config),
-                "--use", builder_env["DOCKER_HOST"],
-            ],
-            builder_env, deadline, 10, "creation",
-        )
-        run_buildx_command(
-            ["docker", "buildx", "inspect", "--bootstrap", builder_name],
-            builder_env, deadline, 60, "startup",
-        )
+        install_harbor_docker_shim(docker_config)
         reporter.update(
-            "frontier", status="running", done=0, total=len(FRONTIER_TASKS),
-            tasks={}, rate=0, max_seconds=FRONTIER_DEADLINE_SECONDS,
+            "frontier", status="running", done=0, total=len(TERMINAL_TASKS),
+            tasks={}, rate=0, max_seconds=TERMINAL_DEADLINE_SECONDS,
         )
         with log_file.open("w") as output:
-            frontier_deadline = frontier_cutoff(deadline)
+            terminal_deadline = terminal_cutoff(deadline)
             process = subprocess.Popen(
                 bubblewrap_harbor(
-                    repo, dataset, jobs, gateway, socket_path, docker_config, builder_name,
+                    repo, dataset, jobs, gateway, socket_path, docker_config,
                 ),
                 stdout=output, stderr=subprocess.STDOUT, text=True, start_new_session=True,
             )
         next_rate_check = time.monotonic() + 30
         while process.poll() is None:
-            if time.monotonic() >= frontier_deadline:
+            if time.monotonic() >= terminal_deadline:
                 stage_timed_out = True
                 with contextlib.suppress(ProcessLookupError):
                     os.killpg(process.pid, signal.SIGTERM)
                 break
-            results, active = scan_frontier(jobs)
-            reporter.update("frontier", status="running", done=len(results), total=len(FRONTIER_TASKS),
+            results, active = scan_terminal_bench(jobs)
+            reporter.update("frontier", status="running", done=len(results), total=len(TERMINAL_TASKS),
                             tasks=results, active=active)
             now = time.monotonic()
             if active and now >= next_rate_check:
                 metrics = gateway.metrics()
                 completed = int(metrics["completed_last_30s"])
-                reporter.update("frontier", status="running", done=len(results), total=len(FRONTIER_TASKS),
+                reporter.update("frontier", status="running", done=len(results), total=len(TERMINAL_TASKS),
                                 tasks=results, active=active, rate=completed)
                 next_rate_check = now + 5
             time.sleep(2)
@@ -1259,8 +1290,6 @@ def run_frontier(run_id: str, repo: Path, work: Path, gateway: Gateway, reporter
                     os.killpg(process.pid, signal.SIGKILL)
                 with contextlib.suppress(subprocess.TimeoutExpired):
                     process.wait(timeout=2)
-        if docker_config.exists():
-            cleanup_buildx_builder(builder_name, builder_env)
         if service is not None and service.poll() is None:
             service.terminate()
             with contextlib.suppress(subprocess.TimeoutExpired):
@@ -1271,14 +1300,14 @@ def run_frontier(run_id: str, repo: Path, work: Path, gateway: Gateway, reporter
                     service.wait(timeout=2)
         cleanup_harbor_containers(jobs)
         shutil.rmtree(socket_directory, ignore_errors=True)
-    results, _ = scan_frontier(jobs)
+    results, _ = scan_terminal_bench(jobs)
     assert process is not None
     if not stage_timed_out and process.returncode not in (0, -signal.SIGTERM) and not results:
-        raise RunFailed("Frontier Sprint could not start:\n" + log_file.read_text(errors="replace")[-3000:])
-    for task in FRONTIER_TASKS:
+        raise RunFailed("Terminal Sprint could not start:\n" + log_file.read_text(errors="replace")[-3000:])
+    for task in TERMINAL_TASKS:
         results.setdefault(task, {"status": "timeout", "reward": 0.0})
-    score = round(100 * sum(float(results[task]["reward"]) for task in FRONTIER_TASKS) / len(FRONTIER_TASKS), 1)
-    reporter.update("frontier", status="done", done=len(FRONTIER_TASKS), total=len(FRONTIER_TASKS),
+    score = round(100 * sum(float(results[task]["reward"]) for task in TERMINAL_TASKS) / len(TERMINAL_TASKS), 1)
+    reporter.update("frontier", status="done", done=len(TERMINAL_TASKS), total=len(TERMINAL_TASKS),
                     tasks=results, score=score, gateway=gateway.metrics())
     return score
 
@@ -1321,8 +1350,8 @@ def process_claim(claim: dict[str, Any]) -> None:
             gateways.append(ram_gateway)
             arc_gateway = Gateway("arc", work)
             gateways.append(arc_gateway)
-            frontier_gateway = Gateway("frontier", work)
-            gateways.append(frontier_gateway)
+            terminal_gateway = Gateway("terminal", work)
+            gateways.append(terminal_gateway)
 
             try:
                 with ram_lane(deadline):
@@ -1358,22 +1387,22 @@ def process_claim(claim: dict[str, Any]) -> None:
                 args=("arc", lambda: run_arc(run_id, repo, venv, arc_gateway, reporter, deadline)),
                 name=f"arc-{run_id[:8]}",
             )
-            frontier_thread = threading.Thread(
+            terminal_thread = threading.Thread(
                 target=benchmark,
-                args=("frontier", lambda: run_frontier(run_id, repo, work, frontier_gateway, reporter, deadline)),
-                name=f"frontier-{run_id[:8]}",
+                args=("frontier", lambda: run_terminal_bench(run_id, repo, work, terminal_gateway, reporter, deadline)),
+                name=f"terminal-{run_id[:8]}",
             )
             arc_thread.start()
-            frontier_thread.start()
-            while arc_thread.is_alive() or frontier_thread.is_alive():
+            terminal_thread.start()
+            while arc_thread.is_alive() or terminal_thread.is_alive():
                 if lease.lost.is_set():
                     raise LeaseLost("worker lost its run lease")
                 if time.monotonic() >= deadline:
                     break
                 time.sleep(0.5)
             arc_thread.join(timeout=10)
-            frontier_thread.join(timeout=10)
-            if arc_thread.is_alive() or frontier_thread.is_alive():
+            terminal_thread.join(timeout=10)
+            if arc_thread.is_alive() or terminal_thread.is_alive():
                 raise InfrastructureFailed("benchmark threads did not stop at the global deadline")
             if outcomes.get("arc", (None,))[0] == "done":
                 scores["arc"] = float(outcomes["arc"][1])
@@ -1416,6 +1445,21 @@ def process_claim(claim: dict[str, Any]) -> None:
             shutil.rmtree(work, ignore_errors=True)
 
 
+def required_caches(benchmark_kind: str) -> tuple[Path, ...]:
+    """Datasets a run of this kind actually reads, keyed like the lane threads below.
+
+    An ARC-only run must not die because a Terminal-Bench dataset is absent: the
+    lanes are independent, so the preflight has to be too. The RAM lane runs for
+    every kind and needs nothing from the cache.
+    """
+    paths: tuple[Path, ...] = ()
+    if benchmark_kind in {"arc", "bundled"}:
+        paths += (ARC_PYTHON, ARC_STARTER / "environment_files")
+    if benchmark_kind in {"frontier", "bundled"}:
+        paths += (TERMINAL_SOURCE, HARBOR_CLI)
+    return paths
+
+
 def process_executor_run(request: dict[str, Any]) -> None:
     """Run benchmark SDK adapters under Rust ownership; emit only bounded NDJSON."""
     global BEDROCK_PROFILE_NAME
@@ -1435,12 +1479,13 @@ def process_executor_run(request: dict[str, Any]) -> None:
             or benchmark_kind not in {"arc", "frontier", "bundled"}:
         raise InfrastructureFailed("executor request contained an invalid model capability")
     BEDROCK_PROFILE_NAME = profile
-    for path in (
-        ARC_PYTHON, ARC_STARTER / "environment_files", FRONTIER_SOURCE, HARBOR_CLI,
-    ):
+    for path in required_caches(benchmark_kind):
         if not path.exists():
             raise InfrastructureFailed(f"required benchmark cache is missing: {path}")
-    ensure_image()
+    # The Compose entrypoint builds and verifies this image before it accepts
+    # executor requests. Building on demand here is both redundant and unsafe:
+    # a nested CNI build can race a live worker and fail despite the ready image
+    # already being present in the persistent Podman store.
 
     work = Path.cwd()
     reporter = NdjsonReporter(run_id, deadline, benchmark_kind)
@@ -1490,10 +1535,10 @@ def process_executor_run(request: dict[str, Any]) -> None:
         if benchmark_kind in {"frontier", "bundled"}:
             threads.append(threading.Thread(
                 target=benchmark,
-                args=("frontier", lambda: run_frontier(
+                args=("frontier", lambda: run_terminal_bench(
                     run_id, repo, work, gateway, reporter, deadline
                 )),
-                name=f"frontier-{run_id[:8]}",
+                name=f"terminal-{run_id[:8]}",
             ))
         for thread in threads:
             thread.start()
@@ -1709,7 +1754,7 @@ def selfcheck() -> None:
         "version": HARNESS_VERSION,
         "image": HARNESS_IMAGE,
         "arc_games": list(ARC_GAMES),
-        "frontier_tasks": list(FRONTIER_TASKS),
+        "terminal_tasks": list(TERMINAL_TASKS),
         "bedrock_profile": BEDROCK_PROFILE_NAME,
     }, indent=2))
 

@@ -7,6 +7,7 @@ import io
 import json
 import os
 import tempfile
+import subprocess
 import threading
 import time
 from types import SimpleNamespace
@@ -53,13 +54,13 @@ def main() -> None:
     }
     assert events[1]["type"] == "frames"
     assert len(events[1]["frames"][0]["grids"]) == 4096
-    frontier_reporter = runner.NdjsonReporter(
+    terminal_reporter = runner.NdjsonReporter(
         "018f0f65-9abc-7def-8123-456789abcdef", time.monotonic() + 30, "frontier",
     )
-    assert frontier_reporter.state["arc"] == {"status": "skipped"}
-    frontier_reporter.state["frontier"] = {"status": "done"}
-    frontier_reporter.state["ram"] = {"status": "done"}
-    assert runner.terminal_status(frontier_reporter.snapshot()) == "done"
+    assert terminal_reporter.state["arc"] == {"status": "skipped"}
+    terminal_reporter.state["frontier"] = {"status": "done"}
+    terminal_reporter.state["ram"] = {"status": "done"}
+    assert runner.terminal_status(terminal_reporter.snapshot()) == "done"
 
     with tempfile.TemporaryDirectory() as raw:
         previous_ram_lock = runner.CONFIG.get("HARNESS_RAM_LOCK")
@@ -94,25 +95,21 @@ def main() -> None:
     assert len(runner.ARC_GAMES) == 25
     assert len(set(runner.ARC_GAMES)) == 25
     assert runner.ARC_CONCURRENCY == 5
-    assert runner.FRONTIER_DEADLINE_SECONDS == 15 * 60
-    assert runner.frontier_cutoff(2000, now=100) == 1000
-    assert runner.frontier_cutoff(500, now=100) == 500
+    assert runner.TERMINAL_CONCURRENCY == 2
+    assert runner.TERMINAL_MAX_TURNS == 180
+    assert runner.TERMINAL_DEADLINE_SECONDS == 60 * 60
+    assert runner.terminal_cutoff(9000, now=100) == 100 + 60 * 60
+    assert runner.terminal_cutoff(500, now=100) == 500
 
-    with tempfile.TemporaryDirectory() as raw:
-        stub = Path(raw) / "stub.conf"
-        upstream = Path(raw) / "upstream.conf"
-        stub.write_text("nameserver 127.0.0.53\n")
-        upstream.write_text("nameserver 192.0.2.53\nnameserver 2001:db8::53\n")
-        assert runner.buildkit_nameservers((stub, upstream)) == [
-            "192.0.2.53", "2001:db8::53",
-        ]
+    # buildkit_nameservers went away with b251b09 (classic builds for Terminal-Bench);
+    # its assertions went with it.
 
     with tempfile.TemporaryDirectory(dir="/tmp") as raw:
         work = Path(raw) / "work"
         repo = work / "repo"
-        dataset = work / "frontier-sprint"
-        jobs = work / "frontier-jobs"
-        gateway = work / "frontier-gateway"
+        dataset = work / "terminal-sprint"
+        jobs = work / "terminal-jobs"
+        gateway = work / "terminal-gateway"
         socket_dir = Path(raw) / "socket"
         docker_config = socket_dir / "docker"
         for path in (repo, dataset, jobs, gateway, docker_config):
@@ -120,7 +117,7 @@ def main() -> None:
         socket_path = socket_dir / "podman.sock"
         command = runner.bubblewrap_harbor(
             repo, dataset, jobs, SimpleNamespace(directory=gateway, token="test-token"),
-            socket_path, docker_config, "test-builder",
+            socket_path, docker_config,
         )
 
         def has_sequence(sequence):
@@ -134,25 +131,44 @@ def main() -> None:
         assert has_sequence(["--bind", str(jobs), str(jobs)])
         assert not has_sequence(["--bind", str(work), str(work)])
         assert has_sequence(["--setenv", "DOCKER_CONFIG", str(docker_config)])
-        assert "--unshare-net" in command
+        assert "--unshare-net" not in command
+        shell = command[-1]
+        assert str(runner.HARBOR_ROOT / "bin/python") in shell
+        assert str(runner.HARBOR_CLI) in shell
+        assert f"-n {runner.TERMINAL_CONCURRENCY}" in shell
+        assert f"max_turns={runner.TERMINAL_MAX_TURNS}" in shell
+        assert json.dumps(
+            {"response_format": runner.TERMINUS_RESPONSE_FORMAT}, separators=(",", ":")
+        ) in shell
+        assert str(Path.home() / ".local/share/uv/python") not in command
 
-    cleanup_calls = []
-    original_subprocess_run = runner.subprocess.run
+    # cleanup_buildx_builder went away with b251b09 too, so the shim is the only thing
+    # standing between Harbor and a buildkit container Podman cannot create.
+    with tempfile.TemporaryDirectory() as raw:
+        docker_config = Path(raw) / "docker"
+        docker_config.mkdir()
+        runner.install_harbor_docker_shim(docker_config)
+        shim = docker_config.parent / "bin" / "docker"
+        fake_docker = docker_config.parent / "echo-args"
+        fake_docker.write_text('#!/usr/bin/env bash\necho "$@"\n')
+        fake_docker.chmod(0o700)
+        shim.write_text(shim.read_text().replace("/usr/bin/docker", str(fake_docker)))
 
-    def failed_cleanup(command, **_kwargs):
-        cleanup_calls.append(command)
-        return SimpleNamespace(returncode=1)
+        def shim_run(*argv):
+            return subprocess.run([str(shim), *argv], capture_output=True, text=True)
 
-    try:
-        runner.subprocess.run = failed_cleanup
-        runner.cleanup_buildx_builder("test-builder", {"DOCKER_HOST": "test"})
-    finally:
-        runner.subprocess.run = original_subprocess_run
-    assert cleanup_calls == [
-        ["docker", "buildx", "rm", "--force", "test-builder"],
-        ["podman", "rm", "-f", "buildx_buildkit_test-builder0"],
-        ["podman", "volume", "rm", "-f", "buildx_buildkit_test-builder0_state"],
-    ]
+        # bootstrapping a builder is exactly what must never reach the real CLI
+        for subcommand in ("create", "inspect", "use", "rm"):
+            done = shim_run("buildx", subcommand, "--bootstrap", "somebuilder")
+            assert done.returncode == 0 and done.stdout == "", (subcommand, done)
+        built = shim_run(
+            "buildx", "build", "--builder", "somebuilder", "--platform=linux/amd64",
+            "--load", "--output=type=docker,name=task:latest", "-f", "Dockerfile", ".",
+        )
+        assert built.returncode == 0, built
+        assert built.stdout.split() == ["build", "-f", "Dockerfile", "--tag", "task:latest", "."], built
+        passed = shim_run("compose", "up")
+        assert passed.stdout.strip() == "compose up", passed
 
     with tempfile.TemporaryDirectory() as raw:
         jobs = Path(raw) / "jobs"
@@ -162,16 +178,18 @@ def main() -> None:
         assert verifier_prefixes == {"task-name__abc1234__verifier__"}
         task = Path(raw) / "task.toml"
         task.write_text(
-            "[agent]\ntimeout_sec = 7200\nnetwork_mode = \"host\"\nallowed_hosts = [\"example.com\"]\n"
+            "[agent]\ntimeout_sec = 7200\nnetwork_mode = \"public\"\n"
             "[verifier]\ntimeout_sec = 300\n"
             "[environment]\nbuild_timeout_sec = 600\n"
         )
         runner.rewrite_timeouts(task)
         rewritten = task.read_text()
-        assert "timeout_sec = 120.0" in rewritten
-        assert "timeout_sec = 60.0" in rewritten
-        assert rewritten.count('network_mode = "no-network"') == 3
-        assert "allowed_hosts = []" in rewritten
+        assert f"timeout_sec = {runner.TERMINAL_AGENT_SECONDS}" in rewritten
+        assert "timeout_sec = 300" in rewritten
+        # three waves of agent time must still fit inside the stage budget
+        assert 3 * runner.TERMINAL_AGENT_SECONDS < runner.TERMINAL_DEADLINE_SECONDS
+        assert 'network_mode = "public"' in rewritten
+        assert 'network_mode = "no-network"' not in rewritten
 
     class FakeProcess:
         live = 0
@@ -288,6 +306,60 @@ def main() -> None:
     assert bedrock_gateway.model_uses_native_runtime(
         "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/example"
     )
+
+    forwarded: dict[str, object] = {}
+
+    class FakeCompletions:
+        def create(self, **kwargs):
+            forwarded.update(kwargs)
+            return SimpleNamespace(model_dump=lambda **_kwargs: {"usage": {}})
+
+    body = json.dumps({
+        "messages": [{"role": "user", "content": "Respond as JSON."}],
+        "response_format": runner.TERMINUS_RESPONSE_FORMAT,
+    }).encode()
+    handler = SimpleNamespace(
+        path="/v1/chat/completions",
+        headers={"Content-Length": str(len(body))},
+        rfile=io.BytesIO(body),
+        server=SimpleNamespace(
+            gateway_token="test-token",
+            slots=threading.BoundedSemaphore(1),
+            api_style="chat",
+            model_id="gemma-4-31b",
+            reasoning_effort="none",
+            client=SimpleNamespace(chat=SimpleNamespace(completions=FakeCompletions())),
+            stats=bedrock_gateway.Stats(),
+            profile_name="gemma-4-31b",
+        ),
+        _authorized=lambda: True,
+        _json=lambda *_args, **_kwargs: None,
+    )
+    bedrock_gateway.GatewayHandler.do_POST(handler)
+    assert forwarded["response_format"] == runner.TERMINUS_RESPONSE_FORMAT
+
+    # A single-lane run must not require the other lane's dataset.
+    arc_only = runner.required_caches("arc")
+    terminal_only = runner.required_caches("frontier")
+    assert runner.TERMINAL_SOURCE not in arc_only and runner.HARBOR_CLI not in arc_only
+    assert runner.ARC_PYTHON not in terminal_only
+    assert set(runner.required_caches("bundled")) == set(arc_only) | set(terminal_only)
+
+    # A progress post over 8000 bytes is rejected outright, and one shared failure mode
+    # fails all 25 games with the same long error at once. That is the worst case.
+    games = {
+        game: {
+            "game": game, "status": "failed", "score": 0.0,
+            "error": ("x" * 4000)[-runner.ARC_GAME_ERROR_CHARS:],
+        }
+        for game in runner.ARC_GAMES
+    }
+    worst = json.dumps({
+        "status": "running", "done": len(games), "total": len(games),
+        "games": games, "active": 0, "queued": 0, "rate": 0,
+    })
+    assert len(worst) < 8000, len(worst)
+
     print("python adapter contract ok")
 
 

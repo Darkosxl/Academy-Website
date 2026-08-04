@@ -119,9 +119,9 @@ async fn run_adapter(
     tokio::fs::set_permissions(&work, std::fs::Permissions::from_mode(0o700))
         .await
         .context("protect run work directory")?;
-    // Harbor creates detached Compose containers without our run label. Only Frontier can
-    // own those containers, and the controller admits one Frontier run at a time; ARC cleanup
-    // therefore remains label-scoped and cannot remove the concurrent Frontier environment.
+    // Harbor creates detached Compose containers without our run label. Only Terminal-Bench can
+    // own those containers, and the controller admits one Terminal-Bench run at a time; ARC cleanup
+    // therefore remains label-scoped and cannot remove the concurrent Terminal-Bench environment.
     let baseline_containers = if matches!(
         &request,
         ExecutorRequest::Run {
@@ -140,9 +140,12 @@ async fn run_adapter(
         _ => unreachable!(),
     };
     // The adapter runs with a deliberately scrubbed environment so it cannot inherit
-    // controller credentials. Keep only the non-secret runtime settings that rootless
-    // Podman and the benchmark mode require.
+    // controller credentials. Keep only the non-secret runtime settings that Podman and
+    // the benchmark mode require.
     let environment = std::env::var("ENVIRONMENT").unwrap_or_else(|_| "PROD".into());
+    let podman_rootful = std::env::var("HARNESS_PODMAN_ROOTFUL").unwrap_or_default();
+    let containers_conf = std::env::var("CONTAINERS_CONF").ok();
+    let containers_storage_conf = std::env::var("CONTAINERS_STORAGE_CONF").ok();
     let xdg_runtime_dir = std::env::var("XDG_RUNTIME_DIR")
         .ok()
         .filter(|value| !value.trim().is_empty());
@@ -154,12 +157,16 @@ async fn run_adapter(
         .arg(mode)
         .current_dir(&work)
         .env_clear()
-        .env("PATH", "/usr/local/bin:/usr/bin:/bin")
+        .env(
+            "PATH",
+            "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        )
         .env("LANG", "C.UTF-8")
         .env("LC_ALL", "C.UTF-8")
         .env("HOME", config.state_directory.join("executor"))
         .env("ENVIRONMENT", environment)
         .env("HARNESS_HARBOR_USER", harbor_user)
+        .env("HARNESS_PODMAN_ROOTFUL", podman_rootful)
         .env("PYTHONUNBUFFERED", "1")
         .env("HARNESS_ENV", "executor")
         .env(
@@ -178,6 +185,12 @@ async fn run_adapter(
         .kill_on_drop(true);
     if let Some(xdg_runtime_dir) = xdg_runtime_dir {
         child.env("XDG_RUNTIME_DIR", xdg_runtime_dir);
+    }
+    if let Some(containers_conf) = containers_conf {
+        child.env("CONTAINERS_CONF", containers_conf);
+    }
+    if let Some(containers_storage_conf) = containers_storage_conf {
+        child.env("CONTAINERS_STORAGE_CONF", containers_storage_conf);
     }
     let mut child = child.spawn().context("start Python benchmark adapter")?;
     let mut child_input = child.stdin.take().context("adapter stdin")?;
@@ -568,8 +581,13 @@ async fn verify_host(config: &ExecutorConfig) -> Result<()> {
         .output()
         .await
         .context("run podman info")?;
-    if !output.status.success() || String::from_utf8_lossy(&output.stdout).trim() != "true v2" {
-        bail!("executor requires rootless Podman with cgroup v2");
+    let expected = if std::env::var("HARNESS_PODMAN_ROOTFUL").as_deref() == Ok("1") {
+        "false v2"
+    } else {
+        "true v2"
+    };
+    if !output.status.success() || String::from_utf8_lossy(&output.stdout).trim() != expected {
+        bail!("executor requires Podman {expected}");
     }
     for command in ["bwrap", "socat", "docker", "pkill"] {
         let status = Command::new("sh")
@@ -652,13 +670,13 @@ mod tests {
         let current = HashSet::from([
             "existing".to_string(),
             "old-run".to_string(),
-            "frontier-main".to_string(),
-            "frontier-sidecar".to_string(),
+            "terminal-main".to_string(),
+            "terminal-sidecar".to_string(),
         ]);
         let labelled = HashSet::from(["old-run".to_string(), "arc".to_string()]);
         assert_eq!(
             containers_to_remove(Some(&baseline), Some(current), Some(labelled)),
-            ["arc", "frontier-main", "frontier-sidecar", "old-run"]
+            ["arc", "old-run", "terminal-main", "terminal-sidecar"]
         );
     }
 }

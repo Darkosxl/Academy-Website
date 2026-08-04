@@ -53,7 +53,7 @@
   a five-slot refill queue that does not abort on a throughput miss.
 - [ ] Run one complete paid 25-game v3 canary and exercise manual cancellation
   on a separate development run.
-- [ ] Run the five pinned Frontier Sprint tasks with 120-second deadlines.
+- [ ] Run the five pinned Terminal Sprint tasks with 120-second deadlines.
 - [x] Replace RAM probing with cgroup-wide descendant PSS measurement.
 - [x] Add encrypted team Kaggle credentials and explicit official submission.
 - [x] Update the dashboard, progress UI, history, instructions, and mobile CSS.
@@ -75,7 +75,7 @@
   after all leases finish and the 15-minute idle window passes.
 - [ ] Five-worker model traffic stays within account quotas and 65 live ARC games
   retain p95 frame-to-screen latency below 2.5 seconds.
-- [ ] Frontier task timeout, verifier timeout, partial reward, and crash handling.
+- [ ] Terminal task timeout, verifier timeout, partial reward, and crash handling.
 - [ ] RAM descendants remain in the cgroup and short-lived peaks are captured.
 - [ ] Partial runs retain every completed leaderboard result.
 - [ ] Kaggle token save/replace/delete and official polling.

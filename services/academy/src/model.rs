@@ -150,6 +150,16 @@ pub struct InterestRow {
     pub is_me: bool,
 }
 
+/// A student's saved links for one Beginner Track project (`BEGINNER_PROJECTS` in html.rs).
+/// Self-reported, ungraded — an upsert per (user, project_key), so resubmitting replaces
+/// rather than piles up.
+#[derive(FromRow)]
+pub struct BeginnerSubmission {
+    pub project_key: String,
+    pub repo_url: String,
+    pub vercel_url: String,
+}
+
 /// One student's deployed site for a task — a card in the /board/sites/{task_id} gallery.
 /// Its own narrow projection rather than a widened SubmissionView: the gallery needs the
 /// public nickname and nothing about review status, and SubmissionView carries neither.
@@ -502,6 +512,10 @@ pub struct HarnessTeam {
     pub name: String,
 }
 
+/// Long enough for a real team name, short enough that it can't blow out the
+/// leaderboard column or the podium card. Enforced server-side and as `maxlength`.
+pub const HARNESS_TEAM_NAME_MAX: usize = 40;
+
 /// New submissions are one benchmark plus RAM; legacy bundled rows keep all three results.
 #[derive(FromRow)]
 pub struct HarnessRun {
@@ -575,12 +589,20 @@ pub struct HarnessKaggleSubmission {
     pub updated_at: DateTime<Utc>,
 }
 
-/// Interim admin-side team management, bundled so `html::admin`'s signature grows
-/// by one parameter. Goes away when real team onboarding lands.
+/// Interim admin-side run management. Team membership moved to /admin/takimlar
+/// (`teams.rs`); what stays here is the stuck-run escape hatch.
 pub struct HarnessAdmin {
-    pub teams: Vec<HarnessTeam>,
-    pub members: Vec<TeamMemberRow>,
     pub active_runs: Vec<HarnessActiveRun>,
+}
+
+/// One draggable card on the Takım formasyonu board. `team_id` is `None` for a kid
+/// who is on no team — the state the board exists to make visible, and the one the
+/// admin dropdown could never show.
+#[derive(FromRow)]
+pub struct FormationKid {
+    pub id: Uuid,
+    pub display_name: String,
+    pub team_id: Option<Uuid>,
 }
 
 // ---- AI Monopoly ----

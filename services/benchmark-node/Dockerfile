@@ -44,10 +44,11 @@ LABEL org.opencontainers.image.title="Exposure benchmark-node deterministic arti
 FROM python:3.12.11-slim-bookworm AS cache-builder
 ARG ARC_STARTER_COMMIT=eeb1535404f321d280a8f9194bbc1d7aca5f05fc
 ARG ARC_AGENTS_COMMIT=10213de83f01df0ef4f0149ee9f8408dcc3772fb
-ARG FRONTIER_COMMIT=3d694e919871dbf21ea5ff618782c99a3cb3663f
+ARG TERMINAL_BENCH_COMMIT=2fd12b88aafdd04a52c298e3940bcb189f9766d6
 ARG HARBOR_VERSION=0.20.0
 WORKDIR /seed
-RUN apt-get update \
+RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources \
+    && apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates git \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=python-builder /bundle/wheels /wheelhouse
@@ -70,10 +71,10 @@ RUN set -eux; \
     python -m venv /seed/cache/arc-starter/.venv; \
     /seed/cache/arc-starter/.venv/bin/python -m pip install --disable-pip-version-check --no-index --no-deps --require-hashes \
       --find-links /wheelhouse -r /requirements.lock; \
-    install -d -m 0700 /seed/cache/frontier-bench; \
-    clone_exact https://github.com/harbor-framework/frontier-bench.git \
-      /seed/cache/frontier-bench/repo "$FRONTIER_COMMIT"; \
-    ln -s repo/tasks /seed/cache/frontier-bench/frontier-bench; \
+    install -d -m 0700 /seed/cache/terminal-bench; \
+    clone_exact https://github.com/harbor-framework/terminal-bench-2.git \
+      /seed/cache/terminal-bench/repo "$TERMINAL_BENCH_COMMIT"; \
+    ln -s repo /seed/cache/terminal-bench/terminal-bench; \
     install -d -m 0700 /seed/executor/.local/share/uv/tools; \
     python -m venv /seed/executor/.local/share/uv/tools/harbor; \
     /seed/executor/.local/share/uv/tools/harbor/bin/python -m pip install --disable-pip-version-check --no-cache-dir \
@@ -99,20 +100,27 @@ PY
 RUN printf '%s\n' \
       "arc-starter=$ARC_STARTER_COMMIT" \
       "arc-agents=$ARC_AGENTS_COMMIT" \
-      "frontier=$FRONTIER_COMMIT" \
+      "terminal-bench=$TERMINAL_BENCH_COMMIT" \
       "harbor=$HARBOR_VERSION" \
       > /seed/.cache-version
 
 # A single Compose service owns both trusted processes. The service needs privileged
-# runtime settings in compose.yaml for nested *rootless* Podman; never mount the host
-# Docker socket into it.
+# runtime settings in compose.yaml for nested Podman; never mount the host Docker
+# socket into it.
 FROM python:3.12.11-slim-bookworm AS production
 ENV DEBIAN_FRONTEND=noninteractive
 RUN set -eux; \
+    sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
-      bash bubblewrap ca-certificates curl fuse-overlayfs git gnupg jq \
+      bash bubblewrap ca-certificates catatonit curl fuse-overlayfs git gnupg iptables jq \
       passwd podman procps slirp4netns socat tini uidmap; \
+    # Docker Buildx asks Podman's Docker-compatible API for an init process and
+    # that code path still looks up Podman's compiled-in location on Debian.
+    install -D -m 0755 /usr/bin/catatonit /usr/libexec/podman/catatonit; \
+    # Podman's CNI firewall helper resolves iptables through PATH. Keep the
+    # Debian binary reachable for its stripped helper environment as well.
+    ln -sf /usr/sbin/iptables /usr/bin/iptables; \
     install -m 0755 -d /etc/apt/keyrings; \
     curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc; \
     chmod a+r /etc/apt/keyrings/docker.asc; \
