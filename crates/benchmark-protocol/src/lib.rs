@@ -174,7 +174,11 @@ impl FromStr for BenchmarkKind {
 pub const BUILTIN_HARNESSES: [(&str, &str, &str); 3] = [
     ("forge", "builtin://forge", "Forge"),
     ("reki", "builtin://reki", "Reki"),
-    ("terminus-2", "builtin://terminus-2", "Terminus-2 (Frontier)"),
+    (
+        "terminus-2",
+        "builtin://terminus-2",
+        "Terminus-2 (Frontier)",
+    ),
 ];
 
 pub fn builtin_harness_uri(id: &str) -> Option<&'static str> {
