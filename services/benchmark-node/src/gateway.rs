@@ -35,6 +35,11 @@ const MAX_OUTPUT_TOKENS: u64 = 16384;
 const CEREBRAS_API_URL: &str = "https://api.cerebras.ai/v1/chat/completions";
 const CEREBRAS_KEY_COUNT: usize = 4;
 const CEREBRAS_CONCURRENCY_PER_KEY: usize = 8;
+const DEEPINFRA_API_URL: &str = "https://api.deepinfra.com/v1/openai/chat/completions";
+// DeepInfra rate-limits per account, not per key, so extra keys buy no headroom:
+// one key, with the whole per-account concurrency budget behind it.
+const DEEPINFRA_KEY_COUNT: usize = 1;
+const DEEPINFRA_CONCURRENCY_PER_KEY: usize = 32;
 const NO_PREFERRED_KEY: usize = usize::MAX;
 
 #[derive(Clone)]
@@ -56,6 +61,7 @@ enum GatewayUpstream {
 pub struct ProviderCredentials {
     pub bedrock_api_key: Arc<str>,
     pub cerebras: Arc<OpenAiKeyPool>,
+    pub deepinfra: Arc<OpenAiKeyPool>,
 }
 
 #[derive(Clone)]
@@ -102,6 +108,18 @@ const CEREBRAS_PROFILE: PoolProfile = PoolProfile {
     http_client: "build Cerebras HTTP client",
 };
 
+const DEEPINFRA_PROFILE: PoolProfile = PoolProfile {
+    required_keys: DEEPINFRA_KEY_COUNT,
+    concurrency_per_key: DEEPINFRA_CONCURRENCY_PER_KEY,
+    key_requirement: "DeepInfra key pool requires one API key",
+    request_failed: "DeepInfra request failed",
+    rejected: "DeepInfra rejected the request",
+    invalid_json: "DeepInfra returned invalid JSON",
+    none_available: "no DeepInfra key is currently available",
+    all_rate_limited: "the DeepInfra key is rate limited",
+    http_client: "build DeepInfra HTTP client",
+};
+
 /// Key pool for any OpenAI-compatible bearer-auth upstream. Providers differ only in
 /// URL, key count, per-key concurrency, and how long a 429 without retry headers
 /// should cool the key down.
@@ -133,6 +151,18 @@ impl OpenAiKeyPool {
             &CEREBRAS_PROFILE,
             CEREBRAS_API_URL,
             Duration::from_secs(1),
+        )
+    }
+
+    // DeepInfra documents no retry-after on 429 and throttles per account, so a
+    // limited key stays cool for a full minute instead of Cerebras's one second —
+    // hammering the sole key again immediately would just burn the 2s send deadline.
+    pub fn deepinfra(keys: Vec<String>) -> Result<Self> {
+        Self::with_url(
+            keys,
+            &DEEPINFRA_PROFILE,
+            DEEPINFRA_API_URL,
+            Duration::from_secs(60),
         )
     }
 
@@ -398,6 +428,10 @@ impl GatewayHandle {
             },
             ModelProvider::Cerebras => GatewayUpstream::OpenAiPool {
                 pool: credentials.cerebras.clone(),
+                preferred_key: Arc::new(AtomicUsize::new(NO_PREFERRED_KEY)),
+            },
+            ModelProvider::DeepInfra => GatewayUpstream::OpenAiPool {
+                pool: credentials.deepinfra.clone(),
                 preferred_key: Arc::new(AtomicUsize::new(NO_PREFERRED_KEY)),
             },
         };
@@ -888,6 +922,10 @@ fn sanitize_chat(body: Value, model_id: &str, reasoning_effort: &str) -> Result<
     Ok(Value::Object(result))
 }
 
+// The DeepInfra Qwen prefix is deliberately absent: DeepInfra steers Qwen3.6
+// thinking through `chat_template_kwargs` rather than OpenAI `reasoning_effort`,
+// and the default-on reasoning arrives in a separate `reasoning_content` field,
+// so the `content` the adapters parse stays clean without any knob from us.
 fn model_supports_reasoning_effort(model_id: &str) -> bool {
     model_id.starts_with("xai.")
         || model_id.starts_with("openai.")
@@ -1035,6 +1073,124 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(deltas.iter().filter(|delta| **delta > 0).count(), 1);
         assert!(deltas.contains(&2));
+
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn single_deepinfra_key_cools_down_after_429_and_recovers() {
+        #[derive(Clone)]
+        struct MockState {
+            attempts: Arc<AtomicUsize>,
+        }
+
+        async fn mock_completion(State(state): State<MockState>) -> Response {
+            if state.attempts.fetch_add(1, Ordering::Relaxed) == 0 {
+                // Longer than send_pooled's 2s acquire deadline, so the key is
+                // still cooling when the second call gives up waiting for it.
+                return (
+                    StatusCode::TOO_MANY_REQUESTS,
+                    [(header::RETRY_AFTER, "2.5")],
+                    Json(json!({"error":"mock limit"})),
+                )
+                    .into_response();
+            }
+            Json(json!({
+                "id":"mock",
+                "choices":[{"message":{"role":"assistant","content":"ok"}}],
+                "usage":{"prompt_tokens":1,"completion_tokens":1}
+            }))
+            .into_response()
+        }
+
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let mock = Router::new()
+            .route("/", post(mock_completion))
+            .with_state(MockState {
+                attempts: attempts.clone(),
+            });
+        let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
+
+        assert!(OpenAiKeyPool::deepinfra(Vec::new()).is_err());
+        assert!(
+            OpenAiKeyPool::deepinfra(vec![
+                "test-deepinfra-api-key-00".into(),
+                "test-deepinfra-api-key-01".into()
+            ])
+            .is_err()
+        );
+        let pool = Arc::new(
+            OpenAiKeyPool::with_url(
+                vec!["test-deepinfra-api-key-00".into()],
+                &DEEPINFRA_PROFILE,
+                &format!("http://{address}/"),
+                Duration::from_secs(60),
+            )
+            .unwrap(),
+        );
+        let state = GatewayState {
+            token: "test-gateway-token".into(),
+            model_id: "Qwen/Qwen3.6-27B".into(),
+            profile_name: "Qwen/Qwen3.6-27B".into(),
+            reasoning_effort: "none".into(),
+            provider: ModelProvider::DeepInfra,
+            upstream: GatewayUpstream::OpenAiPool {
+                pool: pool.clone(),
+                preferred_key: Arc::new(AtomicUsize::new(NO_PREFERRED_KEY)),
+            },
+            http: reqwest::Client::new(),
+            metrics: Arc::new(GatewayMetrics::default()),
+        };
+        let request = json!({
+            "model":"Qwen/Qwen3.6-27B",
+            "messages":[{"role":"user","content":"ready"}]
+        });
+        let GatewayUpstream::OpenAiPool {
+            pool: upstream_pool,
+            preferred_key,
+        } = &state.upstream
+        else {
+            unreachable!()
+        };
+
+        // The only key 429s: no failover target exists, so the caller sees the
+        // provider-named rate-limit error immediately.
+        let error = send_pooled(&state, upstream_pool, preferred_key, &request)
+            .await
+            .unwrap_err();
+        assert_eq!(
+            error,
+            (
+                StatusCode::TOO_MANY_REQUESTS,
+                "the DeepInfra key is rate limited"
+            )
+        );
+        // While the retry-after cooldown holds, the pool refuses without an attempt.
+        let error = send_pooled(&state, upstream_pool, preferred_key, &request)
+            .await
+            .unwrap_err();
+        assert_eq!(
+            error,
+            (
+                StatusCode::TOO_MANY_REQUESTS,
+                "no DeepInfra key is currently available"
+            )
+        );
+        // The failed acquire above already waited ~2s of the 2.5s cooldown.
+        tokio::time::sleep(Duration::from_millis(700)).await;
+        assert!(
+            send_pooled(&state, upstream_pool, preferred_key, &request)
+                .await
+                .is_ok()
+        );
+
+        let snapshot = state.metrics.snapshot();
+        assert_eq!(snapshot.rate_limits, 1);
+        assert_eq!(snapshot.upstream_attempts, 2);
+        assert_eq!(snapshot.key_requests, vec![2]);
+        assert_eq!(attempts.load(Ordering::Relaxed), 2);
 
         server.abort();
     }

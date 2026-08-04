@@ -18,6 +18,10 @@ struct SecretDocument {
     bedrock_api_key: String,
     #[serde(alias = "CEREBRAS_API_KEYS")]
     cerebras_api_keys: Vec<String>,
+    // default so a secret written before the DeepInfra rollout still parses;
+    // validate_deepinfra_key turns the gap into an actionable startup error.
+    #[serde(default, alias = "DEEPINFRA_API_KEY")]
+    deepinfra_api_key: String,
 }
 
 pub struct ControllerConfig {
@@ -25,6 +29,7 @@ pub struct ControllerConfig {
     pub worker_token: String,
     pub bedrock_api_key: String,
     pub cerebras_api_keys: Vec<String>,
+    pub deepinfra_api_key: String,
     pub aws_region: String,
     pub reasoning_effort: String,
     pub maximum_model_concurrency: usize,
@@ -58,6 +63,7 @@ impl ControllerConfig {
                 worker_token: env::var("WORKER_TOKEN").unwrap_or_default(),
                 bedrock_api_key: env::var("BEDROCK_API_KEY").unwrap_or_default(),
                 cerebras_api_keys: local_cerebras_keys(),
+                deepinfra_api_key: env::var("DEEPINFRA_API_KEY").unwrap_or_default(),
             }
         } else {
             load_secret(secret_id.trim(), &aws_region).await?
@@ -66,6 +72,7 @@ impl ControllerConfig {
             bail!("worker and model credentials are missing or too short");
         }
         validate_cerebras_keys(&secrets.cerebras_api_keys)?;
+        validate_deepinfra_key(&secrets.deepinfra_api_key)?;
         let academy_base_url = academy_base_url(&required("ACADEMY_BASE_URL")?)?;
         let parsed = reqwest::Url::parse(&academy_base_url).context("ACADEMY_BASE_URL")?;
         if parsed.scheme() != "https" && environment != Environment::Dev {
@@ -101,6 +108,7 @@ impl ControllerConfig {
             worker_token: secrets.worker_token,
             bedrock_api_key: secrets.bedrock_api_key,
             cerebras_api_keys: secrets.cerebras_api_keys,
+            deepinfra_api_key: secrets.deepinfra_api_key,
             aws_region,
             reasoning_effort,
             maximum_model_concurrency,
@@ -218,6 +226,15 @@ fn validate_cerebras_keys(keys: &[String]) -> Result<()> {
         || keys.iter().collect::<HashSet<_>>().len() != keys.len()
     {
         bail!("CEREBRAS_API_KEYS must contain four distinct API keys")
+    }
+    Ok(())
+}
+
+// One key only: DeepInfra rate-limits the whole account, so a pool of keys from
+// the same account would add failover theater without adding capacity.
+fn validate_deepinfra_key(key: &str) -> Result<()> {
+    if key.trim().len() < 20 || key.trim() != key {
+        bail!("DEEPINFRA_API_KEY must be a single API key of at least 20 characters")
     }
     Ok(())
 }
@@ -367,5 +384,13 @@ mod tests {
         assert!(validate_cerebras_keys(&keys).is_ok());
         assert!(validate_cerebras_keys(&keys[..3]).is_err());
         assert!(validate_cerebras_keys(&vec![keys[0].clone(); 4]).is_err());
+    }
+
+    #[test]
+    fn deepinfra_key_is_single_and_trimmed() {
+        assert!(validate_deepinfra_key("di-12345678901234567890").is_ok());
+        assert!(validate_deepinfra_key("").is_err());
+        assert!(validate_deepinfra_key("too-short").is_err());
+        assert!(validate_deepinfra_key(" di-12345678901234567890 ").is_err());
     }
 }

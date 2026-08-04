@@ -3,8 +3,9 @@
 
 use crate::model::*;
 use benchmark_protocol::{
-    BEDROCK_MODEL_IDS, BUILTIN_HARNESSES, CEREBRAS_MODEL_IDS, DEFAULT_BEDROCK_MODEL,
-    DEFAULT_CEREBRAS_MODEL, ModelProvider, builtin_harness_label,
+    BEDROCK_MODEL_IDS, BUILTIN_HARNESSES, CEREBRAS_MODEL_IDS, DEEPINFRA_MODEL_IDS,
+    DEFAULT_BEDROCK_MODEL, DEFAULT_CEREBRAS_MODEL, DEFAULT_DEEPINFRA_MODEL, ModelProvider,
+    builtin_harness_label,
 };
 use uuid::Uuid;
 
@@ -800,6 +801,7 @@ fn provider_model_options(provider: ModelProvider, select_default: bool) -> Stri
     let (models, default) = match provider {
         ModelProvider::Cerebras => (CEREBRAS_MODEL_IDS, DEFAULT_CEREBRAS_MODEL),
         ModelProvider::Bedrock => (BEDROCK_MODEL_IDS, DEFAULT_BEDROCK_MODEL),
+        ModelProvider::DeepInfra => (DEEPINFRA_MODEL_IDS, DEFAULT_DEEPINFRA_MODEL),
     };
     models
         .iter()
@@ -1123,13 +1125,14 @@ fn admin_harness_form(bench: &str) -> String {
     );
     let provider_picker = r#"<label>provider:
       <select name="provider" onchange="const m=this.form.elements.model_id;for(const o of m.options)o.disabled=o.dataset.provider!==this.value;const first=[...m.options].find(o=>!o.disabled);if(m.selectedOptions[0]?.disabled&amp;&amp;first)m.value=first.value">
-        <option value="cerebras" selected>Cerebras</option><option value="bedrock">Bedrock</option>
+        <option value="cerebras" selected>Cerebras</option><option value="bedrock">Bedrock</option><option value="deepinfra">DeepInfra</option>
       </select>
     </label>"#;
     let model_options = format!(
-        "{}{}",
+        "{}{}{}",
         provider_model_options(ModelProvider::Cerebras, true),
-        provider_model_options(ModelProvider::Bedrock, false)
+        provider_model_options(ModelProvider::Bedrock, false),
+        provider_model_options(ModelProvider::DeepInfra, false)
     );
     format!(
         r##"<form method="post" action="/agentic-harness/submit" class="subform">
@@ -4300,6 +4303,10 @@ mod tests {
         assert!(html.contains(r#"<select name="provider""#));
         assert!(html.contains(r#"<option value="cerebras" selected>Cerebras</option>"#));
         assert!(html.contains(r#"<option value="bedrock">Bedrock</option>"#));
+        assert!(html.contains(r#"<option value="deepinfra">DeepInfra</option>"#));
+        assert!(html.contains(
+            r#"<option value="Qwen/Qwen3.6-27B" data-provider="deepinfra" data-image="true">"#
+        ));
         assert!(html.contains(r#"<select name="builtin_harness""#));
         assert!(html.contains(r#"<option value="forge">Forge</option>"#));
         assert!(html.contains(r#"<option value="reki">Reki</option>"#));

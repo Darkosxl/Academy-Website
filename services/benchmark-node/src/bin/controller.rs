@@ -135,6 +135,9 @@ async fn main() -> Result<()> {
     let credentials = ProviderCredentials {
         bedrock_api_key: config.bedrock_api_key.clone().into(),
         cerebras: Arc::new(OpenAiKeyPool::cerebras(config.cerebras_api_keys.clone())?),
+        deepinfra: Arc::new(OpenAiKeyPool::deepinfra(vec![
+            config.deepinfra_api_key.clone(),
+        ])?),
     };
     let academy = AcademyClient::new(config.academy_base_url.clone(), config.worker_token.clone())
         .context("build Academy client")?;
