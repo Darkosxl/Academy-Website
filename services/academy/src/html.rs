@@ -2558,55 +2558,82 @@ pub fn advanced_track(user: &User) -> String {
     layout("Advanced Track", Some(user), "advanced-track", &content)
 }
 
-// (key, title, one-line summary, pdf filename in static/beginner-projects/). ponytail:
-// hardcoded list, same pattern as DEMOS — these are fixed, code-and-deploy content, not
-// something an admin edits day to day. Add a row here (and the PDF) for a new project.
-pub const BEGINNER_PROJECTS: [(&str, &str, &str, &str); 6] = [
+// (key, title, one-line summary, pdf filename in static/beginner-projects/, optional
+// extra handout as (button label, pdf filename)). ponytail: hardcoded list, same pattern
+// as DEMOS — these are fixed, code-and-deploy content, not something an admin edits day
+// to day. Add a row here (and the PDF) for a new project. The extra slot is for a brief
+// that ships with its own reference sheet; `None` when the brief stands alone.
+pub const BEGINNER_PROJECTS: [(&str, &str, &str, &str, Option<(&str, &str)>); 7] = [
     (
         "kisisel-web-sitesi",
         "Proje 1 — Kişisel Web Sitesi",
         "İlgi alanlarını ve ürettiklerini anlatan, yayında olan kişisel bir web sitesi kur.",
         "01-kisisel-web-sitesi.pdf",
+        None,
     ),
     (
         "kisisel-web-sitesi-chatbotu",
         "Proje 2 — Kişisel Web Sitesi Chatbotu",
         "Web siteni, profile.md dosyasından seni tanıtan bir chatbot ile genişlet.",
         "02-kisisel-web-sitesi-chatbotu.pdf",
+        None,
     ),
     (
         "ai-bouquet-maker",
         "Proje 3 — AI Bouquet Maker",
         "Annen için kişiselleştirilmiş yapay zekâ çiçek buketleri oluşturan bir uygulama geliştir.",
         "03-ai-bouquet-maker.pdf",
+        None,
     ),
     (
         "renovate-your-room",
         "Proje 4 — Renovate Your Room",
         "Oda fotoğrafını yükleyip yapay zekâ ile farklı dekorasyon stillerinde yeniden tasarla.",
         "04-renovate-your-room.pdf",
+        None,
     ),
     (
         "character-voice-studio",
         "Proje 5 — Character Voice Studio",
         "Kendi karakterini oluştur, görsel ve sesle hayata geçirip konuştur.",
         "05-character-voice-studio.pdf",
+        None,
     ),
     (
         "ai-calorie-tracker",
         "Proje 6 — AI Calorie Tracker",
         "Yemek fotoğrafını yapay zekâ ile analiz edip kalori ve besin değerlerini takip eden bir uygulama geliştir.",
         "06-ai-calorie-tracker.pdf",
+        None,
+    ),
+    (
+        "smart-receipt",
+        "Proje 7 — Smart Receipt",
+        "Fiş fotoğraflarını yapay zekâ ile okuyup harcamaları Google Sheets'e otomatik aktaran bir uygulama geliştir.",
+        "07-smart-receipt.pdf",
+        Some((
+            "Apps Script cheat sheet ⬇",
+            "07-google-apps-script-cheat-sheet.pdf",
+        )),
     ),
 ];
 
-/// Beginner Track — the six fixed projects above, each with a downloadable brief and a
+/// Beginner Track — the seven fixed projects above, each with a downloadable brief and a
 /// save-your-links form. Self-reported, no grading: the form always shows, pre-filled
 /// with whatever was last saved, and resaving just overwrites it.
 pub fn beginner_track(user: &User, subs: &[BeginnerSubmission]) -> String {
     let cards: String = BEGINNER_PROJECTS
         .iter()
-        .map(|(key, title, summary, pdf)| {
+        .map(|(key, title, summary, pdf, extra)| {
+            // A project's own reference sheet sits next to its brief, not up with the
+            // track-wide cheat sheet — it is only useful once you're on this project.
+            let extra_link = match extra {
+                Some((label, file)) => format!(
+                    r#"<a class="btn-outline small" href="/static/beginner-projects/{file}" target="_blank" rel="noopener">{label}</a>"#,
+                    label = esc(label),
+                ),
+                None => String::new(),
+            };
             let saved = subs.iter().find(|s| s.project_key == *key);
             let (repo_val, vercel_val) = saved
                 .map(|s| (s.repo_url.clone(), s.vercel_url.clone()))
@@ -2622,6 +2649,7 @@ pub fn beginner_track(user: &User, subs: &[BeginnerSubmission]) -> String {
   <p class="desc">{summary}</p>
   <div class="cardactions">
     <a class="btn-outline small" href="/static/beginner-projects/{pdf}" target="_blank" rel="noopener">Brifi indir ⬇</a>
+    {extra_link}
   </div>
   {saved_note}
   <form method="post" action="/beginner-track/submit" class="subform">
@@ -2644,7 +2672,7 @@ pub fn beginner_track(user: &User, subs: &[BeginnerSubmission]) -> String {
         "beginner-track",
         &format!(
             r##"<h1 class="pagetitle">Beginner Track</h1>
-<p class="muted">Başlangıç seviyesindeki 6 proje. Her biri için brifi indir, projeni yap, sonra GitHub ve Vercel bağlantılarını kaydet.</p>
+<p class="muted">Başlangıç seviyesindeki 7 proje. Her biri için brifi indir, projeni yap, sonra GitHub ve Vercel bağlantılarını kaydet.</p>
 <div class="taskcard">
   <div class="taskhead"><h3>Vibe Coding Cheat Sheet</h3></div>
   <p class="desc">Tüm beginner track projelerinde işine yarayacak hızlı referans rehberi.</p>
@@ -2657,7 +2685,7 @@ pub fn beginner_track(user: &User, subs: &[BeginnerSubmission]) -> String {
     )
 }
 
-/// Admin view, step 1: the six projects as a list, each carrying how many students have
+/// Admin view, step 1: the seven projects as a list, each carrying how many students have
 /// handed it in. Clicking one opens `admin_beginner_project`.
 pub fn admin_beginner_list(
     user: &User,
@@ -2667,7 +2695,7 @@ pub fn admin_beginner_list(
 ) -> String {
     let cards: String = BEGINNER_PROJECTS
         .iter()
-        .map(|(key, title, summary, _)| {
+        .map(|(key, title, summary, ..)| {
             let submitted = counts
                 .iter()
                 .find(|c| c.project_key == *key)
@@ -2731,11 +2759,11 @@ pub fn admin_beginner_project(
     rows: &[BeginnerStudentRow],
     gaps: &[&str],
 ) -> String {
-    let (_, title, summary, _) = BEGINNER_PROJECTS
+    let (_, title, summary, ..) = BEGINNER_PROJECTS
         .iter()
         .find(|(k, ..)| *k == key)
         .copied()
-        .unwrap_or((key, key, "", ""));
+        .unwrap_or((key, key, "", "", None));
     let submitted = rows.iter().filter(|r| r.repo_url.is_some()).count();
     // Long URLs would push the table past the panel, so each cell shows a short label and
     // carries the full URL in the title attribute. href is the raw (escaped) student URL:
@@ -3840,7 +3868,7 @@ pub fn grade_row_goal(r: &GradeRow, tasks: &[Task]) -> String {
         return BEGINNER_PROJECTS
             .iter()
             .find(|(k, ..)| *k == r.task_title)
-            .map(|(_, _, summary, _)| (*summary).to_string())
+            .map(|(_, _, summary, ..)| (*summary).to_string())
             .unwrap_or_else(|| grade_row_title(r));
     }
     r.task_id
@@ -4761,6 +4789,14 @@ mod tests {
         assert!(
             html.contains(r#"href="/static/beginner-projects/vibe-coding-cheat-sheet.pdf""#),
             "beginner track should link the vibe coding cheat sheet"
+        );
+        // A project's own handout hangs off its card, alongside the brief.
+        assert!(
+            html.contains(r#"href="/static/beginner-projects/07-smart-receipt.pdf""#)
+                && html.contains(
+                    r#"href="/static/beginner-projects/07-google-apps-script-cheat-sheet.pdf""#
+                ),
+            "proje 7 should link both its brief and its apps script cheat sheet"
         );
     }
 
