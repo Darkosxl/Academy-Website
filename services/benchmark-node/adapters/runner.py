@@ -643,7 +643,11 @@ def validate_submission(repo: Path) -> None:
                 raise RunFailed("repository exceeds 100 MiB")
     missing = [name for name in REQUIRED_FILES if not (repo / name).is_file()]
     if missing:
-        raise RunFailed("missing required files: " + ", ".join(missing))
+        raise RunFailed(
+            "Reponun kök dizininde şu dosyalar eksik: " + ", ".join(missing)
+            + ". Bu dosyalar tam bu adlarla ve tam bu konumlarda olmalı: "
+            + ", ".join(REQUIRED_FILES)
+        )
     requirements = repo / "requirements.txt"
     if requirements.stat().st_size > MAX_REQUIREMENTS_BYTES:
         raise RunFailed("requirements.txt exceeds 32 KiB")
