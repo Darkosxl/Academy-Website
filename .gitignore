@@ -18,3 +18,6 @@ services/benchmark-node/state/
 # python bytecode from the harness runner
 __pycache__/
 *.pyc
+
+# macOS Finder droppings — one got committed with a folder of PDFs once already
+.DS_Store
