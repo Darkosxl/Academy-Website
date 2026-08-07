@@ -3051,7 +3051,9 @@ pub fn documents(
 
             // The blank form to print and sign. Two ways in, because one of them fails on
             // somebody's phone every time: the button downloads the file directly, the link
-            // beside it opens Drive's own preview. Both are validated http(s) on save.
+            // beside it opens the document in the tab (Drive's preview for the Drive-hosted
+            // forms, the browser's PDF viewer for the ones we serve ourselves). Both are
+            // validated on save — http(s), or a same-origin /static path.
             let url = urls
                 .iter()
                 .find(|(k, _)| k == kind)
@@ -3062,12 +3064,15 @@ pub fn documents(
             } else {
                 format!(
                     r##"<div class="doc-get">
-    <a class="btn-outline doc-getbtn" href="{download}" target="_blank" rel="noopener">{down} Formu indir</a>
+    <a class="btn-outline doc-getbtn" href="{download}"{dl} target="_blank" rel="noopener">{down} Formu indir</a>
     <a class="doc-getalt" href="{view}" target="_blank" rel="noopener">tarayıcıda aç ↗</a>
   </div>"##,
                     download = esc(&direct_download_url(url)),
                     view = esc(url),
-                    down = ico(P_DOWNLOAD)
+                    down = ico(P_DOWNLOAD),
+                    // `download` only counts same-origin — the browser ignores it cross-origin,
+                    // which is why the Drive links go through direct_download_url instead.
+                    dl = if same_origin_path(url) { " download" } else { "" },
                 )
             };
 
@@ -3139,11 +3144,13 @@ pub fn documents(
     let content = format!(
         r##"<h1 class="pagetitle">Veli Onay Formları ve Sözleşmeler</h1>
 <p class="muted">Yaşınız 18'den küçük olduğu için programa katılım bazı formların
-veli/yasal temsilciniz tarafından onaylanmasını gerektiriyor. Aşağıdaki belgeleri
-veli/yasal temsilcinize imzalatıp buraya yükleyin.</p>
+veli/yasal temsilciniz tarafından onaylanmasını gerektiriyor. Aşağıdaki belgeleri indirin,
+her birinin üzerinde yazan tarafa — <b>katılımcı</b> belgelerini kendiniz, <b>veli/vasi</b>
+belgelerini veli/yasal temsilcinize — imzalatıp buraya yükleyin.</p>
 {banner}
 <div class="doc-deadline">{cal}<div><b>Son tarih: {deadline}</b>
-<span>Exposure AI Academy ve QNBEYOND formlarının bu tarihten önce yüklenmiş olması gerekiyor.</span></div></div>
+<span>Exposure AI Academy ve QNBEYOND formlarının bu tarihten önce yüklenmiş olması gerekiyor.
+Paribu belgelerinin dördü de programın 2. haftası başlamadan önce yüklenmiş olmalı.</span></div></div>
 <p class="fieldnote doc-howto">Belgeleri imzaladıktan sonra tarayarak ya da <b>tüm sayfaları net
 görünecek şekilde</b> fotoğraflayarak yükleyebilirsiniz. İmzanın, tarihin ve tüm sayfaların
 okunaklı olduğundan emin olun. Bir formun sayfalarını tek tek yükleyebilirsiniz — hepsi bir
@@ -3192,7 +3199,7 @@ fn admin_consent_panel(
   </div>
   <form method="post" action="/admin/documents/link" class="inline consent-urlform">
     <input type="hidden" name="kind" value="{kind}">
-    <input name="url" type="url" value="{url}" placeholder="Boş formun bağlantısı — https://…">
+    <input name="url" type="text" value="{url}" placeholder="Boş formun bağlantısı — https://… ya da /static/…">
     <button class="btn-dark small">Kaydet</button>
   </form>
   <form method="post" action="/admin/documents/lock" class="inline">
@@ -3224,7 +3231,11 @@ fn admin_consent_panel(
         .map(|(_, title, _, _)| format!("<th>{}</th>", esc(title)))
         .collect();
     let rows: String = if students.is_empty() {
-        "<tr><td colspan=\"4\" class=\"muted\">Henüz öğrenci yok</td></tr>".into()
+        // name + e-mail + one column per form
+        format!(
+            r#"<tr><td colspan="{}" class="muted">Henüz öğrenci yok</td></tr>"#,
+            CONSENT_DOCS.len() + 2
+        )
     } else {
         students
             .iter()
@@ -5321,7 +5332,8 @@ mod tests {
         }
     }
 
-    /// Paribu closed, the other two open — the state this shipped in.
+    /// The state a fresh database is in — every form open, now that all six have a
+    /// document behind them.
     fn default_locks() -> Vec<(&'static str, bool)> {
         CONSENT_DOCS
             .iter()
@@ -5329,7 +5341,7 @@ mod tests {
             .collect()
     }
 
-    /// The blank-form links as they come out of CONSENT_DOCS (Paribu's is still empty).
+    /// The blank-form links as they come out of CONSENT_DOCS.
     fn test_urls() -> Vec<(&'static str, String)> {
         CONSENT_DOCS
             .iter()
@@ -5353,16 +5365,67 @@ mod tests {
     /// find and post to.
     #[test]
     fn locked_form_is_blurred_and_has_no_input() {
-        let html = documents(&student(), &[], &default_locks(), &test_urls(), None, None);
+        // one form closed by hand from /admin: nothing ships closed any more
+        let locks: Vec<(&str, bool)> = CONSENT_DOCS
+            .iter()
+            .map(|(k, ..)| (*k, *k == "paribu_veli_riza"))
+            .collect();
+        let html = documents(&student(), &[], &locks, &test_urls(), None, None);
         assert!(html.contains("doc-blur") && html.contains("doc-lockmsg"));
         assert!(html.contains("Bu form henüz hazır değil"));
-        // exposure + qnbeyond are open, paribu is not: two upload forms, two file inputs
-        assert_eq!(html.matches(r#"action="/documents/upload""#).count(), 2);
-        assert_eq!(html.matches(r#"name="files""#).count(), 2);
-        assert_eq!(html.matches(r#"value="paribu""#).count(), 0);
-        // and it is still named, so nobody is surprised by a third form later
-        assert!(html.contains("Paribu Lokasyon/Katılım İzin Formu"));
+        // every form but the closed one gets an upload control
+        let open = CONSENT_DOCS.len() - 1;
+        assert_eq!(html.matches(r#"action="/documents/upload""#).count(), open);
+        assert_eq!(html.matches(r#"name="files""#).count(), open);
+        assert_eq!(html.matches(r#"value="paribu_veli_riza""#).count(), 0);
+        // and it is still named, so a student knows it is coming
+        assert!(html.contains("Paribu · Veli/Vasi Açık Rıza Metni"));
         assert!(html.contains("Yakında"));
+    }
+
+    /// A fresh database opens every form — the Paribu placeholder that used to ship
+    /// blurred has been replaced by four documents that actually exist.
+    #[test]
+    fn nothing_ships_locked_any_more() {
+        let html = documents(&student(), &[], &default_locks(), &test_urls(), None, None);
+        assert!(!html.contains("doc-lockmsg"));
+        assert_eq!(
+            html.matches(r#"action="/documents/upload""#).count(),
+            CONSENT_DOCS.len()
+        );
+    }
+
+    /// The four Paribu documents are each their own card, each pointing at the PDF that
+    /// ships in static/ — so a student can tell which two they sign themselves and which
+    /// two go to a parent, and the admin grid tracks the four separately.
+    #[test]
+    fn the_four_paribu_documents_are_separate_forms() {
+        let html = documents(&student(), &[], &default_locks(), &test_urls(), None, None);
+        for (kind, file) in [
+            ("paribu_katilimci_aydinlatma", "katilimci-aydinlatma-metni"),
+            ("paribu_katilimci_riza", "katilimci-acik-riza-metni"),
+            ("paribu_veli_aydinlatma", "veli-vasi-aydinlatma-metni"),
+            ("paribu_veli_riza", "veli-vasi-acik-riza-metni"),
+        ] {
+            assert!(
+                html.contains(&format!(r#"name="kind" value="{kind}""#)),
+                "{kind} has no upload bucket"
+            );
+            assert!(
+                html.contains(&format!(
+                    r#"href="/static/consent/paribu-{file}.pdf" download"#
+                )),
+                "{kind} does not offer its PDF as a download"
+            );
+        }
+        // the placeholder is gone, both as a card and as a kind a POST could name
+        assert!(!html.contains("Paribu Lokasyon/Katılım İzin Formu"));
+        assert!(!html.contains(r#"value="paribu""#));
+        assert!(valid_consent_kind("paribu").is_none());
+        // a same-origin path is a path, not a protocol-relative jump off the origin
+        assert!(same_origin_path("/static/consent/x.pdf"));
+        assert!(!same_origin_path("//evil.example/x.pdf"));
+        assert!(!same_origin_path("https://evil.example/x.pdf"));
     }
 
     /// Every form in CONSENT_DOCS has a card, uploads are multipart, and the deadline
@@ -5409,14 +5472,12 @@ mod tests {
     #[test]
     fn a_closed_form_cannot_be_edited() {
         let d = doc("qnbeyond", "izin.jpg");
-        let html = documents(
-            &student(),
-            &[d],
-            &[("exposure", false), ("qnbeyond", true), ("paribu", true)],
-            &test_urls(),
-            None,
-            None,
-        );
+        // everything closed but exposure — including qnbeyond, which is the one with a file
+        let locks: Vec<(&str, bool)> = CONSENT_DOCS
+            .iter()
+            .map(|(k, ..)| (*k, *k != "exposure"))
+            .collect();
+        let html = documents(&student(), &[d], &locks, &test_urls(), None, None);
         assert_eq!(html.matches(r#"action="/documents/delete""#).count(), 0);
         assert_eq!(html.matches(r#"action="/documents/upload""#).count(), 1);
     }
@@ -5447,7 +5508,12 @@ mod tests {
         d.user_id = a;
         let did = d.id;
         let members = [member("ada", a), member("bora", b)];
-        let panel = admin_consent_panel(&members, &[d], &default_locks(), &test_urls());
+        // one form closed, so the panel has to show both sides of the switch
+        let locks: Vec<(&str, bool)> = CONSENT_DOCS
+            .iter()
+            .map(|(k, ..)| (*k, *k == "paribu_veli_riza"))
+            .collect();
+        let panel = admin_consent_panel(&members, &[d], &locks, &test_urls());
         assert!(panel.contains("/admin/documents.zip"));
         assert!(panel.contains(&format!(r#"href="/documents/file/{did}""#)));
         assert!(
@@ -5455,7 +5521,7 @@ mod tests {
             "one of two students is in"
         );
         assert!(panel.contains("consent-missing"), "bora's cell is empty");
-        // every form gets an open/close switch, and paribu's says it is closed
+        // every form gets an open/close switch, and the closed one says so
         assert_eq!(
             panel.matches(r#"action="/admin/documents/lock""#).count(),
             CONSENT_DOCS.len()
@@ -5470,8 +5536,8 @@ mod tests {
         let html = documents(&student(), &[], &default_locks(), &test_urls(), None, None);
         assert_eq!(
             html.matches("doc-getbtn").count(),
-            2,
-            "exposure + qnbeyond, not paribu"
+            CONSENT_DOCS.len(),
+            "every form has a document behind it now"
         );
         // the /view share link becomes a link that actually downloads
         assert!(html.contains(

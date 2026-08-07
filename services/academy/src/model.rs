@@ -568,10 +568,13 @@ impl Venue {
 /// its right changes freely — the key itself never does.
 ///
 /// The URL here is only the default. `/admin` stores an override in
-/// app_settings_exposure_academy (`consent_url_<kind>`), which is how Paribu's link gets
-/// added when the document exists — a form field, not a deploy. Empty = no download
-/// button on the card.
-pub const CONSENT_DOCS: [(&str, &str, &str, &str); 3] = [
+/// app_settings_exposure_academy (`consent_url_<kind>`), which is how a form's link can be
+/// repointed without a deploy. Empty = no download button on the card.
+///
+/// The first two live on Drive; the four Paribu documents ship in the repo under
+/// `static/consent/`, so they are same-origin paths rather than links — nothing to upload
+/// anywhere and nothing to go stale.
+pub const CONSENT_DOCS: [(&str, &str, &str, &str); 6] = [
     (
         "exposure",
         "Exposure AI Academy Veli İzin ve Katılım Formu",
@@ -584,18 +587,39 @@ pub const CONSENT_DOCS: [(&str, &str, &str, &str); 3] = [
         "1. haftanın yapılacağı QNBEYOND lokasyonu için veli/yasal temsilci onayı.",
         "https://drive.google.com/file/d/10YgFIm28qjhTy3stEXS5BukS_tmn-9_a/view?usp=sharing",
     ),
+    // Programın 2. haftası Paribu'da. Dört ayrı belge: aydınlatma metnini okuyup imzalayan
+    // ve açık rıza veren taraf katılımcı için de veli/vasi için de ayrı ayrı yazılmış.
     (
-        "paribu",
-        "Paribu Lokasyon/Katılım İzin Formu",
-        "Programın 2. haftasında kullanılacak. Form hazır olduğunda paylaşılacak.",
-        "",
+        "paribu_katilimci_aydinlatma",
+        "Paribu · Katılımcı Aydınlatma Metni",
+        "Paribu etkinliğinde kişisel verilerinin nasıl işleneceğini anlatır. Katılımcı (öğrenci) okuyup imzalar.",
+        "/static/consent/paribu-katilimci-aydinlatma-metni.pdf",
+    ),
+    (
+        "paribu_katilimci_riza",
+        "Paribu · Katılımcı Açık Rıza Metni",
+        "Paribu etkinliğinde kişisel verilerin işlenmesine açık rıza. Katılımcı (öğrenci) imzalar.",
+        "/static/consent/paribu-katilimci-acik-riza-metni.pdf",
+    ),
+    (
+        "paribu_veli_aydinlatma",
+        "Paribu · Veli/Vasi Aydınlatma Metni",
+        "Aynı aydınlatma metninin veli/vasi için olan hâli. Veli/yasal temsilci okuyup imzalar.",
+        "/static/consent/paribu-veli-vasi-aydinlatma-metni.pdf",
+    ),
+    (
+        "paribu_veli_riza",
+        "Paribu · Veli/Vasi Açık Rıza Metni",
+        "Paribu etkinliği için veli/yasal temsilcinin açık rıza onayı. Veli/yasal temsilci imzalar.",
+        "/static/consent/paribu-veli-vasi-acik-riza-metni.pdf",
     ),
 ];
 
 /// Forms that start out closed: the document itself isn't ready to hand out yet, so the
 /// card is blurred and uploads are refused until an admin opens it from /admin. Stored
-/// per form in app_settings, so opening one is a button, not a deploy.
-pub const CONSENT_LOCKED_BY_DEFAULT: [&str; 1] = ["paribu"];
+/// per form in app_settings, so opening one is a button, not a deploy. Empty now that the
+/// Paribu documents exist — every form on the page has something behind it.
+pub const CONSENT_LOCKED_BY_DEFAULT: [&str; 0] = [];
 
 /// When the two forms that already exist have to be in. Stated on the student page and
 /// in the admin panel from this one place.
@@ -627,6 +651,14 @@ pub fn consent_lock_key(kind: &str) -> String {
 /// Settings key holding where the blank form can be downloaded.
 pub fn consent_url_key(kind: &str) -> String {
     format!("consent_url_{kind}")
+}
+
+/// A link that points back at this site — what the four Paribu forms use, since their
+/// PDFs ship in `static/`. `//evil.com` is deliberately not one of these: it looks like a
+/// path but is a protocol-relative URL that leaves the origin.
+pub fn same_origin_path(url: &str) -> bool {
+    let u = url.trim();
+    u.starts_with('/') && !u.starts_with("//")
 }
 
 /// A Google Drive share link turned into one that downloads the file instead of opening

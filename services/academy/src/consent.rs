@@ -457,8 +457,9 @@ pub struct ConsentUrlForm {
     url: String,
 }
 
-/// Point a form's "Formu indir" button somewhere — a Drive share link, or anything else
-/// public. Blank takes the button off the card, which is where Paribu starts.
+/// Point a form's "Formu indir" button somewhere — a Drive share link, anything else
+/// public, or a `/static/...` path for a document that ships with the site. Blank takes
+/// the button off the card.
 pub async fn admin_documents_link(
     State(app): State<App>,
     headers: HeaderMap,
@@ -469,12 +470,14 @@ pub async fn admin_documents_link(
         return Err((StatusCode::BAD_REQUEST, "Geçersiz form.").into_response());
     };
     // scheme-gate before it ever reaches an href: a javascript:/data: value must never
-    // become a link on a page students click through
+    // become a link on a page students click through. A same-origin path is allowed too —
+    // that is how the Paribu forms are pointed at the PDFs in static/, and it is how one
+    // gets restored if somebody clears the field.
     let url = f.url.trim();
-    if !url.is_empty() && !valid_http_url(url) {
+    if !url.is_empty() && !valid_http_url(url) && !same_origin_path(url) {
         return Err((
             StatusCode::BAD_REQUEST,
-            "Bağlantı http:// veya https:// ile başlamalı.",
+            "Bağlantı http:// veya https:// ile ya da /static/ ile başlamalı.",
         )
             .into_response());
     }

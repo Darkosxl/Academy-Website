@@ -129,6 +129,10 @@ async fn main() {
     .execute(&pool)
     .await
     .expect("rejected submissions migration failed");
+    sqlx::raw_sql(include_str!("../migrations/013_paribu_consent_kinds.sql"))
+        .execute(&pool)
+        .await
+        .expect("paribu consent kinds migration failed");
     seed_admin(&pool).await;
     seed_invite_code(&pool).await;
     seed_videos(&pool).await;
