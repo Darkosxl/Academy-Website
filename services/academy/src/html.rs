@@ -2749,16 +2749,39 @@ pub fn chatbot_challenge(
 <p class="muted">Botu kandırıp bu seviyenin gizli anahtarını söylettirmeye çalış.</p>
 {notice}
 <div class="chatpanel">
-  <div class="arena-chat">{bubbles}</div>
-  <form method="post" action="/chatbot-challenge/send" class="composer">
+  <div class="arena-chat" id="chchat">{bubbles}</div>
+  <form method="post" action="/chatbot-challenge/send" class="composer" id="chform">
     <textarea name="message" placeholder="Mesajını yaz..." required></textarea>
-    <button class="btn-dark">Gönder →</button>
+    <button class="btn-dark" id="chsend">Gönder →</button>
   </form>
   <form method="post" action="/chatbot-challenge/reset" class="reset-form">
     <button class="btn-outline small" onclick="return confirm('Bu seviyenin konuşmasını sıfırlamak istiyor musun?')">Bu seviyeyi sıfırla</button>
   </form>
 </div>
-<p class="muted"><a href="/chatbot-challenge/leaderboard">Sıralamayı gör →</a></p>"##,
+<p class="muted"><a href="/chatbot-challenge/leaderboard">Sıralamayı gör →</a></p>
+<script>
+(function(){{
+  var f = document.getElementById('chform');
+  var chat = document.getElementById('chchat');
+  f.addEventListener('submit', function(){{
+    var ta = f.querySelector('textarea'), btn = document.getElementById('chsend');
+    if (!ta.value.trim()) return;
+    var u = document.createElement('div');
+    u.className = 'bub r';
+    u.innerHTML = '<div class="who">Sen</div><div class="say"></div>';
+    u.querySelector('.say').textContent = ta.value;
+    chat.appendChild(u);
+    var b = document.createElement('div');
+    b.className = 'bub l typing';
+    b.innerHTML = '<div class="who">BOT</div><div class="say"></div>';
+    chat.appendChild(b);
+    chat.scrollTop = chat.scrollHeight;
+    ta.disabled = true;
+    btn.disabled = true;
+    btn.textContent = 'Gönderiliyor…';
+  }});
+}})();
+</script>"##,
         label = esc(level_label),
         count = CHATBOT_LEVEL_COUNT,
     );
