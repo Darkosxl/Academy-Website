@@ -246,6 +246,21 @@ pub async fn beginner_track_hub(
     headers: HeaderMap,
 ) -> Result<Html<String>, Response> {
     let user = require_onboarded(current_user(&app, &headers).await)?;
+    let projects_done: i64 =
+        sqlx::query_scalar("select count(*) from beginner_submissions_exposure_academy where user_id = $1")
+            .bind(user.id)
+            .fetch_one(&app.pool)
+            .await
+            .unwrap();
+    let chatbot_level = crate::chatbot_challenge::current_level(&app, user.id).await;
+    Ok(Html(html::beginner_track(&user, projects_done as usize, chatbot_level)))
+}
+
+pub async fn beginner_projects_page(
+    State(app): State<App>,
+    headers: HeaderMap,
+) -> Result<Html<String>, Response> {
+    let user = require_onboarded(current_user(&app, &headers).await)?;
     let subs = sqlx::query_as::<_, BeginnerSubmission>(
         "select project_key, repo_url, vercel_url
          from beginner_submissions_exposure_academy where user_id = $1",
@@ -254,8 +269,7 @@ pub async fn beginner_track_hub(
     .fetch_all(&app.pool)
     .await
     .unwrap();
-    let chatbot_level = crate::chatbot_challenge::current_level(&app, user.id).await;
-    Ok(Html(html::beginner_track(&user, &subs, chatbot_level)))
+    Ok(Html(html::beginner_projects(&user, &subs)))
 }
 
 #[derive(Deserialize)]
@@ -323,7 +337,7 @@ pub async fn beginner_track_submit(
     .execute(&app.pool)
     .await
     .unwrap();
-    Ok(Redirect::to("/beginner-track"))
+    Ok(Redirect::to("/beginner-track/projects"))
 }
 
 /// Advanced Track — Agentic Harness and AI Monopoly, grouped behind one sidebar entry.

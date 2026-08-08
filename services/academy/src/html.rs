@@ -2622,7 +2622,41 @@ pub const BEGINNER_PROJECTS: [(&str, &str, &str, &str, Option<(&str, &str)>); 7]
 /// Beginner Track — the seven fixed projects above, each with a downloadable brief and a
 /// save-your-links form. Self-reported, no grading: the form always shows, pre-filled
 /// with whatever was last saved, and resaving just overwrites it.
-pub fn beginner_track(user: &User, subs: &[BeginnerSubmission], chatbot_level: i16) -> String {
+/// The track's own hub: two subsets side by side, same pattern advanced_track()
+/// uses for Agentic Harness / AI Monopoly — Chatbot Challenge and the weekly
+/// projects are peers, not one floating card above a flat project list.
+pub fn beginner_track(user: &User, projects_done: usize, chatbot_level: i16) -> String {
+    let content = format!(
+        r##"<h1 class="pagetitle">Beginner Track</h1>
+<p class="muted">Başlangıç seviyesindeki iki bölüm.</p>
+<div class="hubgrid">
+  <a class="hubcard" href="/beginner-track/projects">
+    <span class="hubico">{ico_projects}</span>
+    <h2>Haftalık Projeler</h2>
+    <p>7 proje. Her biri için brifi indir, projeni yap, sonra GitHub ve Vercel bağlantılarını kaydet. Kaydedilen: {projects_done}/7.</p>
+    <span class="hubgo">Projelere git →</span>
+  </a>
+  <a class="hubcard" href="/chatbot-challenge">
+    <span class="hubico">{ico_chat}</span>
+    <h2>Chatbot Challenge</h2>
+    <p>Bir chatbotu kandırıp gizli anahtarını söylettirmeye çalış — {CHATBOT_LEVEL_COUNT} seviye, her biri bir öncekinden daha zor. {chat_status}</p>
+    <span class="hubgo">Oyuna git →</span>
+  </a>
+</div>"##,
+        ico_projects = ico(P_DOC),
+        ico_chat = ico(P_CHAT),
+        chat_status = if chatbot_level > CHATBOT_LEVEL_COUNT {
+            format!("{CHATBOT_LEVEL_COUNT}/{CHATBOT_LEVEL_COUNT} — tamamlandı 🏆")
+        } else {
+            format!("Şu an seviye {chatbot_level}/{CHATBOT_LEVEL_COUNT}.")
+        },
+    );
+    layout("Beginner Track", Some(user), "beginner-track", &content)
+}
+
+/// The weekly-projects subset: cheat sheet plus the 7 project cards, split out of
+/// beginner_track() so that page can stay a clean two-card hub.
+pub fn beginner_projects(user: &User, subs: &[BeginnerSubmission]) -> String {
     let cards: String = BEGINNER_PROJECTS
         .iter()
         .map(|(key, title, summary, pdf, extra)| {
@@ -2667,21 +2701,9 @@ pub fn beginner_track(user: &User, subs: &[BeginnerSubmission], chatbot_level: i
             )
         })
         .collect();
-    layout(
-        "Beginner Track",
-        Some(user),
-        "beginner-track",
-        &format!(
-            r##"<h1 class="pagetitle">Beginner Track</h1>
+    let content = format!(
+        r##"<h1 class="pagetitle">Haftalık Projeler</h1>
 <p class="muted">Başlangıç seviyesindeki 7 proje. Her biri için brifi indir, projeni yap, sonra GitHub ve Vercel bağlantılarını kaydet.</p>
-<div class="hubgrid">
-  <a class="hubcard" href="/chatbot-challenge">
-    <span class="hubico">{ico_chat}</span>
-    <h2>Chatbot Challenge</h2>
-    <p>Bir chatbotu kandırıp gizli anahtarını söylettirmeye çalış — {CHATBOT_LEVEL_COUNT} seviye, her biri bir öncekinden daha zor. {chat_status}</p>
-    <span class="hubgo">Oyuna git →</span>
-  </a>
-</div>
 <div class="taskcard">
   <div class="taskhead"><h3>Vibe Coding Cheat Sheet</h3></div>
   <p class="desc">Tüm beginner track projelerinde işine yarayacak hızlı referans rehberi.</p>
@@ -2689,15 +2711,9 @@ pub fn beginner_track(user: &User, subs: &[BeginnerSubmission], chatbot_level: i
     <a class="btn-outline small" href="/static/beginner-projects/vibe-coding-cheat-sheet.pdf" target="_blank" rel="noopener">Cheat sheet indir ⬇</a>
   </div>
 </div>
-<div class="tasks">{cards}</div>"##,
-            ico_chat = ico(P_CHAT),
-            chat_status = if chatbot_level > CHATBOT_LEVEL_COUNT {
-                format!("{CHATBOT_LEVEL_COUNT}/{CHATBOT_LEVEL_COUNT} — tamamlandı 🏆")
-            } else {
-                format!("Şu an seviye {chatbot_level}/{CHATBOT_LEVEL_COUNT}.")
-            },
-        ),
-    )
+<div class="tasks">{cards}</div>"##
+    );
+    layout("Haftalık Projeler", Some(user), "beginner-track", &content)
 }
 
 /// Chat page for the student's current level. Level indicator is top-center per
@@ -4918,7 +4934,7 @@ mod tests {
     }
 
     #[test]
-    fn beginner_track_links_cheat_sheet() {
+    fn beginner_projects_links_cheat_sheet() {
         let user = User {
             id: Uuid::nil(),
             display_name: "A".into(),
@@ -4926,7 +4942,7 @@ mod tests {
             is_admin: false,
             level: "PRESEED".into(),
         };
-        let html = beginner_track(&user, &[], 1);
+        let html = beginner_projects(&user, &[]);
         assert!(
             html.contains(r#"href="/static/beginner-projects/vibe-coding-cheat-sheet.pdf""#),
             "beginner track should link the vibe coding cheat sheet"
@@ -4939,6 +4955,25 @@ mod tests {
                 ),
             "proje 7 should link both its brief and its apps script cheat sheet"
         );
+    }
+
+    /// The hub is two peer hubcards (projects, chatbot), same shape as
+    /// advanced_track()'s two-hubcard layout — not a floating card above a flat list.
+    #[test]
+    fn beginner_track_hub_has_two_subsets() {
+        let user = User {
+            id: Uuid::nil(),
+            display_name: "A".into(),
+            nickname: Some("a".into()),
+            is_admin: false,
+            level: "PRESEED".into(),
+        };
+        let html = beginner_track(&user, 3, 2);
+        assert!(html.contains(r#"href="/beginner-track/projects""#));
+        assert!(html.contains(r#"href="/chatbot-challenge""#));
+        assert_eq!(html.matches("hubcard").count(), 2, "exactly two peer subsets");
+        assert!(html.contains("3/7"));
+        assert!(html.contains("seviye 2/7"));
     }
 
     #[test]

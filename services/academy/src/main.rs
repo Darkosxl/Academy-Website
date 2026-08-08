@@ -205,6 +205,7 @@ async fn main() {
         .route("/app", get(home))
         .route("/online", get(online_hub))
         .route("/beginner-track", get(beginner_track_hub))
+        .route("/beginner-track/projects", get(beginner_projects_page))
         .route("/beginner-track/submit", post(beginner_track_submit))
         .route("/chatbot-challenge", get(chatbot_challenge_page))
         .route("/chatbot-challenge/send", post(chatbot_challenge_send))
