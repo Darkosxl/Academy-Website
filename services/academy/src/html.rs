@@ -261,7 +261,7 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/style.css?v=36">
+<link rel="stylesheet" href="/static/style.css?v=37">
 <script>if('scrollRestoration'in history)history.scrollRestoration='manual';</script>
 </head>
 <body class="{body_class}">
@@ -2736,29 +2736,29 @@ pub fn chatbot_challenge(
         .iter()
         .map(|m| {
             let side = if m.role == "user" { "r" } else { "l" };
-            let who = if m.role == "user" { user.label() } else { "Bot" };
             format!(
-                r##"<div class="bub {side}"><div class="who">{who}</div><div class="say">{content}</div></div>"##,
-                who = esc(who),
+                r##"<div class="bub {side}"><div class="say">{content}</div></div>"##,
                 content = esc(&m.content),
             )
         })
         .collect();
+    let title = format!("Seviye {level} — {level_label}");
     let content = format!(
-        r##"<div class="chlevel-wrap"><span class="chlevel">Seviye {level}/{count} · {label}</span></div>
-<p class="muted">Botu kandırıp bu seviyenin gizli anahtarını söylettirmeye çalış.</p>
+        r##"<div class="chtopbar">
+  <form method="post" action="/chatbot-challenge/reset" class="reset-form">
+    <button type="submit" class="ch-reset" title="Bu seviyeyi sıfırla" aria-label="Bu seviyeyi sıfırla" onclick="return confirm('Bu seviyenin konuşmasını sıfırlamak istiyor musun?')">+</button>
+  </form>
+  <span class="ch-level">Level {level}</span>
+</div>
 {notice}
 <div class="chatpanel">
   <div class="arena-chat" id="chchat">{bubbles}</div>
   <form method="post" action="/chatbot-challenge/send" class="composer" id="chform">
     <textarea name="message" placeholder="Mesajını yaz..." required></textarea>
-    <button class="btn-dark" id="chsend">Gönder →</button>
-  </form>
-  <form method="post" action="/chatbot-challenge/reset" class="reset-form">
-    <button class="btn-outline small" onclick="return confirm('Bu seviyenin konuşmasını sıfırlamak istiyor musun?')">Bu seviyeyi sıfırla</button>
+    <button class="ch-send" id="chsend" aria-label="Gönder">→</button>
   </form>
 </div>
-<p class="muted"><a href="/chatbot-challenge/leaderboard">Sıralamayı gör →</a></p>
+<p class="muted" style="text-align:center;"><a href="/chatbot-challenge/leaderboard">Sıralamayı gör →</a></p>
 <script>
 (function(){{
   var f = document.getElementById('chform');
@@ -2768,24 +2768,21 @@ pub fn chatbot_challenge(
     if (!ta.value.trim()) return;
     var u = document.createElement('div');
     u.className = 'bub r';
-    u.innerHTML = '<div class="who">Sen</div><div class="say"></div>';
+    u.innerHTML = '<div class="say"></div>';
     u.querySelector('.say').textContent = ta.value;
     chat.appendChild(u);
     var b = document.createElement('div');
     b.className = 'bub l typing';
-    b.innerHTML = '<div class="who">BOT</div><div class="say"></div>';
+    b.innerHTML = '<div class="say"></div>';
     chat.appendChild(b);
     chat.scrollTop = chat.scrollHeight;
     ta.disabled = true;
     btn.disabled = true;
-    btn.textContent = 'Gönderiliyor…';
   }});
 }})();
 </script>"##,
-        label = esc(level_label),
-        count = CHATBOT_LEVEL_COUNT,
     );
-    layout("Chatbot Challenge", Some(user), "chatbot-challenge", &content)
+    layout(&title, Some(user), "chatbot-challenge", &content)
 }
 
 pub fn chatbot_challenge_done(user: &User) -> String {
