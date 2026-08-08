@@ -12,6 +12,11 @@ pub struct User {
     /// Public handle. `None` means onboarding is unfinished — see `require_onboarded`.
     pub nickname: Option<String>,
     pub is_admin: bool,
+    /// PRESEED/SEED/SERIES_A, same values Video/Task use. Defaults PRESEED; flipped
+    /// to SERIES_A on harness/monopoly team assignment (see teams::member_assign,
+    /// monopoly::admin_monopoly_member) — team membership is the only signal that
+    /// ever distinguished beginner from advanced students.
+    pub level: String,
 }
 
 impl User {

@@ -11,7 +11,7 @@ use axum::{
     Form,
     extract::{Query, State},
     http::HeaderMap,
-    response::{Html, Redirect, Response},
+    response::{Html, IntoResponse, Redirect, Response},
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -176,12 +176,25 @@ pub struct ChatbotQ {
     msg: Option<String>,
 }
 
+/// Beginner Track only — Advanced Track students already have Agentic Harness and
+/// AI Monopoly in prod, no need for this game too. Admins bypass so the feature
+/// stays testable regardless of the admin account's level, same reasoning
+/// require_onboarded uses to exempt admins from the nickname check.
+fn require_beginner(user: &User) -> Result<(), Response> {
+    if user.is_admin || user.level == "PRESEED" {
+        Ok(())
+    } else {
+        Err(Redirect::to("/beginner-track").into_response())
+    }
+}
+
 pub async fn chatbot_challenge_page(
     State(app): State<App>,
     headers: HeaderMap,
     Query(q): Query<ChatbotQ>,
 ) -> Result<Html<String>, Response> {
     let user = require_onboarded(current_user(&app, &headers).await)?;
+    require_beginner(&user)?;
     let level = current_level(&app, user.id).await;
     if level > CHATBOT_LEVEL_COUNT {
         return Ok(Html(html::chatbot_challenge_done(&user)));
@@ -203,6 +216,7 @@ pub async fn chatbot_challenge_send(
     Form(f): Form<ChatbotSendForm>,
 ) -> Result<Redirect, Response> {
     let user = require_onboarded(current_user(&app, &headers).await)?;
+    require_beginner(&user)?;
     let level = current_level(&app, user.id).await;
     if level > CHATBOT_LEVEL_COUNT {
         return Ok(Redirect::to("/chatbot-challenge"));
@@ -267,6 +281,7 @@ pub async fn chatbot_challenge_reset(
     headers: HeaderMap,
 ) -> Result<Redirect, Response> {
     let user = require_onboarded(current_user(&app, &headers).await)?;
+    require_beginner(&user)?;
     let level = current_level(&app, user.id).await;
     if level <= CHATBOT_LEVEL_COUNT {
         sqlx::query("delete from chatbot_messages_exposure_academy where user_id = $1 and level = $2")
@@ -281,10 +296,10 @@ pub async fn chatbot_challenge_reset(
 
 /// The standings: primary key is levels completed (desc); ties broken by who
 /// reached their current level soonest (asc). Because levels are strictly
-/// sequential, last_completed_at for a student with levels_done = 10 IS their
-/// level-10 finish time — so "first to finish" falls out of the same sort with
-/// no special-cased winner query, same read-time-computed philosophy as
-/// leader_rows() in portal.rs.
+/// sequential, last_completed_at for a student with levels_done ==
+/// CHATBOT_LEVEL_COUNT IS their final-level finish time — so "first to finish"
+/// falls out of the same sort with no special-cased winner query, same
+/// read-time-computed philosophy as leader_rows() in portal.rs.
 async fn chatbot_leader_rows(app: &App) -> Vec<ChatbotLeaderRow> {
     sqlx::query_as::<_, ChatbotLeaderRow>(
         "select u.id, u.display_name, u.nickname, u.hidden_from_leaderboard as hidden,
@@ -309,6 +324,7 @@ pub async fn chatbot_challenge_leaderboard(
     headers: HeaderMap,
 ) -> Result<Html<String>, Response> {
     let user = require_onboarded(current_user(&app, &headers).await)?;
+    require_beginner(&user)?;
     let rows: Vec<ChatbotLeaderRow> = chatbot_leader_rows(&app)
         .await
         .into_iter()

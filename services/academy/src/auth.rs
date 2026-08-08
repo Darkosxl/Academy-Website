@@ -97,7 +97,7 @@ pub fn cookie_token(headers: &HeaderMap) -> Option<String> {
 pub async fn current_user(app: &App, headers: &HeaderMap) -> Option<User> {
     let token = cookie_token(headers)?;
     sqlx::query_as::<_, User>(
-        "select u.id, u.display_name, u.nickname, u.is_admin from sessions_exposure_academy s join users_exposure_academy u on u.id = s.user_id where s.token = $1 and s.expires_at > now()")
+        "select u.id, u.display_name, u.nickname, u.is_admin, u.level from sessions_exposure_academy s join users_exposure_academy u on u.id = s.user_id where s.token = $1 and s.expires_at > now()")
         .bind(token).fetch_optional(&app.pool).await.ok()?
 }
 

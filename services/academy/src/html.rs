@@ -4882,6 +4882,7 @@ mod tests {
             display_name: "A".into(),
             nickname: Some("a".into()),
             is_admin: false,
+            level: "PRESEED".into(),
         };
         let task = Task {
             id: Uuid::nil(),
@@ -4923,6 +4924,7 @@ mod tests {
             display_name: "A".into(),
             nickname: Some("a".into()),
             is_admin: false,
+            level: "PRESEED".into(),
         };
         let html = beginner_track(&user, &[], 1);
         assert!(
@@ -4946,6 +4948,7 @@ mod tests {
             display_name: "A".into(),
             nickname: Some("a".into()),
             is_admin: false,
+            level: "PRESEED".into(),
         };
         let task = Task {
             id: Uuid::nil(),
@@ -4965,6 +4968,7 @@ mod tests {
             display_name: "A".into(),
             nickname: Some("a".into()),
             is_admin: false,
+            level: "PRESEED".into(),
         };
         let team = HarnessTeam {
             id: Uuid::nil(),
@@ -5007,6 +5011,7 @@ mod tests {
             display_name: "Admin".into(),
             nickname: None,
             is_admin: true,
+            level: "PRESEED".into(),
         };
         let team = HarnessTeam {
             id: Uuid::nil(),
@@ -5045,6 +5050,7 @@ mod tests {
             display_name: "Admin".into(),
             nickname: None,
             is_admin: true,
+            level: "PRESEED".into(),
         }
     }
 
@@ -5168,6 +5174,7 @@ mod tests {
             display_name: "Kid".into(),
             nickname: None,
             is_admin: false,
+            level: "PRESEED".into(),
         };
         let team = team_at(1, "Neural Ninjas");
         let html = agentic_harness_main(&user, "arc", Some(&team), &[], None, None, None, &[], &[]);
@@ -5190,6 +5197,7 @@ mod tests {
             display_name: "Kid".into(),
             nickname: None,
             is_admin: false,
+            level: "PRESEED".into(),
         };
         let team = team_at(1, "Neural Ninjas");
         let taken = agentic_harness_main(
@@ -5227,6 +5235,7 @@ mod tests {
             display_name: "Kid".into(),
             nickname: None,
             is_admin: false,
+            level: "PRESEED".into(),
         };
         let html = agentic_harness_main(&user, "arc", None, &[], None, None, None, &[], &[]);
         assert!(html.contains("gönderim yapamazsın"));
@@ -5256,6 +5265,7 @@ mod tests {
             display_name: "A".into(),
             nickname: Some("a".into()),
             is_admin: false,
+            level: "PRESEED".into(),
         }
     }
 

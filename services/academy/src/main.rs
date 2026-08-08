@@ -146,6 +146,10 @@ async fn main() {
         .execute(&pool)
         .await
         .expect("chatbot challenge migration failed");
+    sqlx::raw_sql(include_str!("../migrations/015_user_level.sql"))
+        .execute(&pool)
+        .await
+        .expect("user level migration failed");
     seed_admin(&pool).await;
     seed_invite_code(&pool).await;
     seed_videos(&pool).await;

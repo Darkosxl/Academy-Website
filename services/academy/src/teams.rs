@@ -157,6 +157,11 @@ pub async fn member_assign(
     .execute(&app.pool)
     .await
     .map_err(|_| bad("Öğrenci atanamadı."))?;
+    sqlx::query("update users_exposure_academy set level = 'SERIES_A' where id = $1")
+        .bind(f.user_id)
+        .execute(&app.pool)
+        .await
+        .map_err(|_| bad("Öğrenci atanamadı."))?;
     Ok(back())
 }
 
@@ -173,5 +178,14 @@ pub async fn member_remove(
         .execute(&app.pool)
         .await
         .map_err(|_| bad("Öğrenci takımdan çıkarılamadı."))?;
+    // Only demote if they're not also on a monopoly team — either one keeps them advanced.
+    sqlx::query(
+        "update users_exposure_academy set level = 'PRESEED' where id = $1
+         and not exists (select 1 from monopoly_team_members_exposure_academy where user_id = $1)",
+    )
+    .bind(f.id)
+    .execute(&app.pool)
+    .await
+    .map_err(|_| bad("Öğrenci takımdan çıkarılamadı."))?;
     Ok(back())
 }
