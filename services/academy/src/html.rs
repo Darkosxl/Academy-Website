@@ -100,6 +100,7 @@ const P_GLOBE: &str = "M12 21a9.004 9.004 0 0 0 8.716-6.747M12 21a9.004 9.004 0 
 const P_FLAG: &str = "M3 3v1.5M3 21v-6m0 0 2.77-.693a9 9 0 0 1 6.208.682l.108.054a9 9 0 0 0 6.086.71l3.114-.732a48.524 48.524 0 0 1-.005-10.499l-3.11.732a9 9 0 0 1-6.085-.711l-.108-.054a9 9 0 0 0-6.208-.682L3 4.5M3 15V4.5";
 const P_ROCKET: &str = "M15.59 14.37a6 6 0 0 1-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 0 0 6.16-12.12A14.98 14.98 0 0 0 9.631 8.41m5.96 5.96a14.926 14.926 0 0 1-5.841 2.58m-.119-8.54a6 6 0 0 0-7.381 5.84h4.8m2.581-5.84a14.927 14.927 0 0 0-2.58 5.84m2.699 2.7c-.103.021-.207.041-.311.06a15.09 15.09 0 0 1-2.448-2.448 14.9 14.9 0 0 1 .06-.312m-2.24 2.39a4.493 4.493 0 0 0-1.757 4.306 4.493 4.493 0 0 0 4.306-1.758M16.5 9a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0Z";
 const P_GRADE: &str = "M11.35 3.836c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75 2.25 2.25 0 0 0-.1-.664m-5.8 0A2.251 2.251 0 0 1 13.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m8.9-4.414c.376.023.75.05 1.124.08 1.131.094 1.976 1.057 1.976 2.192V16.5A2.25 2.25 0 0 1 18 18.75h-2.25m-7.5-10.5H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25ZM6.75 15.75l1.5 1.5 3-3.75";
+const P_CHAT: &str = "M20.25 8.511c.884.284 1.5 1.128 1.5 2.097v4.286c0 1.136-.847 2.1-1.98 2.193-.34.027-.68.052-1.02.072v3.091l-3-3c-1.354 0-2.694-.055-4.02-.163a2.115 2.115 0 0 1-.825-.242m9.345-8.334a2.126 2.126 0 0 0-.476-.095 48.64 48.64 0 0 0-8.048 0c-1.131.094-1.976 1.057-1.976 2.192v4.286c0 .837.46 1.58 1.155 1.951m9.345-8.334V6.637c0-1.621-1.152-3.026-2.76-3.235A48.455 48.455 0 0 0 11.25 3c-2.115 0-4.198.137-6.24.402-1.608.209-2.76 1.614-2.76 3.235v6.226c0 1.621 1.152 3.026 2.76 3.235.577.075 1.157.14 1.74.194V21l4.155-4.155";
 
 fn nav_link(href: &str, page: &str, key: &str, icon: &str, label: &str) -> String {
     nav_link_group(href, page, &[key], icon, label)
@@ -212,7 +213,7 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
                 beginner_track = nav_link_group(
                     "/beginner-track",
                     active,
-                    &["beginner-track"],
+                    &["beginner-track", "chatbot-challenge"],
                     &ico(P_FLAG),
                     "Beginner Track"
                 ),
@@ -260,7 +261,7 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/style.css?v=35">
+<link rel="stylesheet" href="/static/style.css?v=36">
 <script>if('scrollRestoration'in history)history.scrollRestoration='manual';</script>
 </head>
 <body class="{body_class}">
@@ -2621,7 +2622,7 @@ pub const BEGINNER_PROJECTS: [(&str, &str, &str, &str, Option<(&str, &str)>); 7]
 /// Beginner Track — the seven fixed projects above, each with a downloadable brief and a
 /// save-your-links form. Self-reported, no grading: the form always shows, pre-filled
 /// with whatever was last saved, and resaving just overwrites it.
-pub fn beginner_track(user: &User, subs: &[BeginnerSubmission]) -> String {
+pub fn beginner_track(user: &User, subs: &[BeginnerSubmission], chatbot_level: i16) -> String {
     let cards: String = BEGINNER_PROJECTS
         .iter()
         .map(|(key, title, summary, pdf, extra)| {
@@ -2673,6 +2674,14 @@ pub fn beginner_track(user: &User, subs: &[BeginnerSubmission]) -> String {
         &format!(
             r##"<h1 class="pagetitle">Beginner Track</h1>
 <p class="muted">Başlangıç seviyesindeki 7 proje. Her biri için brifi indir, projeni yap, sonra GitHub ve Vercel bağlantılarını kaydet.</p>
+<div class="hubgrid">
+  <a class="hubcard" href="/chatbot-challenge">
+    <span class="hubico">{ico_chat}</span>
+    <h2>Chatbot Challenge</h2>
+    <p>Bir chatbotu kandırıp gizli anahtarını söylettirmeye çalış — {CHATBOT_LEVEL_COUNT} seviye, her biri bir öncekinden daha zor. {chat_status}</p>
+    <span class="hubgo">Oyuna git →</span>
+  </a>
+</div>
 <div class="taskcard">
   <div class="taskhead"><h3>Vibe Coding Cheat Sheet</h3></div>
   <p class="desc">Tüm beginner track projelerinde işine yarayacak hızlı referans rehberi.</p>
@@ -2680,8 +2689,126 @@ pub fn beginner_track(user: &User, subs: &[BeginnerSubmission]) -> String {
     <a class="btn-outline small" href="/static/beginner-projects/vibe-coding-cheat-sheet.pdf" target="_blank" rel="noopener">Cheat sheet indir ⬇</a>
   </div>
 </div>
-<div class="tasks">{cards}</div>"##
+<div class="tasks">{cards}</div>"##,
+            ico_chat = ico(P_CHAT),
+            chat_status = if chatbot_level > CHATBOT_LEVEL_COUNT {
+                format!("{CHATBOT_LEVEL_COUNT}/{CHATBOT_LEVEL_COUNT} — tamamlandı 🏆")
+            } else {
+                format!("Şu an seviye {chatbot_level}/{CHATBOT_LEVEL_COUNT}.")
+            },
         ),
+    )
+}
+
+/// Chat page for the student's current level. Level indicator is top-center per
+/// spec. Student messages render as .bub.r, the bot's as .bub.l, same convention
+/// monopoly_match() uses for its two-sided transcript.
+pub fn chatbot_challenge(
+    user: &User,
+    level: i16,
+    level_label: &str,
+    msgs: &[ChatbotMessage],
+    msg: Option<&str>,
+) -> String {
+    let notice = match msg {
+        Some("bedrock-error") => {
+            r#"<p class="notice">Bot şu an cevap veremedi, tekrar dene.</p>"#.to_string()
+        }
+        _ => String::new(),
+    };
+    let bubbles: String = msgs
+        .iter()
+        .map(|m| {
+            let side = if m.role == "user" { "r" } else { "l" };
+            let who = if m.role == "user" { user.label() } else { "Bot" };
+            format!(
+                r##"<div class="bub {side}"><div class="who">{who}</div><div class="say">{content}</div></div>"##,
+                who = esc(who),
+                content = esc(&m.content),
+            )
+        })
+        .collect();
+    let content = format!(
+        r##"<div class="chlevel-wrap"><span class="chlevel">Seviye {level}/{count} · {label}</span></div>
+<p class="muted">Botu kandırıp bu seviyenin gizli anahtarını söylettirmeye çalış.</p>
+{notice}
+<div class="chatpanel">
+  <div class="arena-chat">{bubbles}</div>
+  <form method="post" action="/chatbot-challenge/send" class="composer">
+    <textarea name="message" placeholder="Mesajını yaz..." required></textarea>
+    <button class="btn-dark">Gönder →</button>
+  </form>
+  <form method="post" action="/chatbot-challenge/reset" class="reset-form">
+    <button class="btn-outline small" onclick="return confirm('Bu seviyenin konuşmasını sıfırlamak istiyor musun?')">Bu seviyeyi sıfırla</button>
+  </form>
+</div>
+<p class="muted"><a href="/chatbot-challenge/leaderboard">Sıralamayı gör →</a></p>"##,
+        label = esc(level_label),
+        count = CHATBOT_LEVEL_COUNT,
+    );
+    layout("Chatbot Challenge", Some(user), "chatbot-challenge", &content)
+}
+
+pub fn chatbot_challenge_done(user: &User) -> String {
+    let content = format!(
+        r##"<section class="panel" style="text-align:center;">
+  <h2>🎉 {CHATBOT_LEVEL_COUNT}/{CHATBOT_LEVEL_COUNT} tamamladın!</h2>
+  <p class="muted">Tüm seviyeleri geçtin. Sıralamada yerini gör.</p>
+  <a class="btn-dark" href="/chatbot-challenge/leaderboard">Sıralamayı gör →</a>
+</section>"##
+    );
+    layout("Chatbot Challenge", Some(user), "chatbot-challenge", &content)
+}
+
+pub fn chatbot_challenge_leaderboard(user: &User, rows: &[ChatbotLeaderRow]) -> String {
+    let ranks = dense_ranks_by(rows, |r| r.levels_done.to_string());
+    let list: String = if rows.is_empty() {
+        "<p class='muted'>Henüz kimse seviye tamamlamadı — ilk sen ol.</p>".into()
+    } else {
+        rows.iter()
+            .zip(&ranks)
+            .map(|(r, rank)| {
+                let crown = if r.finished() { " 🏆" } else { "" };
+                format!(
+                    r##"<div class="lbrow {mine} {medal}">
+  <span class="lbrank">{rank}</span>
+  <span class="avatar-fb">{initial}</span>
+  <span class="lbname">{name} <small class="nick">({nick})</small>{crown}</span>
+  <span class="lbmeta">{levels}/10 seviye</span>
+  <span class="lbpts">{levels}<small>/10</small></span>
+</div>"##,
+                    mine = if r.id == user.id { "mine" } else { "" },
+                    medal = match rank {
+                        1 => "m1",
+                        2 => "m2",
+                        3 => "m3",
+                        _ => "",
+                    },
+                    initial = esc(&r
+                        .display_name
+                        .chars()
+                        .next()
+                        .unwrap_or('?')
+                        .to_uppercase()
+                        .to_string()),
+                    name = esc(&r.display_name),
+                    nick = esc(&r.nickname),
+                    levels = r.levels_done,
+                    crown = crown,
+                )
+            })
+            .collect()
+    };
+    let content = format!(
+        r##"<h1 class="pagetitle">Chatbot Challenge — Sıralama</h1>
+<p class="muted">Kim daha çok seviye kırdı? İlk 10/10'a ulaşan kazanır.</p>
+<div class="lb">{list}</div>"##
+    );
+    layout(
+        "Chatbot Challenge Sıralaması",
+        Some(user),
+        "chatbot-challenge",
+        &content,
     )
 }
 
@@ -4796,7 +4923,7 @@ mod tests {
             nickname: Some("a".into()),
             is_admin: false,
         };
-        let html = beginner_track(&user, &[]);
+        let html = beginner_track(&user, &[], 1);
         assert!(
             html.contains(r#"href="/static/beginner-projects/vibe-coding-cheat-sheet.pdf""#),
             "beginner track should link the vibe coding cheat sheet"

@@ -448,6 +448,37 @@ impl LeaderRow {
     }
 }
 
+// ---- Chatbot Challenge ----
+
+pub const CHATBOT_LEVEL_COUNT: i16 = 7;
+
+/// One turn in a level's transcript, oldest first.
+#[derive(FromRow, Clone)]
+pub struct ChatbotMessage {
+    pub role: String, // "user" | "assistant"
+    pub content: String,
+}
+
+/// One row of the Chatbot Challenge leaderboard.
+#[derive(FromRow)]
+pub struct ChatbotLeaderRow {
+    pub id: Uuid,
+    pub display_name: String,
+    pub nickname: String,
+    pub hidden: bool,
+    pub levels_done: i64,
+    /// Levels are strictly sequential, so for a student with `levels_done ==
+    /// CHATBOT_LEVEL_COUNT` this IS their final-level finish time — no separate
+    /// "finished_at" column or join needed.
+    pub last_completed_at: Option<DateTime<Utc>>,
+}
+
+impl ChatbotLeaderRow {
+    pub fn finished(&self) -> bool {
+        self.levels_done >= CHATBOT_LEVEL_COUNT as i64
+    }
+}
+
 /// One row in the admin "Öğrenciler" list — enough to identify and remove a member.
 #[derive(FromRow)]
 pub struct MemberRow {

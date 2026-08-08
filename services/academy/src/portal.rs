@@ -254,7 +254,8 @@ pub async fn beginner_track_hub(
     .fetch_all(&app.pool)
     .await
     .unwrap();
-    Ok(Html(html::beginner_track(&user, &subs)))
+    let chatbot_level = crate::chatbot_challenge::current_level(&app, user.id).await;
+    Ok(Html(html::beginner_track(&user, &subs, chatbot_level)))
 }
 
 #[derive(Deserialize)]

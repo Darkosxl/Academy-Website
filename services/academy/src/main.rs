@@ -4,6 +4,7 @@
 mod admin;
 mod auth;
 mod board;
+mod chatbot_challenge;
 mod consent;
 mod grading;
 mod harness;
@@ -25,6 +26,7 @@ use uuid::Uuid;
 use admin::*;
 use auth::*;
 use board::*;
+use chatbot_challenge::*;
 use consent::*;
 use grading::*;
 use harness::*;
@@ -46,6 +48,13 @@ pub struct App {
     pub deepl_key: String,
     /// XChaCha20-Poly1305 key for team Kaggle tokens. None disables official submit.
     pub kaggle_key: Option<[u8; 32]>,
+    /// DeepInfra bearer token, read directly by the academy process for real-time
+    /// Chatbot Challenge calls (no gateway subprocess). Empty = feature disabled;
+    /// call_deepinfra() checks and short-circuits rather than panicking at boot.
+    /// The model id is NOT here: it's a fixed const in chatbot_challenge.rs, not an
+    /// env var, same reasoning as the Bedrock version this replaced — no shared
+    /// env var means this game can't silently drift onto a different model.
+    pub deepinfra_api_key: String,
 }
 
 fn secret_key(name: &str) -> Option<[u8; 32]> {
@@ -133,6 +142,10 @@ async fn main() {
         .execute(&pool)
         .await
         .expect("paribu consent kinds migration failed");
+    sqlx::raw_sql(include_str!("../migrations/014_chatbot_challenge.sql"))
+        .execute(&pool)
+        .await
+        .expect("chatbot challenge migration failed");
     seed_admin(&pool).await;
     seed_invite_code(&pool).await;
     seed_videos(&pool).await;
@@ -170,6 +183,7 @@ async fn main() {
         microlink_key: std::env::var("MICROLINK_API_KEY").unwrap_or_default(),
         deepl_key: std::env::var("DEEPL_API_KEY").unwrap_or_default(),
         kaggle_key: secret_key("KAGGLE_CREDENTIAL_KEY"),
+        deepinfra_api_key: std::env::var("DEEPINFRA_API_KEY").unwrap_or_default(),
     };
 
     // background: keeps submissions' live site URLs up to date. Students deploy after they
@@ -188,6 +202,13 @@ async fn main() {
         .route("/online", get(online_hub))
         .route("/beginner-track", get(beginner_track_hub))
         .route("/beginner-track/submit", post(beginner_track_submit))
+        .route("/chatbot-challenge", get(chatbot_challenge_page))
+        .route("/chatbot-challenge/send", post(chatbot_challenge_send))
+        .route("/chatbot-challenge/reset", post(chatbot_challenge_reset))
+        .route(
+            "/chatbot-challenge/leaderboard",
+            get(chatbot_challenge_leaderboard),
+        )
         .route("/advanced-track", get(advanced_track_hub))
         .route("/schedule", get(schedule))
         .route("/schedule/image/{track}", get(schedule_image))
