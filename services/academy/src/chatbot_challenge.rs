@@ -11,10 +11,16 @@ use axum::{
     Form,
     extract::{Query, State},
     http::HeaderMap,
-    response::{Html, IntoResponse, Redirect, Response},
+    response::{
+        Html, IntoResponse, Redirect, Response,
+        sse::{Event, KeepAlive, Sse},
+    },
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
+use std::convert::Infallible;
+use tokio::sync::mpsc;
+use tokio_stream::{Stream, StreamExt, wrappers::ReceiverStream};
 use uuid::Uuid;
 
 /// (level label, fake secret value, system prompt). Every level here has a
@@ -141,9 +147,19 @@ async fn level_messages(app: &App, user_id: Uuid, level: i16) -> Vec<ChatbotMess
 const CHATBOT_MODEL_ID: &str = "deepseek-ai/DeepSeek-V3.2";
 const DEEPINFRA_API_URL: &str = "https://api.deepinfra.com/v1/openai/chat/completions";
 
-async fn call_deepinfra(app: &App, system_prompt: &str, history: &[ChatbotMessage]) -> Result<String, ()> {
+/// Relays DeepInfra's own SSE stream token-by-token into `tx` as the reply is
+/// generated, returning the full accumulated text once DeepInfra sends `[DONE]`.
+/// `None` on any failure before or during the stream (missing key, network error,
+/// bad status) — same failure contract the old non-streaming call had, just
+/// without a full reply to show for it.
+async fn stream_deepinfra(
+    app: &App,
+    system_prompt: &str,
+    history: &[ChatbotMessage],
+    tx: &mpsc::Sender<Event>,
+) -> Option<String> {
     if app.deepinfra_api_key.is_empty() {
-        return Err(());
+        return None;
     }
     let mut messages = vec![json!({"role": "system", "content": system_prompt})];
     messages.extend(history.iter().map(|m| json!({"role": m.role, "content": m.content})));
@@ -151,24 +167,98 @@ async fn call_deepinfra(app: &App, system_prompt: &str, history: &[ChatbotMessag
         "model": CHATBOT_MODEL_ID,
         "messages": messages,
         "max_completion_tokens": 400,
+        "stream": true,
     });
     let resp = app
         .http
         .post(DEEPINFRA_API_URL)
         .bearer_auth(&app.deepinfra_api_key)
         .json(&body)
-        .timeout(std::time::Duration::from_secs(20))
+        .timeout(std::time::Duration::from_secs(30))
         .send()
         .await
-        .map_err(|_| ())?;
+        .ok()?;
     if !resp.status().is_success() {
-        return Err(());
+        return None;
     }
-    let value: Value = resp.json().await.map_err(|_| ())?;
-    value["choices"][0]["message"]["content"]
-        .as_str()
-        .map(str::to_string)
-        .ok_or(())
+
+    // DeepInfra sends OpenAI-style `data: {...}\n\n` frames, terminated by a
+    // literal `data: [DONE]`. Chunk boundaries from the network never line up
+    // with frame boundaries, so lines are buffered until a full one arrives.
+    let mut full = String::new();
+    let mut buf = String::new();
+    let mut byte_stream = resp.bytes_stream();
+    while let Some(chunk) = byte_stream.next().await {
+        let chunk = chunk.ok()?;
+        buf.push_str(&String::from_utf8_lossy(&chunk));
+        while let Some(pos) = buf.find('\n') {
+            let line = buf[..pos].trim_end().to_string();
+            buf.drain(..=pos);
+            let Some(data) = line.strip_prefix("data:") else {
+                continue;
+            };
+            let data = data.trim();
+            if data == "[DONE]" {
+                return Some(full);
+            }
+            let Ok(frame) = serde_json::from_str::<Value>(data) else {
+                continue;
+            };
+            if let Some(token) = frame["choices"][0]["delta"]["content"].as_str() {
+                if !token.is_empty() {
+                    full.push_str(token);
+                    let _ = tx.send(Event::default().data(token)).await;
+                }
+            }
+        }
+    }
+    Some(full)
+}
+
+/// Streams the reply, then does the same two DB writes the old non-streaming
+/// handler did before its redirect: persist the full assistant message, and
+/// record the level as completed if the reply contains its secret.
+async fn stream_reply(
+    app: App,
+    user_id: Uuid,
+    level: i16,
+    system_prompt: &'static str,
+    history: Vec<ChatbotMessage>,
+    key: &'static str,
+    tx: mpsc::Sender<Event>,
+) {
+    let Some(reply) = stream_deepinfra(&app, system_prompt, &history, &tx).await else {
+        let _ = tx.send(Event::default().event("error").data("")).await;
+        return;
+    };
+
+    sqlx::query(
+        "insert into chatbot_messages_exposure_academy (user_id, level, role, content)
+         values ($1,$2,'assistant',$3)",
+    )
+    .bind(user_id)
+    .bind(level)
+    .bind(&reply)
+    .execute(&app.pool)
+    .await
+    .unwrap();
+
+    let completed = reply.contains(key);
+    if completed {
+        sqlx::query(
+            "insert into chatbot_completions_exposure_academy (user_id, level)
+             values ($1,$2) on conflict (user_id, level) do nothing",
+        )
+        .bind(user_id)
+        .bind(level)
+        .execute(&app.pool)
+        .await
+        .unwrap();
+    }
+
+    let _ = tx
+        .send(Event::default().event("done").data(json!({"completed": completed}).to_string()))
+        .await;
 }
 
 #[derive(Deserialize)]
@@ -214,16 +304,16 @@ pub async fn chatbot_challenge_send(
     State(app): State<App>,
     headers: HeaderMap,
     Form(f): Form<ChatbotSendForm>,
-) -> Result<Redirect, Response> {
+) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, Response> {
     let user = require_onboarded(current_user(&app, &headers).await)?;
     require_beginner(&user)?;
     let level = current_level(&app, user.id).await;
     if level > CHATBOT_LEVEL_COUNT {
-        return Ok(Redirect::to("/chatbot-challenge"));
+        return Err(Redirect::to("/chatbot-challenge").into_response());
     }
     let text: String = f.message.trim().chars().take(2000).collect();
     if text.is_empty() {
-        return Ok(Redirect::to("/chatbot-challenge"));
+        return Err(Redirect::to("/chatbot-challenge").into_response());
     }
     let (_, key, system_prompt) = CHATBOT_LEVELS[(level - 1) as usize];
 
@@ -240,35 +330,13 @@ pub async fn chatbot_challenge_send(
 
     let history = level_messages(&app, user.id, level).await; // includes the row just inserted
 
-    let reply = match call_deepinfra(&app, system_prompt, &history).await {
-        Ok(r) => r,
-        Err(()) => return Ok(Redirect::to("/chatbot-challenge?msg=bedrock-error")),
-    };
+    // The reply is generated and persisted in a spawned task so its tokens can be
+    // forwarded to the client as they arrive; the handler returns the SSE response
+    // immediately, before DeepInfra has produced anything.
+    let (tx, rx) = mpsc::channel::<Event>(32);
+    tokio::spawn(stream_reply(app, user.id, level, system_prompt, history, key, tx));
 
-    sqlx::query(
-        "insert into chatbot_messages_exposure_academy (user_id, level, role, content)
-         values ($1,$2,'assistant',$3)",
-    )
-    .bind(user.id)
-    .bind(level)
-    .bind(&reply)
-    .execute(&app.pool)
-    .await
-    .unwrap();
-
-    if reply.contains(key) {
-        sqlx::query(
-            "insert into chatbot_completions_exposure_academy (user_id, level)
-             values ($1,$2) on conflict (user_id, level) do nothing",
-        )
-        .bind(user.id)
-        .bind(level)
-        .execute(&app.pool)
-        .await
-        .unwrap();
-    }
-
-    Ok(Redirect::to("/chatbot-challenge"))
+    Ok(Sse::new(ReceiverStream::new(rx).map(Ok)).keep_alive(KeepAlive::default()))
 }
 
 /// Clears only the current in-progress level's transcript — a fresh attempt at the

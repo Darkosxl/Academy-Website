@@ -2763,21 +2763,80 @@ pub fn chatbot_challenge(
 (function(){{
   var f = document.getElementById('chform');
   var chat = document.getElementById('chchat');
-  f.addEventListener('submit', function(){{
+  f.addEventListener('submit', function(ev){{
+    ev.preventDefault();
     var ta = f.querySelector('textarea'), btn = document.getElementById('chsend');
-    if (!ta.value.trim()) return;
+    var text = ta.value;
+    if (!text.trim()) return;
     var u = document.createElement('div');
     u.className = 'bub r';
     u.innerHTML = '<div class="say"></div>';
-    u.querySelector('.say').textContent = ta.value;
+    u.querySelector('.say').textContent = text;
     chat.appendChild(u);
     var b = document.createElement('div');
     b.className = 'bub l typing';
     b.innerHTML = '<div class="say"></div>';
     chat.appendChild(b);
+    var say = b.querySelector('.say');
     chat.scrollTop = chat.scrollHeight;
+    ta.value = '';
     ta.readOnly = true;
     btn.disabled = true;
+
+    function showError(){{
+      b.remove();
+      var n = document.createElement('p');
+      n.className = 'notice';
+      n.textContent = 'Bot şu an cevap veremedi, tekrar dene.';
+      chat.after(n);
+    }}
+
+    fetch(f.action, {{ method: 'POST', body: new URLSearchParams({{ message: text }}) }})
+      .then(function(resp){{
+        var reader = resp.body.getReader();
+        var decoder = new TextDecoder();
+        var buf = '';
+        function pump(){{
+          return reader.read().then(function(res){{
+            if (res.done) return;
+            buf += decoder.decode(res.value, {{ stream: true }});
+            var parts = buf.split('\n\n');
+            buf = parts.pop();
+            parts.forEach(function(block){{
+              var evType = 'message', dataLines = [], sawField = false;
+              block.split('\n').forEach(function(line){{
+                if (line.indexOf('event:') === 0) {{ evType = line.slice(6).trim(); sawField = true; }}
+                else if (line.indexOf('data:') === 0) {{
+                  var v = line.slice(5);
+                  if (v.charAt(0) === ' ') v = v.slice(1);
+                  dataLines.push(v);
+                  sawField = true;
+                }}
+              }});
+              if (!sawField) return; // pure keep-alive comment, not a real event
+              var data = dataLines.join('\n');
+              if (evType === 'message') {{
+                b.classList.remove('typing');
+                say.textContent += data;
+                chat.scrollTop = chat.scrollHeight;
+              }} else if (evType === 'error') {{
+                showError();
+              }} else if (evType === 'done') {{
+                var info = {{}};
+                try {{ info = JSON.parse(data); }} catch (e) {{}}
+                if (info.completed) location.reload();
+              }}
+            }});
+            return pump();
+          }});
+        }}
+        return pump();
+      }})
+      .catch(showError)
+      .finally(function(){{
+        ta.readOnly = false;
+        btn.disabled = false;
+      }});
   }});
 }})();
 </script>"##,

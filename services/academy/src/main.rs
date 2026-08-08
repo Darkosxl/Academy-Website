@@ -21,6 +21,7 @@ use axum::{
 };
 use rand::RngCore;
 use sqlx::{PgPool, postgres::PgPoolOptions};
+use tower_http::compression::predicate::Predicate;
 use uuid::Uuid;
 
 use admin::*;
@@ -378,8 +379,18 @@ async fn main() {
             tower_http::services::ServeDir::new(concat!(env!("CARGO_MANIFEST_DIR"), "/static")),
         )
         // last, so it covers every route above: one ARC live poll is ~53 KB of 16-symbol
-        // hex and gzips ~20x, which is the difference between a watchable grid and not
-        .layer(tower_http::compression::CompressionLayer::new())
+        // hex and gzips ~20x, which is the difference between a watchable grid and not.
+        // Chatbot Challenge's reply stream is excluded — gzip buffers before flushing,
+        // which would turn token-by-token streaming back into one delayed lump.
+        .layer(
+            tower_http::compression::CompressionLayer::new().compress_when(
+                tower_http::compression::predicate::DefaultPredicate::new().and(
+                    tower_http::compression::predicate::NotForContentType::new(
+                        "text/event-stream",
+                    ),
+                ),
+            ),
+        )
         .with_state(app);
 
     let addr = std::env::var("BIND").unwrap_or_else(|_| "0.0.0.0:3000".into());
