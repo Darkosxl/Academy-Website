@@ -2774,8 +2774,8 @@ pub fn chatbot_challenge_leaderboard(user: &User, rows: &[ChatbotLeaderRow]) -> 
   <span class="lbrank">{rank}</span>
   <span class="avatar-fb">{initial}</span>
   <span class="lbname">{name} <small class="nick">({nick})</small>{crown}</span>
-  <span class="lbmeta">{levels}/10 seviye</span>
-  <span class="lbpts">{levels}<small>/10</small></span>
+  <span class="lbmeta">{levels}/{count} seviye</span>
+  <span class="lbpts">{levels}<small>/{count}</small></span>
 </div>"##,
                     mine = if r.id == user.id { "mine" } else { "" },
                     medal = match rank {
@@ -2794,6 +2794,7 @@ pub fn chatbot_challenge_leaderboard(user: &User, rows: &[ChatbotLeaderRow]) -> 
                     name = esc(&r.display_name),
                     nick = esc(&r.nickname),
                     levels = r.levels_done,
+                    count = CHATBOT_LEVEL_COUNT,
                     crown = crown,
                 )
             })
@@ -2801,7 +2802,7 @@ pub fn chatbot_challenge_leaderboard(user: &User, rows: &[ChatbotLeaderRow]) -> 
     };
     let content = format!(
         r##"<h1 class="pagetitle">Chatbot Challenge — Sıralama</h1>
-<p class="muted">Kim daha çok seviye kırdı? İlk 10/10'a ulaşan kazanır.</p>
+<p class="muted">Kim daha çok seviye kırdı? İlk {CHATBOT_LEVEL_COUNT}/{CHATBOT_LEVEL_COUNT}'a ulaşan kazanır.</p>
 <div class="lb">{list}</div>"##
     );
     layout(
