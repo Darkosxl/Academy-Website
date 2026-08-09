@@ -2959,45 +2959,63 @@ pub const AGENT_LAB_CHALLENGES: [(&str, &str, &str, &str); 2] = [
     ),
 ];
 
-/// The five sandbox projects challenge 2 shows. These are invented for the lab and share
-/// nothing with `BEGINNER_PROJECTS` — no key overlaps, no brief is downloadable — so an
-/// agent that submits here can never be mistaken for a student handing in real work.
+/// The five sandbox projects challenge 2 shows. The titles deliberately echo the real
+/// Beginner Track catalogue, because picking the right one out of projects a student
+/// actually recognises is the reading task worth practising — a set of invented names
+/// would make it a vocabulary puzzle instead.
+///
+/// The echo is in the labels only. Keys carry a `lab-` prefix that no `BEGINNER_PROJECTS`
+/// key shares (asserted in `agent_lab_target_is_one_of_its_projects`), no brief here is
+/// downloadable, and submissions land in `agent_lab_submissions_exposure_academy` — so a
+/// row written from this page can never be read as a student handing in real work.
+///
+/// Each summary states what its project *does*, in wording the brief does not reuse: the
+/// agent has to match behaviour to description rather than string-match the two.
+///
+/// The order is display order, and the answer sits mid-list on purpose — first or last it
+/// would be reachable by guessing rather than by reading. Reordering is safe: everything
+/// downstream keys off `AGENT_LAB_TARGET`, never a position.
 pub const AGENT_LAB_PROJECTS: [(&str, &str, &str); 5] = [
     (
-        "lab-hava-durumu",
-        "Lab A — Hava Durumu Panosu",
-        "Şehir seçince o şehrin 5 günlük tahminini kart kart gösteren bir pano.",
+        "lab-renovate-your-room",
+        "Renovate Your Room",
+        "Yüklenen oda fotoğraflarını farklı stillerde yeniden tasarlayan uygulama.",
     ),
     (
-        "lab-fis-okuyucu",
-        "Lab B — Fiş Okuyucu",
-        "Fiş fotoğrafını okuyup satırlardaki harcamaları bir tabloya aktaran uygulama.",
+        "lab-character-voice-studio",
+        "Character Voice Studio",
+        "Karakter oluşturup onlara ses üreten stüdyo.",
     ),
     (
-        "lab-kitap-onerici",
-        "Lab C — Kitap Önerici",
-        "Okuduğun kitapları girdikçe sıradakini öneren küçük bir tavsiye motoru.",
+        "lab-personal-website",
+        "Personal Website",
+        "Öğrencinin çevrimiçi kimliğini ve portfolyosunu tek sayfada toplayan site.",
     ),
     (
-        "lab-ses-notu",
-        "Lab D — Ses Notu Özetleyici",
-        "Ses kaydını yazıya çevirip maddeler halinde özet çıkaran uygulama.",
+        "lab-track-your-calories",
+        "Track Your Calories",
+        "Yemek fotoğraflarını analiz edip besin değerlerini tahmin eden uygulama.",
     ),
     (
-        "lab-bitki-bakimi",
-        "Lab E — Bitki Bakım Takipçisi",
-        "Bitkilerinin sulama günlerini takip edip zamanı gelince hatırlatan uygulama.",
+        "lab-ai-bouquet-maker",
+        "AI Bouquet Maker",
+        "Yapay zekâ ile çiçek buketi görselleri üreten uygulama.",
     ),
 ];
 
 /// Which of `AGENT_LAB_PROJECTS` the challenge-2 brief describes. The brief below names the
 /// behaviour, never the key or the title, so finding it is a reading task for the agent.
-pub const AGENT_LAB_TARGET: &str = "lab-fis-okuyucu";
+pub const AGENT_LAB_TARGET: &str = "lab-personal-website";
 
 /// What the agent has to satisfy in challenge 2, in the student's own words. Kept next to
 /// `AGENT_LAB_TARGET` so the two can't drift apart.
-const AGENT_LAB_BRIEF: &str = "Aşağıdaki sandbox projelerden fiş fotoğrafını okuyup harcamaları tabloya aktaranı bul \
-     ve onu gönder.";
+///
+/// It describes the target obliquely on purpose — never "Personal Website" or "Kişisel Web
+/// Sitesi" — so the answer has to be reasoned out of the description rather than matched
+/// against it. `agent_lab_brief_does_not_name_its_answer` guards that.
+const AGENT_LAB_BRIEF: &str = "Öğrencinin kendisini, ilgi alanlarını, projelerini ve sosyal \
+     medya bağlantılarını tanıttığı; kendine özel bir tasarım veya etkileşim eklediği ve \
+     Vercel üzerinden yayınladığı web projesini bul.";
 
 /// The lab hub: the two challenges as peer hubcards, the same shape `beginner_track()`
 /// itself uses one level up — the lab is a subset with subsets, not a page of task cards.
@@ -5416,6 +5434,33 @@ mod tests {
         }
     }
 
+    /// The whole point of challenge 2 is that the agent reasons from a description to a
+    /// project. A brief that spells out its answer's name — in either language — turns
+    /// that into a string match and the challenge stops testing anything.
+    #[test]
+    fn agent_lab_brief_does_not_name_its_answer() {
+        let brief = AGENT_LAB_BRIEF.to_lowercase();
+        let answer = agent_lab_project_title(AGENT_LAB_TARGET).to_lowercase();
+        assert!(
+            !brief.contains(&answer),
+            "the brief gives away {answer:?} verbatim"
+        );
+        // the Turkish name is what a student would reach for, and it is nowhere in the
+        // project list for the loop above to have caught
+        assert!(
+            !brief.contains("kişisel web sitesi"),
+            "the brief gives away the answer in Turkish"
+        );
+        // and the page must still show the answer as a choosable option
+        let html = agent_lab_submission(&student(), None, None);
+        assert!(html.contains(&format!(r#"<option value="{AGENT_LAB_TARGET}""#)));
+        assert_eq!(
+            html.matches(r#"<option value="lab-"#).count(),
+            AGENT_LAB_PROJECTS.len(),
+            "all five sandbox projects should be selectable"
+        );
+    }
+
     /// A wrong pick is kept and named back to the student — "yanlış proje" with no clue
     /// which one the agent chose is useless for debugging a run.
     #[test]
@@ -6468,8 +6513,15 @@ mod tests {
             correct: true,
             updated_at: chrono::Utc::now(),
         };
+        // any project that isn't the answer — pinned to the list so renaming a project
+        // can't leave this dumping an unrenderable key
         let wrong = AgentLabSubmission {
-            project_key: "lab-kitap-onerici".into(),
+            project_key: AGENT_LAB_PROJECTS
+                .iter()
+                .find(|(k, ..)| *k != AGENT_LAB_TARGET)
+                .unwrap()
+                .0
+                .into(),
             repo_url: passed.repo_url.clone(),
             demo_url: passed.demo_url.clone(),
             correct: false,
