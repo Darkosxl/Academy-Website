@@ -1501,3 +1501,24 @@ form.inline input, form.inline select { margin-top:0; width:auto; }
   .doccards { grid-template-columns:1fr; }
   .doc-deadline, .alertbar { flex-wrap:wrap; }
 }
+
+/* ============================================================================
+   AGENT LAB — Job Application Agent (challenge 3)
+   The ten sandbox forms are built from field specs, so every control here is a
+   plain .portal input/select/textarea already styled above. These rules only do
+   the two things that vocabulary doesn't cover: give each question its own
+   spacing block, and undo the browser's default <fieldset> chrome so a radio or
+   checkbox group reads like every other labelled field.
+   ============================================================================ */
+.jobfield { margin-bottom:14px; }
+/* .portal label carries the 14px gap between fields; here the wrapper owns it,
+   so the label sits tight against its own control instead of floating above it */
+.jobfield label { margin-bottom:0; }
+fieldset.jobfield { border:0; padding:0; min-width:0; }
+/* legend is the group's question — same 10px uppercase eyebrow as .portal label */
+fieldset.jobfield legend {
+  font-size:var(--fs-label); font-weight:600; text-transform:uppercase;
+  letter-spacing:0.05em; color:var(--text-muted); margin-bottom:8px; padding:0;
+}
+/* the option rows are .checkline, already styled; they just need to clear the legend */
+fieldset.jobfield .checkline { margin-bottom:6px; }

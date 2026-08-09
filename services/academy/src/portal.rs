@@ -537,6 +537,124 @@ pub async fn agent_lab_submission_save(
     Ok(Redirect::to(&format!("{}/project-submission", html::AGENT_LAB_PATH)).into_response())
 }
 
+/// Challenge 3's landing page: which of the ten postings this student has submitted, which
+/// is also the progress count — a row exists only for a completed application.
+pub async fn agent_lab_jobs_page(
+    State(app): State<App>,
+    headers: HeaderMap,
+) -> Result<Html<String>, Response> {
+    let user = require_onboarded(current_user(&app, &headers).await)?;
+    let done = agent_lab_done_jobs(&app, user.id).await;
+    Ok(Html(html::agent_lab_jobs(&user, &done)))
+}
+
+/// The job keys this student has submitted. Scoped to their own user_id, like every other
+/// read in the lab, so one student's sandbox is never visible from another's session.
+async fn agent_lab_done_jobs(app: &App, user_id: Uuid) -> Vec<String> {
+    sqlx::query_scalar::<_, String>(
+        "select job_key from agent_lab_job_applications_exposure_academy where user_id = $1",
+    )
+    .bind(user_id)
+    .fetch_all(&app.pool)
+    .await
+    .unwrap()
+}
+
+/// One application, with whatever was submitted last time filled back in.
+pub async fn agent_lab_job_page(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(job_key): Path<String>,
+) -> Result<Html<String>, Response> {
+    let user = require_onboarded(current_user(&app, &headers).await)?;
+    let job = html::agent_lab_job(&job_key).ok_or_else(|| StatusCode::NOT_FOUND.into_response())?;
+    let saved = agent_lab_job_row(&app, user.id, &job_key).await;
+    let answers = saved.as_ref().and_then(|r| parse_answers(&r.answers));
+    Ok(Html(html::agent_lab_job_form(
+        &user,
+        job,
+        answers.as_ref(),
+        saved.as_ref().map(|r| r.updated_at),
+        None,
+    )))
+}
+
+async fn agent_lab_job_row(
+    app: &App,
+    user_id: Uuid,
+    job_key: &str,
+) -> Option<AgentLabJobApplication> {
+    sqlx::query_as::<_, AgentLabJobApplication>(
+        "select answers, updated_at
+         from agent_lab_job_applications_exposure_academy
+         where user_id = $1 and job_key = $2",
+    )
+    .bind(user_id)
+    .bind(job_key)
+    .fetch_optional(&app.pool)
+    .await
+    .unwrap()
+}
+
+/// Stored answers back into a map. A row that somehow isn't a JSON object renders as an
+/// empty form rather than taking the page down — the student can just fill it in again.
+fn parse_answers(raw: &str) -> Option<html::Answers> {
+    match serde_json::from_str::<serde_json::Value>(raw) {
+        Ok(serde_json::Value::Object(m)) => Some(m),
+        _ => None,
+    }
+}
+
+/// Submit (or re-submit) one application. Upserts on (user_id, job_key), so correcting an
+/// application replaces it and the progress count never double-counts a job.
+pub async fn agent_lab_job_submit(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(job_key): Path<String>,
+    Form(raw): Form<std::collections::HashMap<String, String>>,
+) -> Result<Response, Response> {
+    let user = require_onboarded(current_user(&app, &headers).await)?;
+    let job = html::agent_lab_job(&job_key).ok_or_else(|| StatusCode::NOT_FOUND.into_response())?;
+    let answers = match html::validate_job_application(job, &raw) {
+        Ok(a) => a,
+        // Re-render with the message and what they typed still in the fields, so an agent
+        // can read the failure and fix it without starting the form over.
+        Err(msg) => {
+            let attempt = html::job_answers_from_raw(job, &raw);
+            let already = agent_lab_job_row(&app, user.id, &job_key)
+                .await
+                .map(|r| r.updated_at);
+            return Ok(Html(html::agent_lab_job_form(
+                &user,
+                job,
+                Some(&attempt),
+                already,
+                Some(&msg),
+            ))
+            .into_response());
+        }
+    };
+    let encoded = serde_json::Value::Object(answers).to_string();
+    sqlx::query(
+        "insert into agent_lab_job_applications_exposure_academy
+           (user_id, job_key, answers, updated_at)
+         values ($1,$2,$3, now())
+         on conflict (user_id, job_key) do update set
+           answers = excluded.answers, updated_at = now()",
+    )
+    .bind(user.id)
+    .bind(&job_key)
+    .bind(&encoded)
+    .execute(&app.pool)
+    .await
+    .unwrap();
+    Ok(Redirect::to(&format!(
+        "{}/job-applications/{job_key}",
+        html::AGENT_LAB_PATH
+    ))
+    .into_response())
+}
+
 #[derive(Deserialize)]
 pub struct AgentLabResetForm {
     #[serde(default)]
@@ -551,17 +669,11 @@ pub async fn agent_lab_reset(
     Form(f): Form<AgentLabResetForm>,
 ) -> Result<Redirect, Response> {
     let user = require_onboarded(current_user(&app, &headers).await)?;
-    let table = match f.challenge.as_str() {
-        "student-profile" => "agent_lab_profiles_exposure_academy",
-        "project-submission" => "agent_lab_submissions_exposure_academy",
-        _ => {
-            return Err(
-                (StatusCode::BAD_REQUEST, "Challenge bulunamadı.".to_string()).into_response(),
-            );
-        }
+    let Some(table) = html::agent_lab_reset_table(&f.challenge) else {
+        return Err((StatusCode::BAD_REQUEST, "Challenge bulunamadı.".to_string()).into_response());
     };
-    // `table` is one of two literals chosen by the match above — never anything the caller
-    // typed — so the format! cannot carry a value into the statement.
+    // `table` is one of three literals returned by a closed match — never anything the
+    // caller typed — so the format! cannot carry a value into the statement.
     sqlx::query(&format!("delete from {table} where user_id = $1"))
         .bind(user.id)
         .execute(&app.pool)

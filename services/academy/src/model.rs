@@ -202,6 +202,18 @@ pub struct AgentLabSubmission {
     pub updated_at: DateTime<Utc>,
 }
 
+/// Agent Lab challenge 3 — one submitted sandbox job application. A row exists only for a
+/// job the student's agent has successfully submitted, so the row set *is* the progress;
+/// `answers` is the JSON object of what was filled in, kept so re-opening the application
+/// shows it and so a student can see what their agent actually typed.
+/// No `job_key`: every read is already scoped to one job by the URL, so carrying it back
+/// would only be a second copy of something the caller has.
+#[derive(FromRow)]
+pub struct AgentLabJobApplication {
+    pub answers: String,
+    pub updated_at: DateTime<Utc>,
+}
+
 /// How many students have handed in one project — the count on the project list.
 #[derive(FromRow)]
 pub struct BeginnerProjectCount {

@@ -100,6 +100,7 @@ const P_GLOBE: &str = "M12 21a9.004 9.004 0 0 0 8.716-6.747M12 21a9.004 9.004 0 
 const P_FLAG: &str = "M3 3v1.5M3 21v-6m0 0 2.77-.693a9 9 0 0 1 6.208.682l.108.054a9 9 0 0 0 6.086.71l3.114-.732a48.524 48.524 0 0 1-.005-10.499l-3.11.732a9 9 0 0 1-6.085-.711l-.108-.054a9 9 0 0 0-6.208-.682L3 4.5M3 15V4.5";
 const P_ROCKET: &str = "M15.59 14.37a6 6 0 0 1-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 0 0 6.16-12.12A14.98 14.98 0 0 0 9.631 8.41m5.96 5.96a14.926 14.926 0 0 1-5.841 2.58m-.119-8.54a6 6 0 0 0-7.381 5.84h4.8m2.581-5.84a14.927 14.927 0 0 0-2.58 5.84m2.699 2.7c-.103.021-.207.041-.311.06a15.09 15.09 0 0 1-2.448-2.448 14.9 14.9 0 0 1 .06-.312m-2.24 2.39a4.493 4.493 0 0 0-1.757 4.306 4.493 4.493 0 0 0 4.306-1.758M16.5 9a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0Z";
 const P_GRADE: &str = "M11.35 3.836c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75 2.25 2.25 0 0 0-.1-.664m-5.8 0A2.251 2.251 0 0 1 13.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m8.9-4.414c.376.023.75.05 1.124.08 1.131.094 1.976 1.057 1.976 2.192V16.5A2.25 2.25 0 0 1 18 18.75h-2.25m-7.5-10.5H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25ZM6.75 15.75l1.5 1.5 3-3.75";
+const P_BRIEFCASE: &str = "M20.25 14.15v4.073a2.25 2.25 0 0 1-1.976 2.233c-3.037.383-6.126.383-9.163 0a2.25 2.25 0 0 1-1.976-2.233V14.15M20.25 14.15c.313-.446.5-.99.5-1.575v-3.5a2.25 2.25 0 0 0-2.25-2.25h-12a2.25 2.25 0 0 0-2.25 2.25v3.5c0 .585.187 1.129.5 1.575M20.25 14.15a2.25 2.25 0 0 1-1.184.65 48.02 48.02 0 0 1-13.632 0 2.25 2.25 0 0 1-1.184-.65M15.75 6.825V5.25A2.25 2.25 0 0 0 13.5 3h-3a2.25 2.25 0 0 0-2.25 2.25v1.575";
 const P_BEAKER: &str = "M9.75 3.104v5.714a2.25 2.25 0 0 1-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 0 1 4.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0 1 12 15a9.065 9.065 0 0 0-6.23-.693L5 14.5m14.8.8 1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0 1 12 21c-2.773 0-5.491-.235-8.135-.687-1.718-.293-2.3-2.379-1.067-3.61L5 14.5";
 const P_CHAT: &str = "M20.25 8.511c.884.284 1.5 1.128 1.5 2.097v4.286c0 1.136-.847 2.1-1.98 2.193-.34.027-.68.052-1.02.072v3.091l-3-3c-1.354 0-2.694-.055-4.02-.163a2.115 2.115 0 0 1-.825-.242m9.345-8.334a2.126 2.126 0 0 0-.476-.095 48.64 48.64 0 0 0-8.048 0c-1.131.094-1.976 1.057-1.976 2.192v4.286c0 .837.46 1.58 1.155 1.951m9.345-8.334V6.637c0-1.621-1.152-3.026-2.76-3.235A48.455 48.455 0 0 0 11.25 3c-2.115 0-4.198.137-6.24.402-1.608.209-2.76 1.614-2.76 3.235v6.226c0 1.621 1.152 3.026 2.76 3.235.577.075 1.157.14 1.74.194V21l4.155-4.155";
 
@@ -262,7 +263,7 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/style.css?v=38">
+<link rel="stylesheet" href="/static/style.css?v=39">
 <script>if('scrollRestoration'in history)history.scrollRestoration='manual';</script>
 </head>
 <body class="{body_class}">
@@ -2940,15 +2941,19 @@ pub fn chatbot_challenge_leaderboard(user: &User, rows: &[ChatbotLeaderRow]) -> 
 /// Track while a student is inside the lab.
 pub const AGENT_LAB_PATH: &str = "/beginner-track/agent-lab";
 
-/// The lab's two challenges: (path segment, badge, title, one-line summary). Fixed content,
-/// same hardcoded-list pattern as `BEGINNER_PROJECTS` and `DEMOS`.
-pub const AGENT_LAB_CHALLENGES: [(&str, &str, &str, &str); 2] = [
+/// The lab's challenges: (path segment, badge, title, one-line summary, difficulty). Fixed
+/// content, same hardcoded-list pattern as `BEGINNER_PROJECTS` and `DEMOS`.
+///
+/// An empty difficulty prints the badge alone, which is what challenges 1 and 2 have always
+/// shown — the pill only grows a "· <level>" suffix for a challenge that declares one.
+pub const AGENT_LAB_CHALLENGES: [(&str, &str, &str, &str, &str); 3] = [
     (
         "student-profile",
         "Challenge 1",
         "Student Profile Agent",
         "Ajanın sandbox öğrenci profilini açsın, beş alanı da doldursun ve kaydetsin. \
          Formu ajan bulmalı — sen tıklamayacaksın.",
+        "",
     ),
     (
         "project-submission",
@@ -2956,6 +2961,15 @@ pub const AGENT_LAB_CHALLENGES: [(&str, &str, &str, &str); 2] = [
         "Project Submission Agent",
         "Ajanın brifi okusun, listedeki beş sandbox projeden tarife uyanı seçsin ve \
          repo + demo bağlantılarıyla göndersin.",
+        "",
+    ),
+    (
+        "job-applications",
+        "Challenge 3",
+        "Job Application Agent",
+        "Aynı bilgileri 10 farklı iş başvurusuna tek tek yazmak yerine browser agent'ın \
+         senin yerine formları anlayıp doldursun.",
+        "Intermediate",
     ),
 ];
 
@@ -3017,27 +3031,31 @@ const AGENT_LAB_BRIEF: &str = "Öğrencinin kendisini, ilgi alanlarını, projel
      medya bağlantılarını tanıttığı; kendine özel bir tasarım veya etkileşim eklediği ve \
      Vercel üzerinden yayınladığı web projesini bul.";
 
-/// The lab hub: the two challenges as peer hubcards, the same shape `beginner_track()`
-/// itself uses one level up — the lab is a subset with subsets, not a page of task cards.
+/// The lab hub: the challenges as peer hubcards, the same shape `beginner_track()` itself
+/// uses one level up — the lab is a subset with subsets, not a page of task cards.
 pub fn agent_lab(user: &User) -> String {
     let cards: String = AGENT_LAB_CHALLENGES
         .iter()
-        .map(|(slug, badge, title, summary)| {
+        .map(|(slug, badge, title, summary, difficulty)| {
             format!(
                 r##"<a class="hubcard" href="{AGENT_LAB_PATH}/{slug}">
     <span class="hubico">{icon}</span>
     <h2 lang="en">{title}</h2>
     <p>{summary}</p>
-    <span class="hubstat">{badge}</span>
+    <span class="hubstat" lang="en">{pill}</span>
     <span class="hubgo">Challenge'ı aç →</span>
   </a>"##,
-                icon = ico(if *slug == "student-profile" {
-                    P_TEAMS
-                } else {
-                    P_BOARD
+                icon = ico(match *slug {
+                    "student-profile" => P_TEAMS,
+                    "job-applications" => P_BRIEFCASE,
+                    _ => P_BOARD,
                 }),
                 title = esc(title),
-                badge = esc(badge),
+                pill = if difficulty.is_empty() {
+                    esc(badge)
+                } else {
+                    format!("{} · {}", esc(badge), esc(difficulty))
+                },
                 summary = esc(summary),
             )
         })
@@ -3048,7 +3066,7 @@ pub fn agent_lab(user: &User) -> String {
 <p class="muted">Browser agent'ını Exposure Student Portal üzerinde test et. Form doldur, doğru projeyi bul ve görev akışlarını otomatikleştir.</p>
 <div class="taskcard">
   <div class="taskhead"><h3>Bu bir test alanı</h3></div>
-  <p class="desc">Buradaki iki challenge gerçek portalın kopyası olan sandbox sayfalarda çalışır. Ajanın ne yazarsa yazsın gerçek profiline, gerçek proje gönderimlerine ya da puanına dokunmaz; her challenge'ı istediğin kadar sıfırlayıp baştan çalıştırabilirsin.</p>
+  <p class="desc">Buradaki üç challenge gerçek portalın kopyası olan sandbox sayfalarda çalışır. Ajanın ne yazarsa yazsın gerçek profiline, gerçek proje gönderimlerine ya da puanına dokunmaz; her challenge'ı istediğin kadar sıfırlayıp baştan çalıştırabilirsin.</p>
 </div>
 <div class="hubgrid">
   {cards}
@@ -3239,6 +3257,715 @@ fn agent_lab_project_title(key: &str) -> &str {
         .find(|(k, ..)| *k == key)
         .map(|(_, title, _)| *title)
         .unwrap_or(key)
+}
+
+// ---- Agent Lab challenge 3: Job Application Agent ----
+//
+// Ten sandbox internship forms. The point of the challenge is that they are NOT the same
+// form ten times: an agent that hard-codes "first input is the name, second is the school"
+// fails on the second posting, because Orbit opens with School and Cortex opens with Email.
+//
+// The variation lives in the data below — field order, label wording, input kind, which
+// fields are optional — so one renderer and one validator serve all ten while the DOM they
+// produce genuinely differs. Nothing here hints at which profile value belongs in which
+// field: matching "Current School" / "Which school do you attend?" to the same profile line
+// is the reading work the challenge exists to exercise.
+
+/// One input on a job form. `name` is the form field name (and, prefixed with the job key,
+/// the DOM id); `label` is what the student and their agent actually read.
+pub struct Field {
+    pub name: &'static str,
+    pub label: &'static str,
+    pub kind: FieldKind,
+    /// Optional fields exist so an agent meets information it cannot find in profile.md.
+    /// Leaving those blank is the correct answer — never an error.
+    pub required: bool,
+}
+
+/// What kind of control a `Field` renders as, and for the three choice kinds, the options
+/// it accepts. Submitted values are checked against these lists server-side, so a POST
+/// cannot smuggle in an option the form never offered.
+pub enum FieldKind {
+    Text,
+    Email,
+    Url,
+    Textarea,
+    Select(&'static [&'static str]),
+    Radio(&'static [&'static str]),
+    Checkbox(&'static [&'static str]),
+}
+
+pub struct JobPosting {
+    pub key: &'static str,
+    pub company: &'static str,
+    pub role: &'static str,
+    pub blurb: &'static str,
+    pub fields: &'static [Field],
+}
+
+const GRADE_OPTS: &[&str] = &["9", "10", "11", "12"];
+const GRAD_YEAR_OPTS: &[&str] = &["2026", "2027", "2028", "2029"];
+
+/// Shorthand for a required field of one of the plain kinds.
+const fn req(name: &'static str, label: &'static str, kind: FieldKind) -> Field {
+    Field {
+        name,
+        label,
+        kind,
+        required: true,
+    }
+}
+
+/// Shorthand for an optional field. Used for the two questions a standard profile.md has
+/// no answer to, which is the point: the agent must leave them alone rather than invent.
+const fn opt(name: &'static str, label: &'static str, kind: FieldKind) -> Field {
+    Field {
+        name,
+        label,
+        kind,
+        required: false,
+    }
+}
+
+/// The ten sandbox postings. Fake companies throughout — no real employer, no outside
+/// request, nothing leaves the portal.
+pub const AGENT_LAB_JOBS: [JobPosting; 10] = [
+    JobPosting {
+        key: "nova-labs",
+        company: "Nova Labs",
+        role: "AI Intern",
+        blurb: "Küçük bir yapay zekâ ekibinde model denemelerine katıl.",
+        fields: &[
+            req("full_name", "Full Name", FieldKind::Text),
+            req("email", "Email Address", FieldKind::Email),
+            req("school", "Current School", FieldKind::Text),
+            req("grade", "Grade", FieldKind::Select(GRADE_OPTS)),
+            req("github", "GitHub Profile", FieldKind::Url),
+            req(
+                "why_ai",
+                "Why are you interested in AI?",
+                FieldKind::Textarea,
+            ),
+        ],
+    },
+    // School first, name second: the simplest possible break for a positional script.
+    JobPosting {
+        key: "orbit",
+        company: "Orbit",
+        role: "Product Intern",
+        blurb: "Ürün ekibiyle birlikte kullanıcı geri bildirimlerini özelliklere çevir.",
+        fields: &[
+            req("school", "School", FieldKind::Text),
+            req("full_name", "Name", FieldKind::Text),
+            req("linkedin", "LinkedIn", FieldKind::Url),
+            req(
+                "interests",
+                "Areas of Interest",
+                FieldKind::Checkbox(&["Product", "Design", "Data", "Engineering", "Growth"]),
+            ),
+            req(
+                "why",
+                "Tell us why you would like to join our product team",
+                FieldKind::Textarea,
+            ),
+            req("grade", "Current Grade", FieldKind::Radio(GRADE_OPTS)),
+        ],
+    },
+    // Asks graduation year where the others ask grade — same profile fact, different shape.
+    JobPosting {
+        key: "cortex-research",
+        company: "Cortex Research",
+        role: "Research Assistant",
+        blurb: "Araştırma ekibine literatür taraması ve deney kurulumunda destek ol.",
+        fields: &[
+            req("email", "Email", FieldKind::Email),
+            req("full_name", "Student Name", FieldKind::Text),
+            req(
+                "graduation_year",
+                "Graduation Year",
+                FieldKind::Select(GRAD_YEAR_OPTS),
+            ),
+            req(
+                "interest",
+                "Main Academic / Technical Interest",
+                FieldKind::Text,
+            ),
+            req("favorite_project", "Favorite Project", FieldKind::Text),
+            req(
+                "learn",
+                "What would you like to learn during this internship?",
+                FieldKind::Textarea,
+            ),
+        ],
+    },
+    JobPosting {
+        key: "linearworks",
+        company: "LinearWorks",
+        role: "Growth Intern",
+        blurb: "Büyüme ekibiyle deneyler kur, sonuçları ölç.",
+        fields: &[
+            req("full_name", "Full Name", FieldKind::Text),
+            req("school", "School", FieldKind::Text),
+            req("linkedin", "LinkedIn URL", FieldKind::Url),
+            req(
+                "topics",
+                "What topics are you interested in?",
+                FieldKind::Text,
+            ),
+            req("bio", "Short Bio", FieldKind::Textarea),
+            req(
+                "fit",
+                "Why do you think you would be a good fit?",
+                FieldKind::Textarea,
+            ),
+            opt("phone", "Phone Number (Optional)", FieldKind::Text),
+        ],
+    },
+    JobPosting {
+        key: "bytelabs",
+        company: "ByteLabs",
+        role: "Software Intern",
+        blurb: "Üretimdeki bir web uygulamasında küçük özellikler geliştir.",
+        fields: &[
+            req("full_name", "Name", FieldKind::Text),
+            req("email", "Email", FieldKind::Email),
+            req("github", "GitHub", FieldKind::Url),
+            req("grade", "Grade", FieldKind::Select(GRADE_OPTS)),
+            req("favorite_project", "Favorite Project", FieldKind::Text),
+            req("built", "Describe something you built", FieldKind::Textarea),
+        ],
+    },
+    // "Portfolio / GitHub URL" — the agent has to work out that the GitHub link fits.
+    JobPosting {
+        key: "canvas-studio",
+        company: "Canvas Studio",
+        role: "Design Intern",
+        blurb: "Tasarım ekibiyle arayüz ve marka çalışmalarına katıl.",
+        fields: &[
+            req("full_name", "Name", FieldKind::Text),
+            req("school", "School", FieldKind::Text),
+            req("portfolio", "Portfolio / GitHub URL", FieldKind::Url),
+            req("interests", "Interests", FieldKind::Text),
+            req(
+                "proud",
+                "Tell us about a project you are proud of",
+                FieldKind::Textarea,
+            ),
+            req("learn", "What do you want to learn?", FieldKind::Textarea),
+        ],
+    },
+    JobPosting {
+        key: "flow-systems",
+        company: "Flow Systems",
+        role: "Operations Intern",
+        blurb: "Operasyon ekibiyle süreçleri düzenle ve otomatikleştir.",
+        fields: &[
+            req("full_name", "Full Name", FieldKind::Text),
+            req("email", "Email", FieldKind::Email),
+            req("school", "School", FieldKind::Text),
+            req(
+                "grade",
+                "Current Year / Grade",
+                FieldKind::Radio(GRADE_OPTS),
+            ),
+            req("bio", "Short Bio", FieldKind::Textarea),
+            req(
+                "why",
+                "Why are you interested in operations and startups?",
+                FieldKind::Textarea,
+            ),
+        ],
+    },
+    JobPosting {
+        key: "atlas-data",
+        company: "Atlas Data",
+        role: "Data Intern",
+        blurb: "Veri ekibiyle veri setlerini temizle ve görselleştir.",
+        fields: &[
+            req("full_name", "Name", FieldKind::Text),
+            req("email", "Email", FieldKind::Email),
+            req("github", "GitHub URL", FieldKind::Url),
+            req(
+                "graduation_year",
+                "Graduation Year",
+                FieldKind::Select(GRAD_YEAR_OPTS),
+            ),
+            req(
+                "interests",
+                "Technical Interests",
+                FieldKind::Checkbox(&[
+                    "Data analysis",
+                    "Machine learning",
+                    "Visualization",
+                    "Databases",
+                    "Statistics",
+                ]),
+            ),
+            req("favorite_project", "Favorite Project", FieldKind::Text),
+            req("learn", "Learning Goals", FieldKind::Textarea),
+        ],
+    },
+    JobPosting {
+        key: "forge-robotics",
+        company: "Forge Robotics",
+        role: "Robotics Intern",
+        blurb: "Robotik ekibiyle mekanik ve yazılım tarafında birlikte çalış.",
+        fields: &[
+            req("full_name", "Student Name", FieldKind::Text),
+            req("school", "School", FieldKind::Text),
+            req("grade", "Grade", FieldKind::Select(GRADE_OPTS)),
+            req("linkedin", "LinkedIn", FieldKind::Url),
+            req(
+                "areas",
+                "Areas you would like to work on",
+                FieldKind::Checkbox(&[
+                    "Mechanical design",
+                    "Embedded software",
+                    "Computer vision",
+                    "Control systems",
+                    "Testing",
+                ]),
+            ),
+            req(
+                "built",
+                "Tell us about something you have built",
+                FieldKind::Textarea,
+            ),
+        ],
+    },
+    // Deliberately the longest form, and the second one carrying an unanswerable optional.
+    JobPosting {
+        key: "pioneer-ventures",
+        company: "Pioneer Ventures",
+        role: "Startup Intern",
+        blurb: "Erken aşama girişimlerle çalışan bir ekipte her işe biraz dokun.",
+        fields: &[
+            req("full_name", "Full Name", FieldKind::Text),
+            req("email", "Email", FieldKind::Email),
+            req("school", "School", FieldKind::Text),
+            req("profile_url", "GitHub or LinkedIn", FieldKind::Url),
+            req("bio", "Short Bio", FieldKind::Textarea),
+            req("interests", "What are you interested in?", FieldKind::Text),
+            req(
+                "why",
+                "Why do you want to work with startups?",
+                FieldKind::Textarea,
+            ),
+            req(
+                "learn",
+                "What would you like to learn?",
+                FieldKind::Textarea,
+            ),
+            opt(
+                "expected_salary",
+                "Expected Salary (Optional)",
+                FieldKind::Text,
+            ),
+        ],
+    },
+];
+
+/// The posting behind a key, or `None` for a URL naming a job that doesn't exist.
+pub fn agent_lab_job(key: &str) -> Option<&'static JobPosting> {
+    AGENT_LAB_JOBS.iter().find(|j| j.key == key)
+}
+
+/// Checkbox groups post one key per option (`interests__0`, `interests__1`, …) so a plain
+/// `HashMap<String, String>` form decode keeps them all — a single repeated key would
+/// collapse to one value and silently drop the rest of the student's selection.
+pub fn checkbox_key(field: &str, index: usize) -> String {
+    format!("{field}__{index}")
+}
+
+/// Which sandbox table "Testi sıfırla" clears, per challenge. Returning a fixed `&'static
+/// str` from a closed match — never anything the caller typed — is what lets the reset
+/// handler interpolate the name into its DELETE safely. `None` means "no such challenge".
+pub fn agent_lab_reset_table(challenge: &str) -> Option<&'static str> {
+    match challenge {
+        "student-profile" => Some("agent_lab_profiles_exposure_academy"),
+        "project-submission" => Some("agent_lab_submissions_exposure_academy"),
+        "job-applications" => Some("agent_lab_job_applications_exposure_academy"),
+        _ => None,
+    }
+}
+
+/// Good enough for a sandbox form, and deliberately no stricter than the browser's own
+/// `type="email"`: something before the @, something after it, and a dot inside the domain.
+fn looks_like_email(s: &str) -> bool {
+    match s.split_once('@') {
+        Some((local, domain)) => {
+            !local.is_empty()
+                && !domain.starts_with('.')
+                && !domain.ends_with('.')
+                && domain.contains('.')
+                && !domain.contains('@')
+        }
+        None => false,
+    }
+}
+
+/// The submitted values in stored shape, with no validation at all. Used to re-fill a form
+/// after a rejected submit: the raw POST keys checkbox groups as `name__0`, `name__1`, so
+/// handing the raw map straight to the renderer would silently lose every ticked box.
+pub fn job_answers_from_raw(
+    job: &JobPosting,
+    raw: &std::collections::HashMap<String, String>,
+) -> Answers {
+    let mut out = Answers::new();
+    for f in job.fields {
+        match &f.kind {
+            FieldKind::Checkbox(options) => {
+                let picked: Vec<serde_json::Value> = options
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, _)| raw.contains_key(&checkbox_key(f.name, *i)))
+                    .map(|(_, o)| (*o).into())
+                    .collect();
+                if !picked.is_empty() {
+                    out.insert(f.name.into(), picked.into());
+                }
+            }
+            _ => {
+                let v = raw.get(f.name).map(|s| s.trim()).unwrap_or("");
+                if !v.is_empty() {
+                    out.insert(f.name.into(), v.into());
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Check a submitted application against its posting and return what to store.
+///
+/// Runs server-side because the HTML `required` / `type` attributes are a courtesy to
+/// browsers, not a control: an agent POSTing directly never sees them. Choice values are
+/// checked against the posting's own option lists, so a crafted POST cannot store an option
+/// the form never offered.
+///
+/// Optional fields left blank are correct, not errors — that is the whole point of the two
+/// questions a profile.md cannot answer. They are simply omitted from the stored object.
+pub fn validate_job_application(
+    job: &JobPosting,
+    raw: &std::collections::HashMap<String, String>,
+) -> Result<Answers, String> {
+    let mut out = Answers::new();
+    for f in job.fields {
+        let missing = || format!("{} alanı zorunlu.", f.label);
+        match &f.kind {
+            FieldKind::Text | FieldKind::Email | FieldKind::Url | FieldKind::Textarea => {
+                let v = raw.get(f.name).map(|s| s.trim()).unwrap_or("");
+                if v.is_empty() {
+                    if f.required {
+                        return Err(missing());
+                    }
+                    continue;
+                }
+                if matches!(f.kind, FieldKind::Email) && !looks_like_email(v) {
+                    return Err(format!("{} geçerli bir e-posta olmalı.", f.label));
+                }
+                if matches!(f.kind, FieldKind::Url) && !v.starts_with("https://") {
+                    return Err(format!("{} https:// ile başlamalı.", f.label));
+                }
+                out.insert(f.name.into(), v.into());
+            }
+            FieldKind::Select(options) | FieldKind::Radio(options) => {
+                let v = raw.get(f.name).map(|s| s.trim()).unwrap_or("");
+                if v.is_empty() {
+                    if f.required {
+                        return Err(missing());
+                    }
+                    continue;
+                }
+                if !options.contains(&v) {
+                    return Err(format!(
+                        "{} için listedeki seçeneklerden birini seç.",
+                        f.label
+                    ));
+                }
+                out.insert(f.name.into(), v.into());
+            }
+            FieldKind::Checkbox(options) => {
+                let mut picked: Vec<serde_json::Value> = Vec::new();
+                for (i, o) in options.iter().enumerate() {
+                    let Some(v) = raw.get(&checkbox_key(f.name, i)) else {
+                        continue;
+                    };
+                    // the box for option i may only ever carry option i's own text
+                    if v.trim() != *o {
+                        return Err(format!("{} için geçersiz seçim.", f.label));
+                    }
+                    picked.push((*o).into());
+                }
+                if picked.is_empty() {
+                    if f.required {
+                        return Err(missing());
+                    }
+                    continue;
+                }
+                out.insert(f.name.into(), picked.into());
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// Saved answers, decoded. A string per plain field, a list per checkbox group.
+pub type Answers = serde_json::Map<String, serde_json::Value>;
+
+/// One saved answer as display text: the string itself, or a comma-joined list.
+fn answer_text(v: Option<&serde_json::Value>) -> String {
+    match v {
+        Some(serde_json::Value::String(s)) => s.clone(),
+        Some(serde_json::Value::Array(items)) => items
+            .iter()
+            .filter_map(|i| i.as_str())
+            .collect::<Vec<_>>()
+            .join(", "),
+        _ => String::new(),
+    }
+}
+
+/// Whether a checkbox option was among the saved selections.
+fn answer_has(v: Option<&serde_json::Value>, option: &str) -> bool {
+    match v {
+        Some(serde_json::Value::Array(items)) => items.iter().any(|i| i.as_str() == Some(option)),
+        _ => false,
+    }
+}
+
+/// Render one field: a real `<label for>` bound to a real control, every time. Choice
+/// groups get a `<fieldset>`/`<legend>` so the question reads as one unit to a screen
+/// reader and to an agent walking the accessibility tree.
+fn agent_lab_job_field(job_key: &str, f: &Field, answers: Option<&Answers>) -> String {
+    let id = format!("{job_key}-{name}", name = f.name);
+    let saved = answers.and_then(|a| a.get(f.name));
+    let value = esc(&answer_text(saved));
+    // Optionality is carried by the label text itself — every optional field's label ends
+    // in "(Optional)", asserted in `optional_fields_say_so_in_their_label`. A second marker
+    // appended here would just read "Expected Salary (Optional) — optional".
+    let attr = if f.required { " required" } else { "" };
+    match &f.kind {
+        FieldKind::Text | FieldKind::Email | FieldKind::Url => {
+            let ty = match f.kind {
+                FieldKind::Email => "email",
+                FieldKind::Url => "url",
+                _ => "text",
+            };
+            format!(
+                r##"<div class="jobfield">
+  <label for="{id}">{label}</label>
+  <input type="{ty}" id="{id}" name="{name}" value="{value}"{attr}>
+</div>"##,
+                label = esc(f.label),
+                name = f.name,
+            )
+        }
+        FieldKind::Textarea => format!(
+            r##"<div class="jobfield">
+  <label for="{id}">{label}</label>
+  <textarea id="{id}" name="{name}" rows="4"{attr}>{value}</textarea>
+</div>"##,
+            label = esc(f.label),
+            name = f.name,
+        ),
+        FieldKind::Select(options) => {
+            let opts: String = std::iter::once(String::from(r#"<option value="">Seç…</option>"#))
+                .chain(options.iter().map(|o| {
+                    format!(
+                        r#"<option value="{o}"{sel}>{o}</option>"#,
+                        o = esc(o),
+                        sel = if answer_text(saved) == *o {
+                            " selected"
+                        } else {
+                            ""
+                        },
+                    )
+                }))
+                .collect();
+            format!(
+                r##"<div class="jobfield">
+  <label for="{id}">{label}</label>
+  <select id="{id}" name="{name}"{attr}>{opts}</select>
+</div>"##,
+                label = esc(f.label),
+                name = f.name,
+            )
+        }
+        FieldKind::Radio(options) => {
+            let items: String = options
+                .iter()
+                .enumerate()
+                .map(|(i, o)| {
+                    format!(
+                        r##"<label class="checkline" for="{id}-{i}"><input type="radio" id="{id}-{i}" name="{name}" value="{o}"{sel}{attr}> {o}</label>"##,
+                        o = esc(o),
+                        name = f.name,
+                        sel = if answer_text(saved) == *o { " checked" } else { "" },
+                    )
+                })
+                .collect();
+            format!(
+                r##"<fieldset class="jobfield">
+  <legend>{label}</legend>
+  {items}
+</fieldset>"##,
+                label = esc(f.label),
+            )
+        }
+        FieldKind::Checkbox(options) => {
+            let items: String = options
+                .iter()
+                .enumerate()
+                .map(|(i, o)| {
+                    format!(
+                        r##"<label class="checkline" for="{id}-{i}"><input type="checkbox" id="{id}-{i}" name="{key}" value="{o}"{sel}> {o}</label>"##,
+                        o = esc(o),
+                        key = checkbox_key(f.name, i),
+                        sel = if answer_has(saved, o) { " checked" } else { "" },
+                    )
+                })
+                .collect();
+            // no `required` attribute on the boxes themselves — HTML would demand every one
+            // of them be ticked; "at least one" is enforced server-side instead
+            format!(
+                r##"<fieldset class="jobfield">
+  <legend>{label}</legend>
+  {items}
+</fieldset>"##,
+                label = esc(f.label),
+            )
+        }
+    }
+}
+
+/// Challenge 3's landing page: the instruction block, progress, and the ten postings.
+pub fn agent_lab_jobs(user: &User, done: &[String]) -> String {
+    let total = AGENT_LAB_JOBS.len();
+    let count = done.len();
+    let cards: String = AGENT_LAB_JOBS
+        .iter()
+        .map(|job| {
+            let completed = done.iter().any(|k| k == job.key);
+            let (pill, cls, cta) = if completed {
+                ("Completed ✓", "st-passed", "Continue")
+            } else {
+                ("Not Started", "st-pending", "Apply")
+            };
+            format!(
+                r##"<div class="taskcard">
+  <div class="taskhead"><h3>{company}</h3></div>
+  <p class="desc"><b>{role}</b>
+{blurb}</p>
+  <p class="substatus {cls}">{pill}</p>
+  <div class="cardactions">
+    <a class="btn-outline small" href="{AGENT_LAB_PATH}/job-applications/{key}">{cta} →</a>
+  </div>
+</div>"##,
+                company = esc(job.company),
+                role = esc(job.role),
+                blurb = esc(job.blurb),
+                key = job.key,
+            )
+        })
+        .collect();
+    // The finished state is its own element rather than a styled variant of the counter, so
+    // an agent can assert on "did I finish" without parsing "10 / 10" out of a sentence.
+    let complete = if count == total {
+        format!(
+            r##"<p class="substatus st-passed" id="challenge-complete">Challenge Complete ✓</p>
+  <p class="desc">{total} / {total} Applications Submitted</p>"##
+        )
+    } else {
+        String::new()
+    };
+    let content = format!(
+        r##"{head}
+<div class="taskcard">
+  <div class="taskhead"><h3>Instructions</h3></div>
+  <p class="desc"><b>Goal:</b> Complete all {total} sandbox job applications using the student's profile information.</p>
+  <p class="desc"><b>Rules:</b></p>
+  <ul class="harness-rules">
+    <li>Do not invent information.</li>
+    <li>If information is not present in the profile and the field is optional, leave it blank.</li>
+    <li>Read each form carefully.</li>
+    <li>Verify the values before submitting.</li>
+    <li>Complete all {total} applications.</li>
+  </ul>
+</div>
+<div class="taskcard">
+  <div class="taskhead"><h3>Applications Completed</h3></div>
+  <p class="desc" id="applications-progress">{count} / {total}</p>
+  {complete}
+  <form method="post" action="{AGENT_LAB_PATH}/reset">
+    <input type="hidden" name="challenge" value="job-applications">
+    <button class="btn-outline small">Testi sıfırla</button>
+  </form>
+</div>
+<div class="tasks">{cards}</div>"##,
+        head = agent_lab_head(
+            "Challenge 3",
+            "Job Application Agent",
+            "10 farklı internship başvuru formu seni bekliyor. Sorular birbirine benziyor ama her şirket aynı şeyi farklı şekilde soruyor. Browser agent'ın profile.md içindeki bilgileri kullanarak başvuruları tamamlasın."
+        ),
+    );
+    layout(
+        "Job Application Agent",
+        Some(user),
+        "beginner-track",
+        &content,
+    )
+}
+
+/// One posting's application form.
+pub fn agent_lab_job_form(
+    user: &User,
+    job: &JobPosting,
+    answers: Option<&Answers>,
+    submitted: Option<chrono::DateTime<chrono::Utc>>,
+    error: Option<&str>,
+) -> String {
+    let banner = error
+        .map(|e| format!(r#"<p class="error">{}</p>"#, esc(e)))
+        .unwrap_or_default();
+    let status = match submitted {
+        Some(when) => format!(
+            r##"<p class="substatus st-passed" id="application-status">Application Submitted ✓</p>
+  <p class="fieldnote">Son gönderim: {when}</p>"##,
+            when = when.format("%d.%m.%Y %H:%M"),
+        ),
+        None => {
+            r##"<p class="substatus st-pending" id="application-status">Not Started</p>"##.into()
+        }
+    };
+    let fields: String = job
+        .fields
+        .iter()
+        .map(|f| agent_lab_job_field(job.key, f, answers))
+        .collect();
+    let content = format!(
+        r##"<p class="fieldnote"><a href="{AGENT_LAB_PATH}/job-applications">← Job Application Agent</a></p>
+<h1 class="pagetitle">{company}</h1>
+<p class="muted">{role} · sandbox başvuru formu</p>
+<div class="taskcard">
+  {status}
+  {banner}
+  <form method="post" action="{AGENT_LAB_PATH}/job-applications/{key}" lang="en">
+    {fields}
+    <p class="fieldnote" lang="tr">Bu form Agent Lab sandbox verisine yazar. Gerçek bir başvuru gönderilmez, dışarıya hiçbir istek çıkmaz.</p>
+    <button class="btn-dark">Submit Application →</button>
+  </form>
+</div>"##,
+        company = esc(job.company),
+        role = esc(job.role),
+        key = job.key,
+    );
+    layout(
+        &format!("{} — {}", job.company, job.role),
+        Some(user),
+        "beginner-track",
+        &content,
+    )
 }
 
 /// Admin view, step 1: the seven projects as a list, each carrying how many students have
@@ -5405,7 +6132,7 @@ mod tests {
             hub.contains(r#"<a href="/beginner-track" class="active">"#),
             "the lab is a Beginner Track sub-page, so that nav entry stays active"
         );
-        for (slug, _, title, _) in AGENT_LAB_CHALLENGES {
+        for (slug, _, title, _, _) in AGENT_LAB_CHALLENGES {
             assert!(
                 hub.contains(&format!(r#"href="{AGENT_LAB_PATH}/{slug}""#)) && hub.contains(title),
                 "the lab hub should list {title}"
@@ -5482,6 +6209,393 @@ mod tests {
             !html.contains("st-passed"),
             "a wrong pick must not also read as passed"
         );
+    }
+
+    // ---- Agent Lab challenge 3: Job Application Agent ----
+
+    /// A filled-in application for one posting: every required field answered with
+    /// something that passes its kind's rules, optional fields left alone.
+    fn job_answers(job: &JobPosting) -> std::collections::HashMap<String, String> {
+        let mut m = std::collections::HashMap::new();
+        for f in job.fields {
+            if !f.required {
+                continue;
+            }
+            match &f.kind {
+                FieldKind::Email => m.insert(f.name.into(), "deniz@example.com".into()),
+                FieldKind::Url => m.insert(f.name.into(), "https://github.com/deniz".into()),
+                FieldKind::Text | FieldKind::Textarea => m.insert(f.name.into(), "cevap".into()),
+                FieldKind::Select(o) | FieldKind::Radio(o) => m.insert(f.name.into(), o[0].into()),
+                FieldKind::Checkbox(o) => m.insert(checkbox_key(f.name, 0), o[0].into()),
+            };
+        }
+        m
+    }
+
+    #[test]
+    fn ten_jobs_render_with_status_and_progress() {
+        let none: Vec<String> = vec![];
+        let html = agent_lab_jobs(&student(), &none);
+        for job in &AGENT_LAB_JOBS {
+            assert!(html.contains(job.company), "{} missing", job.company);
+            assert!(html.contains(&format!(
+                r#"href="{AGENT_LAB_PATH}/job-applications/{}""#,
+                job.key
+            )));
+        }
+        assert_eq!(AGENT_LAB_JOBS.len(), 10);
+        assert!(html.contains("0 / 10"));
+        assert_eq!(html.matches("Not Started").count(), 10);
+        assert!(
+            !html.contains("challenge-complete"),
+            "nothing submitted yet — the finished state must not show"
+        );
+
+        // partial progress: three done, seven to go
+        let done: Vec<String> = AGENT_LAB_JOBS[..3].iter().map(|j| j.key.into()).collect();
+        let part = agent_lab_jobs(&student(), &done);
+        assert!(part.contains("3 / 10"));
+        assert_eq!(part.matches("Completed ✓").count(), 3);
+        assert_eq!(part.matches("Not Started").count(), 7);
+        assert!(!part.contains("challenge-complete"));
+
+        // and the completion state, which an agent asserts on to know it is finished
+        let all: Vec<String> = AGENT_LAB_JOBS.iter().map(|j| j.key.into()).collect();
+        let full = agent_lab_jobs(&student(), &all);
+        assert!(full.contains(r#"id="challenge-complete""#));
+        assert!(full.contains("Challenge Complete ✓"));
+        assert!(full.contains("10 / 10 Applications Submitted"));
+    }
+
+    /// The challenge only works if the ten forms genuinely differ. A positional script
+    /// ("first input is the name") must break, and every input kind must appear somewhere,
+    /// or whole categories of the exercise go untested.
+    #[test]
+    fn the_ten_forms_are_not_the_same_form() {
+        let firsts: std::collections::HashSet<&str> =
+            AGENT_LAB_JOBS.iter().map(|j| j.fields[0].name).collect();
+        assert!(
+            firsts.len() > 1,
+            "every form opens with the same field — a positional script would pass"
+        );
+        // the same profile fact asked under different wording
+        let school_labels: std::collections::HashSet<&str> = AGENT_LAB_JOBS
+            .iter()
+            .flat_map(|j| j.fields)
+            .filter(|f| f.name == "school")
+            .map(|f| f.label)
+            .collect();
+        assert!(school_labels.len() > 1, "school is always worded the same");
+
+        let (mut sel, mut radio, mut check, mut area, mut email, mut url, mut optional) =
+            (false, false, false, false, false, false, 0);
+        for f in AGENT_LAB_JOBS.iter().flat_map(|j| j.fields) {
+            match f.kind {
+                FieldKind::Select(_) => sel = true,
+                FieldKind::Radio(_) => radio = true,
+                FieldKind::Checkbox(_) => check = true,
+                FieldKind::Textarea => area = true,
+                FieldKind::Email => email = true,
+                FieldKind::Url => url = true,
+                FieldKind::Text => {}
+            }
+            if !f.required {
+                optional += 1;
+            }
+        }
+        assert!(
+            sel && radio && check && area && email && url,
+            "a kind is unused"
+        );
+        assert!(optional >= 2, "at least two unanswerable optional fields");
+
+        // field names must be unique within a form, or answers would overwrite each other
+        for job in &AGENT_LAB_JOBS {
+            let names: std::collections::HashSet<&str> =
+                job.fields.iter().map(|f| f.name).collect();
+            assert_eq!(names.len(), job.fields.len(), "{} repeats a name", job.key);
+        }
+    }
+
+    /// Real labels bound to real controls — this is what a browser agent walks. Also the
+    /// negative: nothing on the page may hint at which profile value belongs where.
+    #[test]
+    fn job_forms_are_semantic_and_leak_no_answers() {
+        for job in &AGENT_LAB_JOBS {
+            let html = agent_lab_job_form(&student(), job, None, None, None);
+            for f in job.fields {
+                let id = format!("{}-{}", job.key, f.name);
+                match f.kind {
+                    // choice groups are a fieldset/legend, with a label per option
+                    FieldKind::Radio(_) | FieldKind::Checkbox(_) => {
+                        assert!(
+                            html.contains(&format!(r#"for="{id}-0""#)),
+                            "{id} option label"
+                        );
+                        assert!(html.contains("<legend>"), "{id} needs a legend");
+                    }
+                    _ => assert!(
+                        html.contains(&format!(r#"<label for="{id}">"#)),
+                        "{id} has no bound label"
+                    ),
+                }
+                assert!(html.contains(f.label), "{} label text missing", f.name);
+            }
+            assert!(html.contains("<button class=\"btn-dark\">"), "real button");
+            for leak in [
+                "data-answer",
+                "data-correct",
+                "data-expected",
+                "type=\"hidden\"",
+            ] {
+                assert!(!html.contains(leak), "{} leaks via {leak}", job.key);
+            }
+            // placeholders must not stand in for labels
+            assert!(
+                !html.contains("placeholder="),
+                "{} uses placeholders",
+                job.key
+            );
+        }
+    }
+
+    /// The page declares `<html lang="tr">`, and `text-transform:uppercase` is
+    /// language-sensitive: under Turkish casing rules a lowercase `i` uppercases to `İ`, so
+    /// an English label styled with the portal's uppercase eyebrow renders "LİNKEDIN" and
+    /// "JOİN OUR PRODUCT TEAM". Marking the English subtrees `lang="en"` is what keeps the
+    /// dot off. Every string that lands in an uppercased class needs it.
+    #[test]
+    fn english_labels_are_not_uppercased_with_turkish_rules() {
+        // .portal label and fieldset legend are both uppercase; the form owns them all.
+        // Anchored on the action, because the sidebar ships a <form method="post"> of its
+        // own (logout) that would otherwise be the first match on every page.
+        for job in &AGENT_LAB_JOBS {
+            let html = agent_lab_job_form(&student(), job, None, None, None);
+            assert!(
+                html.contains(&format!(
+                    r#"<form method="post" action="{AGENT_LAB_PATH}/job-applications/{}" lang="en">"#,
+                    job.key
+                )),
+                "{}: the form's English labels need lang=\"en\"",
+                job.key
+            );
+            // the Turkish sentence inside that English form says so for itself
+            assert!(
+                html.contains(r#"class="fieldnote" lang="tr""#),
+                "{}",
+                job.key
+            );
+        }
+        // .hubstat is uppercase too, and "Intermediate" is full of dotted i's
+        let hub = agent_lab(&student());
+        assert!(
+            hub.contains(r#"<span class="hubstat" lang="en">Challenge 3 · Intermediate</span>"#)
+        );
+    }
+
+    /// `.fieldnote` carries `margin:-10px`, which tucks it under the field above — it is a
+    /// note *about a field*, and challenges 1 and 2 both place it before their submit
+    /// button. After a button it rides 10px up over it, which is what shipped and looked
+    /// broken. Keep it inside the form, ahead of the button.
+    #[test]
+    fn the_sandbox_note_sits_above_the_submit_button() {
+        let html = agent_lab_job_form(
+            &student(),
+            agent_lab_job("orbit").unwrap(),
+            None,
+            None,
+            None,
+        );
+        let note = html.find("Bu form Agent Lab sandbox").unwrap();
+        let button = html.find("Submit Application").unwrap();
+        assert!(note < button, "the note must not follow the button");
+        assert!(
+            html[note..button].contains("</p>"),
+            "note and button must be separate blocks"
+        );
+    }
+
+    /// Optionality is communicated by the label alone now, so a label that forgets to say
+    /// so leaves an agent no way to know the field may be skipped.
+    #[test]
+    fn optional_fields_say_so_in_their_label() {
+        let mut found = 0;
+        for f in AGENT_LAB_JOBS.iter().flat_map(|j| j.fields) {
+            if f.required {
+                continue;
+            }
+            found += 1;
+            assert!(
+                f.label.contains("(Optional)"),
+                "optional field {:?} does not say so in its label",
+                f.label
+            );
+        }
+        assert!(found >= 2);
+    }
+
+    #[test]
+    fn job_validation_accepts_a_complete_application() {
+        for job in &AGENT_LAB_JOBS {
+            let answers = validate_job_application(job, &job_answers(job))
+                .unwrap_or_else(|e| panic!("{} rejected a valid application: {e}", job.key));
+            // optional fields were left blank, so they are simply absent
+            let required = job.fields.iter().filter(|f| f.required).count();
+            assert_eq!(answers.len(), required, "{}", job.key);
+        }
+    }
+
+    /// Blank optionals are the correct answer, not an error — an agent that cannot find
+    /// "Expected Salary" in profile.md must be able to submit without inventing one.
+    #[test]
+    fn job_validation_allows_blank_optional_fields() {
+        let with_optional: Vec<&JobPosting> = AGENT_LAB_JOBS
+            .iter()
+            .filter(|j| j.fields.iter().any(|f| !f.required))
+            .collect();
+        assert!(with_optional.len() >= 2);
+        for job in with_optional {
+            // absent entirely
+            assert!(validate_job_application(job, &job_answers(job)).is_ok());
+            // present but empty, which is what a browser actually posts
+            let mut m = job_answers(job);
+            for f in job.fields.iter().filter(|f| !f.required) {
+                m.insert(f.name.into(), "   ".into());
+                let ok = validate_job_application(job, &m).unwrap();
+                assert!(
+                    !ok.contains_key(f.name),
+                    "blank optional should not be stored"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn job_validation_rejects_bad_input() {
+        let nova = agent_lab_job("nova-labs").unwrap();
+        // a missing required field
+        let mut m = job_answers(nova);
+        m.remove("full_name");
+        assert!(validate_job_application(nova, &m).is_err());
+        // blank is the same as missing
+        let mut m = job_answers(nova);
+        m.insert("full_name".into(), "  ".into());
+        assert!(validate_job_application(nova, &m).is_err());
+        // malformed email
+        for bad in ["deniz", "deniz@", "@example.com", "deniz@example"] {
+            let mut m = job_answers(nova);
+            m.insert("email".into(), bad.into());
+            assert!(
+                validate_job_application(nova, &m).is_err(),
+                "{bad} accepted"
+            );
+        }
+        // a URL that isn't https
+        for bad in ["github.com/deniz", "http://github.com/deniz"] {
+            let mut m = job_answers(nova);
+            m.insert("github".into(), bad.into());
+            assert!(
+                validate_job_application(nova, &m).is_err(),
+                "{bad} accepted"
+            );
+        }
+        // a select value the form never offered
+        let mut m = job_answers(nova);
+        m.insert("grade".into(), "13".into());
+        assert!(validate_job_application(nova, &m).is_err());
+
+        // a radio value the form never offered
+        let orbit = agent_lab_job("orbit").unwrap();
+        let mut m = job_answers(orbit);
+        m.insert("grade".into(), "üniversite".into());
+        assert!(validate_job_application(orbit, &m).is_err());
+        // a checkbox slot carrying someone else's value
+        let mut m = job_answers(orbit);
+        m.insert(checkbox_key("interests", 1), "Product".into());
+        assert!(validate_job_application(orbit, &m).is_err());
+        // every box unticked, where the group is required
+        let mut m = job_answers(orbit);
+        m.remove(&checkbox_key("interests", 0));
+        assert!(validate_job_application(orbit, &m).is_err());
+
+        // an unknown job key is a 404 at the handler, not a stored row
+        assert!(agent_lab_job("goldman-sachs").is_none());
+    }
+
+    /// Multi-select answers have to survive the trip out to JSON and back, or re-opening a
+    /// completed application would quietly drop the ticked boxes.
+    #[test]
+    fn checkbox_answers_round_trip_into_the_form() {
+        let orbit = agent_lab_job("orbit").unwrap();
+        let mut m = job_answers(orbit);
+        m.insert(checkbox_key("interests", 2), "Data".into());
+        let answers = validate_job_application(orbit, &m).unwrap();
+        let encoded = serde_json::Value::Object(answers).to_string();
+        let decoded: Answers = serde_json::from_str(&encoded).unwrap();
+        let html = agent_lab_job_form(
+            &student(),
+            orbit,
+            Some(&decoded),
+            Some(chrono::Utc::now()),
+            None,
+        );
+        // both ticked boxes come back checked, the untouched ones do not
+        assert_eq!(html.matches("checked").count(), 3, "2 checkboxes + 1 radio");
+        assert!(html.contains(r#"value="Product" checked"#));
+        assert!(html.contains(r#"value="Data" checked"#));
+        assert!(html.contains(r#"id="application-status""#));
+        assert!(html.contains("Application Submitted ✓"));
+    }
+
+    /// Reset is routed by challenge slug. Every challenge must map to its own table, and
+    /// nothing else may map at all — this is also what keeps the DELETE's interpolated
+    /// table name out of the caller's hands.
+    #[test]
+    fn reset_maps_each_challenge_to_its_own_table() {
+        let mut seen = std::collections::HashSet::new();
+        for (slug, ..) in AGENT_LAB_CHALLENGES {
+            let table =
+                agent_lab_reset_table(slug).unwrap_or_else(|| panic!("{slug} has no reset table"));
+            assert!(seen.insert(table), "{table} is reset by two challenges");
+        }
+        assert_eq!(
+            agent_lab_reset_table("job-applications"),
+            Some("agent_lab_job_applications_exposure_academy")
+        );
+        // a challenge's reset must not reach another challenge's data
+        assert_ne!(
+            agent_lab_reset_table("job-applications"),
+            agent_lab_reset_table("student-profile")
+        );
+        assert_ne!(
+            agent_lab_reset_table("job-applications"),
+            agent_lab_reset_table("project-submission")
+        );
+        for junk in [
+            "",
+            "users",
+            "profile",
+            "beginner-track",
+            "'; drop table x --",
+        ] {
+            assert!(agent_lab_reset_table(junk).is_none(), "{junk} resolved");
+        }
+    }
+
+    /// The lab's three tables are its own. If a job key ever collided with a real Beginner
+    /// Track project key, sandbox rows would start looking like coursework.
+    #[test]
+    fn job_keys_stay_out_of_the_real_project_vocabulary() {
+        for job in &AGENT_LAB_JOBS {
+            assert!(
+                !BEGINNER_PROJECTS.iter().any(|(k, ..)| *k == job.key),
+                "{} collides with a real Beginner Track project key",
+                job.key
+            );
+            assert!(!AGENT_LAB_PROJECTS.iter().any(|(k, ..)| *k == job.key));
+        }
+        let keys: std::collections::HashSet<&str> = AGENT_LAB_JOBS.iter().map(|j| j.key).collect();
+        assert_eq!(keys.len(), AGENT_LAB_JOBS.len(), "duplicate job key");
     }
 
     #[test]
@@ -6548,6 +7662,41 @@ mod tests {
             (
                 "challenge2-passed",
                 agent_lab_submission(&user, Some(&passed), None),
+            ),
+            ("challenge3-jobs-empty", agent_lab_jobs(&user, &[])),
+            (
+                "challenge3-jobs-partial",
+                agent_lab_jobs(
+                    &user,
+                    &AGENT_LAB_JOBS[..3]
+                        .iter()
+                        .map(|j| j.key.to_string())
+                        .collect::<Vec<_>>(),
+                ),
+            ),
+            (
+                "challenge3-jobs-complete",
+                agent_lab_jobs(
+                    &user,
+                    &AGENT_LAB_JOBS
+                        .iter()
+                        .map(|j| j.key.to_string())
+                        .collect::<Vec<_>>(),
+                ),
+            ),
+            (
+                "challenge3-form-orbit",
+                agent_lab_job_form(&user, agent_lab_job("orbit").unwrap(), None, None, None),
+            ),
+            (
+                "challenge3-form-pioneer",
+                agent_lab_job_form(
+                    &user,
+                    agent_lab_job("pioneer-ventures").unwrap(),
+                    None,
+                    None,
+                    Some("Email geçerli bir e-posta olmalı."),
+                ),
             ),
         ];
         for (name, html) in pages {
