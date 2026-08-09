@@ -2901,8 +2901,8 @@ pub fn chatbot_challenge_leaderboard(user: &User, rows: &[ChatbotLeaderRow]) -> 
         format!(
             r##"<div class="doc-locked">
   <div class="doc-blur" aria-hidden="true"><div class="lb">{list}</div></div>
-  <div class="doc-lockmsg">{lock}<b>Sıralama henüz açık değil</b>
-    <span>Hazır olduğunda burada açılacak.</span></div>
+  <div class="doc-lockmsg">{lock}<b>Oyun daha bitmedi!</b>
+    <span>Kazananlar zamanı gelince yayınlanacak.</span></div>
 </div>"##,
             lock = ico(P_LOCK),
         )
