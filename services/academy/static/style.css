@@ -1155,6 +1155,45 @@ form.inline input, form.inline select { margin-top:0; width:auto; }
   border-top:1px solid var(--border-subtle); width:100%; text-align:center; margin-top:6px;
 }
 
+/* Chatbot Challenge — ChatGPT-style minimal chat: bare topbar, borderless
+   assistant text, pill composer with a circular send button. */
+.chtopbar { position:relative; display:flex; align-items:center; min-height:34px; margin:4px 0 22px; }
+.chtopbar .reset-form { margin:0; }
+.ch-reset {
+  width:34px; height:34px; border-radius:50%; flex-shrink:0;
+  background:var(--bg-raised); border:1px solid var(--border-card); color:var(--text-body);
+  font-size:20px; line-height:1; display:flex; align-items:center; justify-content:center;
+  cursor:pointer; transition:background .15s;
+}
+.ch-reset:hover { background:var(--bg-raised-hover); }
+.ch-level {
+  position:absolute; left:50%; transform:translateX(-50%);
+  font-weight:700; font-size:var(--fs-body); color:var(--text); letter-spacing:-0.01em;
+}
+.chatpanel { max-width:720px; margin:0 auto; }
+.chatpanel .arena-chat { max-height:60vh; }
+.chatpanel .bub { max-width:80%; }
+.chatpanel .bub.l .say { background:none; border:none; padding:6px 2px; }
+.chatpanel .bub.r .say { border-radius:var(--r-2xl); }
+.composer {
+  display:flex; align-items:flex-end; gap:8px; margin-top:14px;
+  background:var(--bg-raised); border:1px solid var(--border-card);
+  border-radius:var(--r-2xl); padding:10px 10px 10px 18px;
+}
+.composer textarea {
+  flex:1; min-height:24px; max-height:200px; resize:none;
+  border:none; background:transparent; color:var(--text);
+  font-size:var(--fs-body); padding:6px 0; outline:none;
+}
+.composer textarea:read-only { opacity:.6; }
+.ch-send {
+  flex-shrink:0; width:34px; height:34px; border-radius:50%;
+  background:var(--text); color:var(--bg-canvas); border:none; font-size:16px;
+  display:flex; align-items:center; justify-content:center; cursor:pointer;
+  transition:opacity .15s;
+}
+.ch-send:disabled { opacity:.5; cursor:default; }
+
 /* the judge's ruling */
 .arena-verdict {
   margin-top:16px; background:var(--bg-card); border:1px solid var(--border-card);

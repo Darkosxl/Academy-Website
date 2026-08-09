@@ -100,6 +100,8 @@ const P_GLOBE: &str = "M12 21a9.004 9.004 0 0 0 8.716-6.747M12 21a9.004 9.004 0 
 const P_FLAG: &str = "M3 3v1.5M3 21v-6m0 0 2.77-.693a9 9 0 0 1 6.208.682l.108.054a9 9 0 0 0 6.086.71l3.114-.732a48.524 48.524 0 0 1-.005-10.499l-3.11.732a9 9 0 0 1-6.085-.711l-.108-.054a9 9 0 0 0-6.208-.682L3 4.5M3 15V4.5";
 const P_ROCKET: &str = "M15.59 14.37a6 6 0 0 1-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 0 0 6.16-12.12A14.98 14.98 0 0 0 9.631 8.41m5.96 5.96a14.926 14.926 0 0 1-5.841 2.58m-.119-8.54a6 6 0 0 0-7.381 5.84h4.8m2.581-5.84a14.927 14.927 0 0 0-2.58 5.84m2.699 2.7c-.103.021-.207.041-.311.06a15.09 15.09 0 0 1-2.448-2.448 14.9 14.9 0 0 1 .06-.312m-2.24 2.39a4.493 4.493 0 0 0-1.757 4.306 4.493 4.493 0 0 0 4.306-1.758M16.5 9a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0Z";
 const P_GRADE: &str = "M11.35 3.836c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75 2.25 2.25 0 0 0-.1-.664m-5.8 0A2.251 2.251 0 0 1 13.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m8.9-4.414c.376.023.75.05 1.124.08 1.131.094 1.976 1.057 1.976 2.192V16.5A2.25 2.25 0 0 1 18 18.75h-2.25m-7.5-10.5H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25ZM6.75 15.75l1.5 1.5 3-3.75";
+const P_BEAKER: &str = "M9.75 3.104v5.714a2.25 2.25 0 0 1-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 0 1 4.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0 1 12 15a9.065 9.065 0 0 0-6.23-.693L5 14.5m14.8.8 1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0 1 12 21c-2.773 0-5.491-.235-8.135-.687-1.718-.293-2.3-2.379-1.067-3.61L5 14.5";
+const P_CHAT: &str = "M20.25 8.511c.884.284 1.5 1.128 1.5 2.097v4.286c0 1.136-.847 2.1-1.98 2.193-.34.027-.68.052-1.02.072v3.091l-3-3c-1.354 0-2.694-.055-4.02-.163a2.115 2.115 0 0 1-.825-.242m9.345-8.334a2.126 2.126 0 0 0-.476-.095 48.64 48.64 0 0 0-8.048 0c-1.131.094-1.976 1.057-1.976 2.192v4.286c0 .837.46 1.58 1.155 1.951m9.345-8.334V6.637c0-1.621-1.152-3.026-2.76-3.235A48.455 48.455 0 0 0 11.25 3c-2.115 0-4.198.137-6.24.402-1.608.209-2.76 1.614-2.76 3.235v6.226c0 1.621 1.152 3.026 2.76 3.235.577.075 1.157.14 1.74.194V21l4.155-4.155";
 
 fn nav_link(href: &str, page: &str, key: &str, icon: &str, label: &str) -> String {
     nav_link_group(href, page, &[key], icon, label)
@@ -212,7 +214,7 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
                 beginner_track = nav_link_group(
                     "/beginner-track",
                     active,
-                    &["beginner-track"],
+                    &["beginner-track", "chatbot-challenge"],
                     &ico(P_FLAG),
                     "Beginner Track"
                 ),
@@ -260,7 +262,7 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/style.css?v=35">
+<link rel="stylesheet" href="/static/style.css?v=38">
 <script>if('scrollRestoration'in history)history.scrollRestoration='manual';</script>
 </head>
 <body class="{body_class}">
@@ -2621,7 +2623,48 @@ pub const BEGINNER_PROJECTS: [(&str, &str, &str, &str, Option<(&str, &str)>); 7]
 /// Beginner Track — the seven fixed projects above, each with a downloadable brief and a
 /// save-your-links form. Self-reported, no grading: the form always shows, pre-filled
 /// with whatever was last saved, and resaving just overwrites it.
-pub fn beginner_track(user: &User, subs: &[BeginnerSubmission]) -> String {
+/// The track's own hub: three subsets side by side, same pattern advanced_track()
+/// uses for Agentic Harness / AI Monopoly — Chatbot Challenge, Agent Lab and the
+/// weekly projects are peers, not one floating card above a flat project list.
+pub fn beginner_track(user: &User, projects_done: usize, chatbot_level: i16) -> String {
+    let content = format!(
+        r##"<h1 class="pagetitle">Beginner Track</h1>
+<p class="muted">Başlangıç seviyesindeki üç bölüm.</p>
+<div class="hubgrid">
+  <a class="hubcard" href="/beginner-track/projects">
+    <span class="hubico">{ico_projects}</span>
+    <h2>Haftalık Projeler</h2>
+    <p>7 proje. Her biri için brifi indir, projeni yap, sonra GitHub ve Vercel bağlantılarını kaydet. Kaydedilen: {projects_done}/7.</p>
+    <span class="hubgo">Projelere git →</span>
+  </a>
+  <a class="hubcard" href="/chatbot-challenge">
+    <span class="hubico">{ico_chat}</span>
+    <h2>Chatbot Challenge</h2>
+    <p>Bir chatbotu kandırıp gizli anahtarını söylettirmeye çalış — {CHATBOT_LEVEL_COUNT} seviye, her biri bir öncekinden daha zor. {chat_status}</p>
+    <span class="hubgo">Oyuna git →</span>
+  </a>
+  <a class="hubcard" href="{AGENT_LAB_PATH}">
+    <span class="hubico">{ico_lab}</span>
+    <h2 lang="en">Agent Lab</h2>
+    <p>Browser agent'ını Exposure Student Portal üzerinde test et. Form doldur, doğru projeyi bul ve görev akışlarını otomatikleştir.</p>
+    <span class="hubgo">Agent Lab'e git →</span>
+  </a>
+</div>"##,
+        ico_projects = ico(P_DOC),
+        ico_chat = ico(P_CHAT),
+        ico_lab = ico(P_BEAKER),
+        chat_status = if chatbot_level > CHATBOT_LEVEL_COUNT {
+            format!("{CHATBOT_LEVEL_COUNT}/{CHATBOT_LEVEL_COUNT} — tamamlandı 🏆")
+        } else {
+            format!("Şu an seviye {chatbot_level}/{CHATBOT_LEVEL_COUNT}.")
+        },
+    );
+    layout("Beginner Track", Some(user), "beginner-track", &content)
+}
+
+/// The weekly-projects subset: cheat sheet plus the 7 project cards, split out of
+/// beginner_track() so that page can stay a clean two-card hub.
+pub fn beginner_projects(user: &User, subs: &[BeginnerSubmission]) -> String {
     let cards: String = BEGINNER_PROJECTS
         .iter()
         .map(|(key, title, summary, pdf, extra)| {
@@ -2666,12 +2709,8 @@ pub fn beginner_track(user: &User, subs: &[BeginnerSubmission]) -> String {
             )
         })
         .collect();
-    layout(
-        "Beginner Track",
-        Some(user),
-        "beginner-track",
-        &format!(
-            r##"<h1 class="pagetitle">Beginner Track</h1>
+    let content = format!(
+        r##"<h1 class="pagetitle">Haftalık Projeler</h1>
 <p class="muted">Başlangıç seviyesindeki 7 proje. Her biri için brifi indir, projeni yap, sonra GitHub ve Vercel bağlantılarını kaydet.</p>
 <div class="taskcard">
   <div class="taskhead"><h3>Vibe Coding Cheat Sheet</h3></div>
@@ -2680,16 +2719,217 @@ pub fn beginner_track(user: &User, subs: &[BeginnerSubmission]) -> String {
     <a class="btn-outline small" href="/static/beginner-projects/vibe-coding-cheat-sheet.pdf" target="_blank" rel="noopener">Cheat sheet indir ⬇</a>
   </div>
 </div>
-<div class="taskcard">
-  <div class="taskhead"><h3 lang="en">Agent Lab</h3></div>
-  <p class="desc">Browser agent'ını Exposure Student Portal üzerinde test et.
-Form doldur, doğru projeyi bul ve görev akışlarını otomatikleştir.</p>
-  <div class="cardactions">
-    <a class="btn-outline small" href="{AGENT_LAB_PATH}">Agent Lab'e git →</a>
-  </div>
-</div>
 <div class="tasks">{cards}</div>"##
-        ),
+    );
+    layout("Haftalık Projeler", Some(user), "beginner-track", &content)
+}
+
+/// Chat page for the student's current level. Level indicator is top-center per
+/// spec. Student messages render as .bub.r, the bot's as .bub.l, same convention
+/// monopoly_match() uses for its two-sided transcript.
+pub fn chatbot_challenge(
+    user: &User,
+    level: i16,
+    level_label: &str,
+    msgs: &[ChatbotMessage],
+    msg: Option<&str>,
+) -> String {
+    let notice = match msg {
+        Some("bedrock-error") => {
+            r#"<p class="notice">Bot şu an cevap veremedi, tekrar dene.</p>"#.to_string()
+        }
+        _ => String::new(),
+    };
+    let bubbles: String = msgs
+        .iter()
+        .map(|m| {
+            let side = if m.role == "user" { "r" } else { "l" };
+            format!(
+                r##"<div class="bub {side}"><div class="say">{content}</div></div>"##,
+                content = esc(&m.content),
+            )
+        })
+        .collect();
+    let title = format!("Seviye {level} — {level_label}");
+    let content = format!(
+        r##"<div class="chtopbar">
+  <form method="post" action="/chatbot-challenge/reset" class="reset-form">
+    <button type="submit" class="ch-reset" title="Bu seviyeyi sıfırla" aria-label="Bu seviyeyi sıfırla" onclick="return confirm('Bu seviyenin konuşmasını sıfırlamak istiyor musun?')">+</button>
+  </form>
+  <span class="ch-level">Level {level}</span>
+</div>
+{notice}
+<div class="chatpanel">
+  <div class="arena-chat" id="chchat">{bubbles}</div>
+  <form method="post" action="/chatbot-challenge/send" class="composer" id="chform">
+    <textarea name="message" placeholder="Mesajını yaz..." required></textarea>
+    <button class="ch-send" id="chsend" aria-label="Gönder">→</button>
+  </form>
+</div>
+<p class="muted" style="text-align:center;"><a href="/chatbot-challenge/leaderboard">Sıralamayı gör →</a></p>
+<script>
+(function(){{
+  var f = document.getElementById('chform');
+  var chat = document.getElementById('chchat');
+  f.addEventListener('submit', function(ev){{
+    ev.preventDefault();
+    var ta = f.querySelector('textarea'), btn = document.getElementById('chsend');
+    var text = ta.value;
+    if (!text.trim()) return;
+    var u = document.createElement('div');
+    u.className = 'bub r';
+    u.innerHTML = '<div class="say"></div>';
+    u.querySelector('.say').textContent = text;
+    chat.appendChild(u);
+    var b = document.createElement('div');
+    b.className = 'bub l typing';
+    b.innerHTML = '<div class="say"></div>';
+    chat.appendChild(b);
+    var say = b.querySelector('.say');
+    chat.scrollTop = chat.scrollHeight;
+    ta.value = '';
+    ta.readOnly = true;
+    btn.disabled = true;
+
+    function showError(){{
+      b.remove();
+      var n = document.createElement('p');
+      n.className = 'notice';
+      n.textContent = 'Bot şu an cevap veremedi, tekrar dene.';
+      chat.after(n);
+    }}
+
+    fetch(f.action, {{ method: 'POST', body: new URLSearchParams({{ message: text }}) }})
+      .then(function(resp){{
+        var reader = resp.body.getReader();
+        var decoder = new TextDecoder();
+        var buf = '';
+        function pump(){{
+          return reader.read().then(function(res){{
+            if (res.done) return;
+            buf += decoder.decode(res.value, {{ stream: true }});
+            var parts = buf.split('\n\n');
+            buf = parts.pop();
+            parts.forEach(function(block){{
+              var evType = 'message', dataLines = [], sawField = false;
+              block.split('\n').forEach(function(line){{
+                if (line.indexOf('event:') === 0) {{ evType = line.slice(6).trim(); sawField = true; }}
+                else if (line.indexOf('data:') === 0) {{
+                  var v = line.slice(5);
+                  if (v.charAt(0) === ' ') v = v.slice(1);
+                  dataLines.push(v);
+                  sawField = true;
+                }}
+              }});
+              if (!sawField) return; // pure keep-alive comment, not a real event
+              var data = dataLines.join('\n');
+              if (evType === 'message') {{
+                b.classList.remove('typing');
+                say.textContent += data;
+                chat.scrollTop = chat.scrollHeight;
+              }} else if (evType === 'error') {{
+                showError();
+              }} else if (evType === 'done') {{
+                var info = {{}};
+                try {{ info = JSON.parse(data); }} catch (e) {{}}
+                if (info.completed) location.reload();
+              }}
+            }});
+            return pump();
+          }});
+        }}
+        return pump();
+      }})
+      .catch(showError)
+      .finally(function(){{
+        ta.readOnly = false;
+        btn.disabled = false;
+      }});
+  }});
+}})();
+</script>"##,
+    );
+    layout(&title, Some(user), "chatbot-challenge", &content)
+}
+
+pub fn chatbot_challenge_done(user: &User) -> String {
+    let content = format!(
+        r##"<section class="panel" style="text-align:center;">
+  <h2>🎉 {CHATBOT_LEVEL_COUNT}/{CHATBOT_LEVEL_COUNT} tamamladın!</h2>
+  <p class="muted">Tüm seviyeleri geçtin. Sıralamada yerini gör.</p>
+  <a class="btn-dark" href="/chatbot-challenge/leaderboard">Sıralamayı gör →</a>
+</section>"##
+    );
+    layout(
+        "Chatbot Challenge",
+        Some(user),
+        "chatbot-challenge",
+        &content,
+    )
+}
+
+pub fn chatbot_challenge_leaderboard(user: &User, rows: &[ChatbotLeaderRow]) -> String {
+    let ranks = dense_ranks_by(rows, |r| r.levels_done.to_string());
+    let list: String = if rows.is_empty() {
+        "<p class='muted'>Henüz kimse seviye tamamlamadı — ilk sen ol.</p>".into()
+    } else {
+        rows.iter()
+            .zip(&ranks)
+            .map(|(r, rank)| {
+                let crown = if r.finished() { " 🏆" } else { "" };
+                format!(
+                    r##"<div class="lbrow {mine} {medal}">
+  <span class="lbrank">{rank}</span>
+  <span class="avatar-fb">{initial}</span>
+  <span class="lbname">{name} <small class="nick">({nick})</small>{crown}</span>
+  <span class="lbmeta">{levels}/{count} seviye</span>
+  <span class="lbpts">{levels}<small>/{count}</small></span>
+</div>"##,
+                    mine = if r.id == user.id { "mine" } else { "" },
+                    medal = match rank {
+                        1 => "m1",
+                        2 => "m2",
+                        3 => "m3",
+                        _ => "",
+                    },
+                    initial = esc(&r
+                        .display_name
+                        .chars()
+                        .next()
+                        .unwrap_or('?')
+                        .to_uppercase()
+                        .to_string()),
+                    name = esc(&r.display_name),
+                    nick = esc(&r.nickname),
+                    levels = r.levels_done,
+                    count = CHATBOT_LEVEL_COUNT,
+                    crown = crown,
+                )
+            })
+            .collect()
+    };
+    let board = if user.is_admin {
+        format!(r##"<div class="lb">{list}</div>"##)
+    } else {
+        format!(
+            r##"<div class="doc-locked">
+  <div class="doc-blur" aria-hidden="true"><div class="lb">{list}</div></div>
+  <div class="doc-lockmsg">{lock}<b>Oyun daha bitmedi!</b>
+    <span>Kazananlar zamanı gelince yayınlanacak.</span></div>
+</div>"##,
+            lock = ico(P_LOCK),
+        )
+    };
+    let content = format!(
+        r##"<h1 class="pagetitle">Chatbot Challenge — Sıralama</h1>
+<p class="muted">Kim daha çok seviye kırdı? İlk {CHATBOT_LEVEL_COUNT}/{CHATBOT_LEVEL_COUNT}'a ulaşan kazanır.</p>
+{board}"##
+    );
+    layout(
+        "Chatbot Challenge Sıralaması",
+        Some(user),
+        "chatbot-challenge",
+        &content,
     )
 }
 
@@ -2759,20 +2999,25 @@ pub const AGENT_LAB_TARGET: &str = "lab-fis-okuyucu";
 const AGENT_LAB_BRIEF: &str = "Aşağıdaki sandbox projelerden fiş fotoğrafını okuyup harcamaları tabloya aktaranı bul \
      ve onu gönder.";
 
-/// The lab hub: the two challenges as cards, in the same `.tasks` grid the Beginner Track
-/// projects use.
+/// The lab hub: the two challenges as peer hubcards, the same shape `beginner_track()`
+/// itself uses one level up — the lab is a subset with subsets, not a page of task cards.
 pub fn agent_lab(user: &User) -> String {
     let cards: String = AGENT_LAB_CHALLENGES
         .iter()
         .map(|(slug, badge, title, summary)| {
             format!(
-                r##"<div class="taskcard">
-  <div class="taskhead"><h3 lang="en">{title}</h3><span class="badge">{badge}</span></div>
-  <p class="desc">{summary}</p>
-  <div class="cardactions">
-    <a class="btn-outline small" href="{AGENT_LAB_PATH}/{slug}">Challenge'ı aç →</a>
-  </div>
-</div>"##,
+                r##"<a class="hubcard" href="{AGENT_LAB_PATH}/{slug}">
+    <span class="hubico">{icon}</span>
+    <h2 lang="en">{title}</h2>
+    <p>{summary}</p>
+    <span class="hubstat">{badge}</span>
+    <span class="hubgo">Challenge'ı aç →</span>
+  </a>"##,
+                icon = ico(if *slug == "student-profile" {
+                    P_TEAMS
+                } else {
+                    P_BOARD
+                }),
                 title = esc(title),
                 badge = esc(badge),
                 summary = esc(summary),
@@ -2785,9 +3030,11 @@ pub fn agent_lab(user: &User) -> String {
 <p class="muted">Browser agent'ını Exposure Student Portal üzerinde test et. Form doldur, doğru projeyi bul ve görev akışlarını otomatikleştir.</p>
 <div class="taskcard">
   <div class="taskhead"><h3>Bu bir test alanı</h3></div>
-  <p class="desc">Buradaki iki challenge gerçek portalın kopyası olan sandbox sayfalarda çalışır. Ajanın ne yazarsa yazsın gerçek profiline ya da gerçek proje gönderimlerine dokunmaz; her challenge'ı istediğin kadar sıfırlayıp baştan çalıştırabilirsin.</p>
+  <p class="desc">Buradaki iki challenge gerçek portalın kopyası olan sandbox sayfalarda çalışır. Ajanın ne yazarsa yazsın gerçek profiline, gerçek proje gönderimlerine ya da puanına dokunmaz; her challenge'ı istediğin kadar sıfırlayıp baştan çalıştırabilirsin.</p>
 </div>
-<div class="tasks">{cards}</div>"##
+<div class="hubgrid">
+  {cards}
+</div>"##
     );
     layout("Agent Lab", Some(user), "beginner-track", &content)
 }
@@ -5045,6 +5292,7 @@ mod tests {
             display_name: "A".into(),
             nickname: Some("a".into()),
             is_admin: false,
+            level: "PRESEED".into(),
         };
         let task = Task {
             id: Uuid::nil(),
@@ -5080,14 +5328,15 @@ mod tests {
     }
 
     #[test]
-    fn beginner_track_links_cheat_sheet() {
+    fn beginner_projects_links_cheat_sheet() {
         let user = User {
             id: Uuid::nil(),
             display_name: "A".into(),
             nickname: Some("a".into()),
             is_admin: false,
+            level: "PRESEED".into(),
         };
-        let html = beginner_track(&user, &[]);
+        let html = beginner_projects(&user, &[]);
         assert!(
             html.contains(r#"href="/static/beginner-projects/vibe-coding-cheat-sheet.pdf""#),
             "beginner track should link the vibe coding cheat sheet"
@@ -5102,25 +5351,34 @@ mod tests {
         );
     }
 
-    /// The Agent Lab entry point is a card on the Beginner Track page and nothing else —
-    /// no sidebar item of its own. Both halves matter: losing the card strands the lab,
-    /// and a sidebar entry is what the section was explicitly not to become.
+    /// The hub is three peer hubcards (projects, chatbot, agent lab), same shape as
+    /// advanced_track()'s hubcard layout — not a floating card above a flat list.
+    #[test]
+    fn beginner_track_hub_has_three_subsets() {
+        let user = student();
+        let html = beginner_track(&user, 3, 2);
+        assert!(html.contains(r#"href="/beginner-track/projects""#));
+        assert!(html.contains(r#"href="/chatbot-challenge""#));
+        assert!(html.contains(&format!(r#"href="{AGENT_LAB_PATH}""#)));
+        assert_eq!(
+            html.matches("hubcard").count(),
+            3,
+            "exactly three peer subsets"
+        );
+        assert!(html.contains("3/7"));
+        assert!(html.contains("seviye 2/7"));
+    }
+
+    /// Agent Lab is reachable from the track hub and nowhere else — no sidebar item of its
+    /// own. Both halves matter: losing the card strands the lab, and a sidebar entry is
+    /// what the section was explicitly not to become.
     #[test]
     fn agent_lab_is_reachable_from_beginner_track_only() {
-        let user = User {
-            id: Uuid::nil(),
-            display_name: "A".into(),
-            nickname: Some("a".into()),
-            is_admin: false,
-        };
-        let track = beginner_track(&user, &[]);
-        assert!(
-            track.contains(&format!(r#"href="{AGENT_LAB_PATH}""#)),
-            "beginner track should carry the Agent Lab card"
-        );
+        let user = student();
         // the sidebar ships on every page, so any page renders the whole nav
+        let track = beginner_track(&user, 0, 1);
         assert!(
-            !track.contains(r#"class="sb-nav""#) || !track.contains(r#"<span>Agent Lab</span>"#),
+            !track.contains(r#"<span>Agent Lab</span>"#),
             "Agent Lab must not appear as a sidebar item"
         );
         // …and inside the lab the sidebar still highlights Beginner Track
@@ -5162,12 +5420,6 @@ mod tests {
     /// which one the agent chose is useless for debugging a run.
     #[test]
     fn agent_lab_submission_reports_the_wrong_pick_by_name() {
-        let user = User {
-            id: Uuid::nil(),
-            display_name: "A".into(),
-            nickname: Some("a".into()),
-            is_admin: false,
-        };
         let wrong = AGENT_LAB_PROJECTS
             .iter()
             .find(|(k, ..)| *k != AGENT_LAB_TARGET)
@@ -5179,7 +5431,7 @@ mod tests {
             correct: false,
             updated_at: chrono::DateTime::<chrono::Utc>::MIN_UTC,
         };
-        let html = agent_lab_submission(&user, Some(&sub), None);
+        let html = agent_lab_submission(&student(), Some(&sub), None);
         assert!(html.contains("st-failed") && html.contains(wrong.1));
         assert!(
             !html.contains("st-passed"),
@@ -5194,6 +5446,7 @@ mod tests {
             display_name: "A".into(),
             nickname: Some("a".into()),
             is_admin: false,
+            level: "PRESEED".into(),
         };
         let task = Task {
             id: Uuid::nil(),
@@ -5213,6 +5466,7 @@ mod tests {
             display_name: "A".into(),
             nickname: Some("a".into()),
             is_admin: false,
+            level: "PRESEED".into(),
         };
         let team = HarnessTeam {
             id: Uuid::nil(),
@@ -5255,6 +5509,7 @@ mod tests {
             display_name: "Admin".into(),
             nickname: None,
             is_admin: true,
+            level: "PRESEED".into(),
         };
         let team = HarnessTeam {
             id: Uuid::nil(),
@@ -5293,6 +5548,7 @@ mod tests {
             display_name: "Admin".into(),
             nickname: None,
             is_admin: true,
+            level: "PRESEED".into(),
         }
     }
 
@@ -5416,6 +5672,7 @@ mod tests {
             display_name: "Kid".into(),
             nickname: None,
             is_admin: false,
+            level: "PRESEED".into(),
         };
         let team = team_at(1, "Neural Ninjas");
         let html = agentic_harness_main(&user, "arc", Some(&team), &[], None, None, None, &[], &[]);
@@ -5438,6 +5695,7 @@ mod tests {
             display_name: "Kid".into(),
             nickname: None,
             is_admin: false,
+            level: "PRESEED".into(),
         };
         let team = team_at(1, "Neural Ninjas");
         let taken = agentic_harness_main(
@@ -5475,6 +5733,7 @@ mod tests {
             display_name: "Kid".into(),
             nickname: None,
             is_admin: false,
+            level: "PRESEED".into(),
         };
         let html = agentic_harness_main(&user, "arc", None, &[], None, None, None, &[], &[]);
         assert!(html.contains("gönderim yapamazsın"));
@@ -5504,6 +5763,7 @@ mod tests {
             display_name: "A".into(),
             nickname: Some("a".into()),
             is_admin: false,
+            level: "PRESEED".into(),
         }
     }
 
@@ -6216,7 +6476,8 @@ mod tests {
             updated_at: passed.updated_at,
         };
         let pages: Vec<(&str, String)> = vec![
-            ("beginner-track", beginner_track(&user, &[])),
+            ("beginner-track", beginner_track(&user, 3, 2)),
+            ("beginner-projects", beginner_projects(&user, &[])),
             ("agent-lab", agent_lab(&user)),
             ("challenge1-empty", agent_lab_profile(&user, None, None)),
             (

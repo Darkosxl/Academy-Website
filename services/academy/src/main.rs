@@ -4,6 +4,7 @@
 mod admin;
 mod auth;
 mod board;
+mod chatbot_challenge;
 mod consent;
 mod grading;
 mod harness;
@@ -20,11 +21,13 @@ use axum::{
 };
 use rand::RngCore;
 use sqlx::{PgPool, postgres::PgPoolOptions};
+use tower_http::compression::predicate::Predicate;
 use uuid::Uuid;
 
 use admin::*;
 use auth::*;
 use board::*;
+use chatbot_challenge::*;
 use consent::*;
 use grading::*;
 use harness::*;
@@ -46,6 +49,13 @@ pub struct App {
     pub deepl_key: String,
     /// XChaCha20-Poly1305 key for team Kaggle tokens. None disables official submit.
     pub kaggle_key: Option<[u8; 32]>,
+    /// DeepInfra bearer token, read directly by the academy process for real-time
+    /// Chatbot Challenge calls (no gateway subprocess). Empty = feature disabled;
+    /// call_deepinfra() checks and short-circuits rather than panicking at boot.
+    /// The model id is NOT here: it's a fixed const in chatbot_challenge.rs, not an
+    /// env var, same reasoning as the Bedrock version this replaced — no shared
+    /// env var means this game can't silently drift onto a different model.
+    pub deepinfra_api_key: String,
 }
 
 fn secret_key(name: &str) -> Option<[u8; 32]> {
@@ -133,7 +143,15 @@ async fn main() {
         .execute(&pool)
         .await
         .expect("paribu consent kinds migration failed");
-    sqlx::raw_sql(include_str!("../migrations/014_agent_lab.sql"))
+    sqlx::raw_sql(include_str!("../migrations/014_chatbot_challenge.sql"))
+        .execute(&pool)
+        .await
+        .expect("chatbot challenge migration failed");
+    sqlx::raw_sql(include_str!("../migrations/015_user_level.sql"))
+        .execute(&pool)
+        .await
+        .expect("user level migration failed");
+    sqlx::raw_sql(include_str!("../migrations/016_agent_lab.sql"))
         .execute(&pool)
         .await
         .expect("agent lab migration failed");
@@ -174,6 +192,7 @@ async fn main() {
         microlink_key: std::env::var("MICROLINK_API_KEY").unwrap_or_default(),
         deepl_key: std::env::var("DEEPL_API_KEY").unwrap_or_default(),
         kaggle_key: secret_key("KAGGLE_CREDENTIAL_KEY"),
+        deepinfra_api_key: std::env::var("DEEPINFRA_API_KEY").unwrap_or_default(),
     };
 
     // background: keeps submissions' live site URLs up to date. Students deploy after they
@@ -191,9 +210,10 @@ async fn main() {
         .route("/app", get(home))
         .route("/online", get(online_hub))
         .route("/beginner-track", get(beginner_track_hub))
+        .route("/beginner-track/projects", get(beginner_projects_page))
         .route("/beginner-track/submit", post(beginner_track_submit))
-        // Agent Lab — a Beginner Track sub-section, so it hangs off /beginner-track and
-        // gets no sidebar entry of its own. /beginner/agent-lab is a redirect alias.
+        // Agent Lab — the track's third subset, so it hangs off /beginner-track and gets
+        // no sidebar entry of its own. /beginner/agent-lab is a redirect alias.
         .route("/beginner-track/agent-lab", get(agent_lab_hub))
         .route("/beginner/agent-lab", get(agent_lab_alias))
         .route(
@@ -205,6 +225,13 @@ async fn main() {
             get(agent_lab_submission_page).post(agent_lab_submission_save),
         )
         .route("/beginner-track/agent-lab/reset", post(agent_lab_reset))
+        .route("/chatbot-challenge", get(chatbot_challenge_page))
+        .route("/chatbot-challenge/send", post(chatbot_challenge_send))
+        .route("/chatbot-challenge/reset", post(chatbot_challenge_reset))
+        .route(
+            "/chatbot-challenge/leaderboard",
+            get(chatbot_challenge_leaderboard),
+        )
         .route("/advanced-track", get(advanced_track_hub))
         .route("/schedule", get(schedule))
         .route("/schedule/image/{track}", get(schedule_image))
@@ -369,8 +396,16 @@ async fn main() {
             tower_http::services::ServeDir::new(concat!(env!("CARGO_MANIFEST_DIR"), "/static")),
         )
         // last, so it covers every route above: one ARC live poll is ~53 KB of 16-symbol
-        // hex and gzips ~20x, which is the difference between a watchable grid and not
-        .layer(tower_http::compression::CompressionLayer::new())
+        // hex and gzips ~20x, which is the difference between a watchable grid and not.
+        // Chatbot Challenge's reply stream is excluded — gzip buffers before flushing,
+        // which would turn token-by-token streaming back into one delayed lump.
+        .layer(
+            tower_http::compression::CompressionLayer::new().compress_when(
+                tower_http::compression::predicate::DefaultPredicate::new().and(
+                    tower_http::compression::predicate::NotForContentType::new("text/event-stream"),
+                ),
+            ),
+        )
         .with_state(app);
 
     let addr = std::env::var("BIND").unwrap_or_else(|_| "0.0.0.0:3000".into());

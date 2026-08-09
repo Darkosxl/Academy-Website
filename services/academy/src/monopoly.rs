@@ -844,6 +844,11 @@ pub async fn admin_monopoly_member(
     .execute(&app.pool)
     .await
     .map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
+    sqlx::query("update users_exposure_academy set level = 'SERIES_A' where id = $1")
+        .bind(f.user_id)
+        .execute(&app.pool)
+        .await
+        .map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
     Ok(Redirect::to("/admin"))
 }
 
@@ -858,6 +863,15 @@ pub async fn admin_monopoly_member_remove(
         .execute(&app.pool)
         .await
         .map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
+    // Only demote if they're not also on a harness team — either one keeps them advanced.
+    sqlx::query(
+        "update users_exposure_academy set level = 'PRESEED' where id = $1
+         and not exists (select 1 from harness_team_members_exposure_academy where user_id = $1)",
+    )
+    .bind(f.id)
+    .execute(&app.pool)
+    .await
+    .map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
     Ok(Redirect::to("/admin"))
 }
 

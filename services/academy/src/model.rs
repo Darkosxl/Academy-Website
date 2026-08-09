@@ -12,6 +12,11 @@ pub struct User {
     /// Public handle. `None` means onboarding is unfinished — see `require_onboarded`.
     pub nickname: Option<String>,
     pub is_admin: bool,
+    /// PRESEED/SEED/SERIES_A, same values Video/Task use. Defaults PRESEED; flipped
+    /// to SERIES_A on harness/monopoly team assignment (see teams::member_assign,
+    /// monopoly::admin_monopoly_member). Tracks team status only — not a beginner/
+    /// advanced flag; use `BEGINNER_ROSTER`/`in_beginner_roster` for that.
+    pub level: String,
 }
 
 impl User {
@@ -218,13 +223,13 @@ pub const BEGINNER_ROSTER: [&str; 17] = [
     "Ali Selim Önder",
     "Alp Küçükkebabçı",
     "Alya Rejepov",
-    "Elif Sevim Öğütcen",
+    "Sevim Elif Öğütcen",
     "Nehir Macar",
     "Serden Aydın",
     "Ali Erdem Yılmaz",
     "Bahadır Kutay Kelleci",
     "Bora Bağran",
-    "Demir Erkuş",
+    "Kadir Demir Erkuş",
     "Zehra Karadayı",
     "Bilge Bilgin",
     "Çağan Barış Çelik",
@@ -471,6 +476,37 @@ pub fn level_points(level: &str) -> i64 {
 impl LeaderRow {
     pub fn points(&self) -> i64 {
         self.videos * PTS_VIDEO + self.project_points
+    }
+}
+
+// ---- Chatbot Challenge ----
+
+pub const CHATBOT_LEVEL_COUNT: i16 = 7;
+
+/// One turn in a level's transcript, oldest first.
+#[derive(FromRow, Clone)]
+pub struct ChatbotMessage {
+    pub role: String, // "user" | "assistant"
+    pub content: String,
+}
+
+/// One row of the Chatbot Challenge leaderboard.
+#[derive(FromRow)]
+pub struct ChatbotLeaderRow {
+    pub id: Uuid,
+    pub display_name: String,
+    pub nickname: String,
+    pub hidden: bool,
+    pub levels_done: i64,
+    /// Levels are strictly sequential, so for a student with `levels_done ==
+    /// CHATBOT_LEVEL_COUNT` this IS their final-level finish time — no separate
+    /// "finished_at" column or join needed.
+    pub last_completed_at: Option<DateTime<Utc>>,
+}
+
+impl ChatbotLeaderRow {
+    pub fn finished(&self) -> bool {
+        self.levels_done >= CHATBOT_LEVEL_COUNT as i64
     }
 }
 
