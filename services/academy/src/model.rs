@@ -171,6 +171,32 @@ pub struct BeginnerStudentRow {
     pub updated_at: Option<DateTime<Utc>>,
 }
 
+/// Agent Lab challenge 1 — the sandbox profile a browser agent fills in. A separate row
+/// from `Profile` on purpose: nothing an agent types into the lab can reach the account
+/// the student actually logs in with, so a runaway agent costs a reset and nothing else.
+#[derive(FromRow)]
+pub struct AgentLabProfile {
+    pub full_name: String,
+    pub school: String,
+    pub grade: String,
+    pub interest: String,
+    pub agent_goal: String,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// Agent Lab challenge 2 — the student's latest sandbox submission, carrying whether the
+/// project the agent picked was the one the brief describes. Isolated from
+/// `BeginnerSubmission` the same way and for the same reason: these rows are never graded
+/// and never scored.
+#[derive(FromRow)]
+pub struct AgentLabSubmission {
+    pub project_key: String,
+    pub repo_url: String,
+    pub demo_url: String,
+    pub correct: bool,
+    pub updated_at: DateTime<Utc>,
+}
+
 /// How many students have handed in one project — the count on the project list.
 #[derive(FromRow)]
 pub struct BeginnerProjectCount {

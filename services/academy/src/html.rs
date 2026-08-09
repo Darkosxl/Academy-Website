@@ -2680,9 +2680,300 @@ pub fn beginner_track(user: &User, subs: &[BeginnerSubmission]) -> String {
     <a class="btn-outline small" href="/static/beginner-projects/vibe-coding-cheat-sheet.pdf" target="_blank" rel="noopener">Cheat sheet indir ⬇</a>
   </div>
 </div>
+<div class="taskcard">
+  <div class="taskhead"><h3 lang="en">Agent Lab</h3></div>
+  <p class="desc">Browser agent'ını Exposure Student Portal üzerinde test et.
+Form doldur, doğru projeyi bul ve görev akışlarını otomatikleştir.</p>
+  <div class="cardactions">
+    <a class="btn-outline small" href="{AGENT_LAB_PATH}">Agent Lab'e git →</a>
+  </div>
+</div>
 <div class="tasks">{cards}</div>"##
         ),
     )
+}
+
+// ---- Agent Lab (Beginner Track) ----
+
+/// Canonical Agent Lab URL. It is a Beginner Track sub-page, not a sidebar section of its
+/// own, so it lives under `/beginner-track/` and the sidebar keeps highlighting Beginner
+/// Track while a student is inside the lab.
+pub const AGENT_LAB_PATH: &str = "/beginner-track/agent-lab";
+
+/// The lab's two challenges: (path segment, badge, title, one-line summary). Fixed content,
+/// same hardcoded-list pattern as `BEGINNER_PROJECTS` and `DEMOS`.
+pub const AGENT_LAB_CHALLENGES: [(&str, &str, &str, &str); 2] = [
+    (
+        "student-profile",
+        "Challenge 1",
+        "Student Profile Agent",
+        "Ajanın sandbox öğrenci profilini açsın, beş alanı da doldursun ve kaydetsin. \
+         Formu ajan bulmalı — sen tıklamayacaksın.",
+    ),
+    (
+        "project-submission",
+        "Challenge 2",
+        "Project Submission Agent",
+        "Ajanın brifi okusun, listedeki beş sandbox projeden tarife uyanı seçsin ve \
+         repo + demo bağlantılarıyla göndersin.",
+    ),
+];
+
+/// The five sandbox projects challenge 2 shows. These are invented for the lab and share
+/// nothing with `BEGINNER_PROJECTS` — no key overlaps, no brief is downloadable — so an
+/// agent that submits here can never be mistaken for a student handing in real work.
+pub const AGENT_LAB_PROJECTS: [(&str, &str, &str); 5] = [
+    (
+        "lab-hava-durumu",
+        "Lab A — Hava Durumu Panosu",
+        "Şehir seçince o şehrin 5 günlük tahminini kart kart gösteren bir pano.",
+    ),
+    (
+        "lab-fis-okuyucu",
+        "Lab B — Fiş Okuyucu",
+        "Fiş fotoğrafını okuyup satırlardaki harcamaları bir tabloya aktaran uygulama.",
+    ),
+    (
+        "lab-kitap-onerici",
+        "Lab C — Kitap Önerici",
+        "Okuduğun kitapları girdikçe sıradakini öneren küçük bir tavsiye motoru.",
+    ),
+    (
+        "lab-ses-notu",
+        "Lab D — Ses Notu Özetleyici",
+        "Ses kaydını yazıya çevirip maddeler halinde özet çıkaran uygulama.",
+    ),
+    (
+        "lab-bitki-bakimi",
+        "Lab E — Bitki Bakım Takipçisi",
+        "Bitkilerinin sulama günlerini takip edip zamanı gelince hatırlatan uygulama.",
+    ),
+];
+
+/// Which of `AGENT_LAB_PROJECTS` the challenge-2 brief describes. The brief below names the
+/// behaviour, never the key or the title, so finding it is a reading task for the agent.
+pub const AGENT_LAB_TARGET: &str = "lab-fis-okuyucu";
+
+/// What the agent has to satisfy in challenge 2, in the student's own words. Kept next to
+/// `AGENT_LAB_TARGET` so the two can't drift apart.
+const AGENT_LAB_BRIEF: &str = "Aşağıdaki sandbox projelerden fiş fotoğrafını okuyup harcamaları tabloya aktaranı bul \
+     ve onu gönder.";
+
+/// The lab hub: the two challenges as cards, in the same `.tasks` grid the Beginner Track
+/// projects use.
+pub fn agent_lab(user: &User) -> String {
+    let cards: String = AGENT_LAB_CHALLENGES
+        .iter()
+        .map(|(slug, badge, title, summary)| {
+            format!(
+                r##"<div class="taskcard">
+  <div class="taskhead"><h3 lang="en">{title}</h3><span class="badge">{badge}</span></div>
+  <p class="desc">{summary}</p>
+  <div class="cardactions">
+    <a class="btn-outline small" href="{AGENT_LAB_PATH}/{slug}">Challenge'ı aç →</a>
+  </div>
+</div>"##,
+                title = esc(title),
+                badge = esc(badge),
+                summary = esc(summary),
+            )
+        })
+        .collect();
+    let content = format!(
+        r##"<p class="fieldnote"><a href="/beginner-track">← Beginner Track</a></p>
+<h1 class="pagetitle" lang="en">Agent Lab</h1>
+<p class="muted">Browser agent'ını Exposure Student Portal üzerinde test et. Form doldur, doğru projeyi bul ve görev akışlarını otomatikleştir.</p>
+<div class="taskcard">
+  <div class="taskhead"><h3>Bu bir test alanı</h3></div>
+  <p class="desc">Buradaki iki challenge gerçek portalın kopyası olan sandbox sayfalarda çalışır. Ajanın ne yazarsa yazsın gerçek profiline ya da gerçek proje gönderimlerine dokunmaz; her challenge'ı istediğin kadar sıfırlayıp baştan çalıştırabilirsin.</p>
+</div>
+<div class="tasks">{cards}</div>"##
+    );
+    layout("Agent Lab", Some(user), "beginner-track", &content)
+}
+
+/// Back link + heading shared by both challenge pages, so they can't drift apart.
+fn agent_lab_head(badge: &str, title: &str, lead: &str) -> String {
+    format!(
+        r##"<p class="fieldnote"><a href="{AGENT_LAB_PATH}">← Agent Lab</a></p>
+<h1 class="pagetitle" lang="en">{title}</h1>
+<p class="muted">{badge} · {lead}</p>"##,
+        title = esc(title),
+        badge = esc(badge),
+        lead = esc(lead),
+    )
+}
+
+/// Challenge 1 — the sandbox profile form. Deliberately the same field vocabulary as
+/// /profile so driving it teaches the real thing, but it posts to its own table.
+pub fn agent_lab_profile(
+    user: &User,
+    saved: Option<&AgentLabProfile>,
+    error: Option<&str>,
+) -> String {
+    let banner = error
+        .map(|e| format!(r#"<p class="error">{}</p>"#, esc(e)))
+        .unwrap_or_default();
+    let grade_now = saved.map(|s| s.grade.as_str()).unwrap_or("");
+    let grade_opts: String = std::iter::once(String::from(r#"<option value="">Seç…</option>"#))
+        .chain(GRADES.iter().map(|g| {
+            let sel = if grade_now == *g { " selected" } else { "" };
+            format!(r#"<option value="{g}"{sel}>{g}</option>"#)
+        }))
+        .collect();
+    let status = match saved {
+        Some(s) => format!(
+            r##"<span class="substatus st-passed">Kaydedildi ✓</span>
+<p class="fieldnote">Son kayıt: {when}</p>"##,
+            when = s.updated_at.format("%d.%m.%Y %H:%M"),
+        ),
+        None => r#"<span class="substatus st-pending">Henüz doldurulmadı</span>"#.into(),
+    };
+    let content = format!(
+        r##"{head}
+<div class="tasks">
+  <div class="taskcard">
+    <div class="taskhead"><h3>Görev</h3></div>
+    <p class="desc">Ajanına şunu yaptır: bu sayfayı aç, aşağıdaki beş alanı da doldur ve <b>Kaydet</b> düğmesine bas. Kayıt başarılıysa form bir sonraki açılışta dolu gelir ve yukarıda «Kaydedildi ✓» görünür.</p>
+    <p class="desc">Başarı ölçütü: beş alan da dolu ve kaydedilmiş olacak. Boş bırakılan bir alan kaydı reddeder — ajanın hata mesajını okuyup düzeltebilmeli.</p>
+    <form method="post" action="{AGENT_LAB_PATH}/reset">
+      <input type="hidden" name="challenge" value="student-profile">
+      <button class="btn-outline small">Testi sıfırla</button>
+    </form>
+  </div>
+  <div class="taskcard">
+    <div class="taskhead"><h3>Sandbox öğrenci profili</h3></div>
+    {status}
+    {banner}
+    <form method="post" action="{AGENT_LAB_PATH}/student-profile">
+      <label>Ad soyad<input name="full_name" value="{full_name}" placeholder="ör. Deniz Yılmaz" required></label>
+      <label>Okul<input name="school" value="{school}" placeholder="ör. Test Anadolu Lisesi" required></label>
+      <label>Sınıf<select name="grade" required>{grade_opts}</select></label>
+      <label>İlgi alanı<input name="interest" value="{interest}" placeholder="ör. robotik" required></label>
+      <label>Ajanın hedefi<input name="agent_goal" value="{agent_goal}" placeholder="ör. formu tek seferde doldurmak" required></label>
+      <p class="fieldnote">Bu form sandbox verisine yazar. Gerçek profilin <a href="/profile">Profilim</a> sayfasında ve buradan etkilenmez.</p>
+      <button class="btn-dark">Kaydet</button>
+    </form>
+  </div>
+</div>"##,
+        head = agent_lab_head(
+            "Challenge 1",
+            "Student Profile Agent",
+            "Sandbox öğrenci profilini ajanına doldurt."
+        ),
+        full_name = esc(saved.map(|s| s.full_name.as_str()).unwrap_or("")),
+        school = esc(saved.map(|s| s.school.as_str()).unwrap_or("")),
+        interest = esc(saved.map(|s| s.interest.as_str()).unwrap_or("")),
+        agent_goal = esc(saved.map(|s| s.agent_goal.as_str()).unwrap_or("")),
+    );
+    layout(
+        "Student Profile Agent",
+        Some(user),
+        "beginner-track",
+        &content,
+    )
+}
+
+/// Challenge 2 — the sandbox submission form. The five projects are listed in full so the
+/// agent has something to read and choose from; only one of them matches the brief.
+pub fn agent_lab_submission(
+    user: &User,
+    saved: Option<&AgentLabSubmission>,
+    error: Option<&str>,
+) -> String {
+    let banner = error
+        .map(|e| format!(r#"<p class="error">{}</p>"#, esc(e)))
+        .unwrap_or_default();
+    let picked = saved.map(|s| s.project_key.as_str()).unwrap_or("");
+    let options: String = std::iter::once(String::from(r#"<option value="">Proje seç…</option>"#))
+        .chain(AGENT_LAB_PROJECTS.iter().map(|(key, title, _)| {
+            format!(
+                r#"<option value="{key}"{sel}>{title}</option>"#,
+                title = esc(title),
+                sel = if picked == *key { " selected" } else { "" },
+            )
+        }))
+        .collect();
+    // `.desc` is white-space:pre-wrap, so the list is newline-separated text rather than a
+    // <ul> — the reset zeroes list padding, which would clip the markers.
+    let list: Vec<String> = AGENT_LAB_PROJECTS
+        .iter()
+        .map(|(_, title, summary)| {
+            format!(
+                "• <b>{title}</b> — {summary}",
+                title = esc(title),
+                summary = esc(summary),
+            )
+        })
+        .collect();
+    let list = list.join("\n");
+    // Wrong picks are saved too, so a student can see what the agent actually chose
+    // instead of only "başarısız".
+    let status = match saved {
+        Some(s) if s.correct => format!(
+            r##"<span class="substatus st-passed">Doğru proje ✓</span>
+<p class="fieldnote">Son gönderim: {when}</p>"##,
+            when = s.updated_at.format("%d.%m.%Y %H:%M"),
+        ),
+        Some(s) => format!(
+            r##"<span class="substatus st-failed">Yanlış proje</span>
+<p class="fieldnote">Ajanın <b>{title}</b> gönderdi ({when}). Brifi tekrar okut ve yeniden dene.</p>"##,
+            title = esc(agent_lab_project_title(&s.project_key)),
+            when = s.updated_at.format("%d.%m.%Y %H:%M"),
+        ),
+        None => r#"<span class="substatus st-pending">Henüz gönderilmedi</span>"#.into(),
+    };
+    let content = format!(
+        r##"{head}
+<div class="tasks">
+  <div class="taskcard">
+    <div class="taskhead"><h3>Brif</h3></div>
+    <p class="desc">{brief}</p>
+    <p class="desc">{list}</p>
+    <p class="desc">Başarı ölçütü: doğru proje seçilmiş, repo bağlantısı <b>https://github.com/</b> ile başlıyor ve demo bağlantısı <b>https://</b> ile başlıyor olacak.</p>
+    <form method="post" action="{AGENT_LAB_PATH}/reset">
+      <input type="hidden" name="challenge" value="project-submission">
+      <button class="btn-outline small">Testi sıfırla</button>
+    </form>
+  </div>
+  <div class="taskcard">
+    <div class="taskhead"><h3>Sandbox proje gönderimi</h3></div>
+    {status}
+    {banner}
+    <form method="post" action="{AGENT_LAB_PATH}/project-submission">
+      <label>Proje<select name="project_key" required>{options}</select></label>
+      <label>Repo bağlantısı<input name="repo_url" type="url" value="{repo}" placeholder="https://github.com/..." required></label>
+      <label>Demo bağlantısı<input name="demo_url" type="url" value="{demo}" placeholder="https://..." required></label>
+      <p class="fieldnote">Bu gönderim sandbox verisine yazar; puanlanmaz ve <a href="/beginner-track">Beginner Track</a> gönderimlerine karışmaz.</p>
+      <button class="btn-dark">Gönder →</button>
+    </form>
+  </div>
+</div>"##,
+        head = agent_lab_head(
+            "Challenge 2",
+            "Project Submission Agent",
+            "Ajanına doğru projeyi buldurup gönderimi tamamlat."
+        ),
+        brief = esc(AGENT_LAB_BRIEF),
+        repo = esc(saved.map(|s| s.repo_url.as_str()).unwrap_or("")),
+        demo = esc(saved.map(|s| s.demo_url.as_str()).unwrap_or("")),
+    );
+    layout(
+        "Project Submission Agent",
+        Some(user),
+        "beginner-track",
+        &content,
+    )
+}
+
+/// Display title for a lab project key. Falls back to the key itself so a row written by
+/// an older list still renders instead of taking the page down.
+fn agent_lab_project_title(key: &str) -> &str {
+    AGENT_LAB_PROJECTS
+        .iter()
+        .find(|(k, ..)| *k == key)
+        .map(|(_, title, _)| *title)
+        .unwrap_or(key)
 }
 
 /// Admin view, step 1: the seven projects as a list, each carrying how many students have
@@ -4811,6 +5102,91 @@ mod tests {
         );
     }
 
+    /// The Agent Lab entry point is a card on the Beginner Track page and nothing else —
+    /// no sidebar item of its own. Both halves matter: losing the card strands the lab,
+    /// and a sidebar entry is what the section was explicitly not to become.
+    #[test]
+    fn agent_lab_is_reachable_from_beginner_track_only() {
+        let user = User {
+            id: Uuid::nil(),
+            display_name: "A".into(),
+            nickname: Some("a".into()),
+            is_admin: false,
+        };
+        let track = beginner_track(&user, &[]);
+        assert!(
+            track.contains(&format!(r#"href="{AGENT_LAB_PATH}""#)),
+            "beginner track should carry the Agent Lab card"
+        );
+        // the sidebar ships on every page, so any page renders the whole nav
+        assert!(
+            !track.contains(r#"class="sb-nav""#) || !track.contains(r#"<span>Agent Lab</span>"#),
+            "Agent Lab must not appear as a sidebar item"
+        );
+        // …and inside the lab the sidebar still highlights Beginner Track
+        let hub = agent_lab(&user);
+        assert!(
+            hub.contains(r#"<a href="/beginner-track" class="active">"#),
+            "the lab is a Beginner Track sub-page, so that nav entry stays active"
+        );
+        for (slug, _, title, _) in AGENT_LAB_CHALLENGES {
+            assert!(
+                hub.contains(&format!(r#"href="{AGENT_LAB_PATH}/{slug}""#)) && hub.contains(title),
+                "the lab hub should list {title}"
+            );
+        }
+    }
+
+    /// The lab's project list is the whole of challenge 2's search space, and the brief's
+    /// target has to be findable in it. A rename on one side and not the other would leave
+    /// a challenge nobody can pass.
+    #[test]
+    fn agent_lab_target_is_one_of_its_projects() {
+        assert!(
+            AGENT_LAB_PROJECTS
+                .iter()
+                .any(|(k, ..)| *k == AGENT_LAB_TARGET),
+            "the brief's target must be on the list the student picks from"
+        );
+        // Sharing a key with a real Beginner Track project is how lab data would start
+        // looking like coursework; the two vocabularies stay disjoint.
+        for (lab_key, ..) in AGENT_LAB_PROJECTS {
+            assert!(
+                !BEGINNER_PROJECTS.iter().any(|(k, ..)| *k == lab_key),
+                "lab project {lab_key} collides with a real Beginner Track project key"
+            );
+        }
+    }
+
+    /// A wrong pick is kept and named back to the student — "yanlış proje" with no clue
+    /// which one the agent chose is useless for debugging a run.
+    #[test]
+    fn agent_lab_submission_reports_the_wrong_pick_by_name() {
+        let user = User {
+            id: Uuid::nil(),
+            display_name: "A".into(),
+            nickname: Some("a".into()),
+            is_admin: false,
+        };
+        let wrong = AGENT_LAB_PROJECTS
+            .iter()
+            .find(|(k, ..)| *k != AGENT_LAB_TARGET)
+            .unwrap();
+        let sub = AgentLabSubmission {
+            project_key: wrong.0.into(),
+            repo_url: "https://github.com/a/b".into(),
+            demo_url: "https://a.vercel.app".into(),
+            correct: false,
+            updated_at: chrono::DateTime::<chrono::Utc>::MIN_UTC,
+        };
+        let html = agent_lab_submission(&user, Some(&sub), None);
+        assert!(html.contains("st-failed") && html.contains(wrong.1));
+        assert!(
+            !html.contains("st-passed"),
+            "a wrong pick must not also read as passed"
+        );
+    }
+
     #[test]
     fn gallery_empty_state() {
         let user = User {
@@ -5802,5 +6178,68 @@ mod tests {
             std::fs::write(dir.join(format!("{name}.html")), html).unwrap();
         }
         eprintln!("wrote harness pages to {}", dir.display());
+    }
+
+    /// Same idea as `render_harness_pages`, for the Beginner Track / Agent Lab screens —
+    /// they are all database-free too, so the card design and the mobile stack are
+    /// checkable in a browser without standing up a server.
+    /// `AGENT_LAB_RENDER_DIR=/tmp/a cargo test -p academy -- --ignored render_agent_lab`
+    #[test]
+    #[ignore]
+    fn render_agent_lab_pages() {
+        let Ok(dir) = std::env::var("AGENT_LAB_RENDER_DIR") else {
+            panic!("set AGENT_LAB_RENDER_DIR to the output directory");
+        };
+        let dir = std::path::PathBuf::from(dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let user = viewer();
+        let profile = AgentLabProfile {
+            full_name: "Deniz Yılmaz".into(),
+            school: "Test Anadolu Lisesi".into(),
+            grade: GRADES[1].into(),
+            interest: "robotik".into(),
+            agent_goal: "formu tek seferde doldurmak".into(),
+            updated_at: chrono::Utc::now(),
+        };
+        let passed = AgentLabSubmission {
+            project_key: AGENT_LAB_TARGET.into(),
+            repo_url: "https://github.com/deniz/lab".into(),
+            demo_url: "https://lab-deniz.vercel.app".into(),
+            correct: true,
+            updated_at: chrono::Utc::now(),
+        };
+        let wrong = AgentLabSubmission {
+            project_key: "lab-kitap-onerici".into(),
+            repo_url: passed.repo_url.clone(),
+            demo_url: passed.demo_url.clone(),
+            correct: false,
+            updated_at: passed.updated_at,
+        };
+        let pages: Vec<(&str, String)> = vec![
+            ("beginner-track", beginner_track(&user, &[])),
+            ("agent-lab", agent_lab(&user)),
+            ("challenge1-empty", agent_lab_profile(&user, None, None)),
+            (
+                "challenge1-saved",
+                agent_lab_profile(&user, Some(&profile), None),
+            ),
+            (
+                "challenge1-error",
+                agent_lab_profile(&user, None, Some("Beş alanın da dolu olması gerekiyor.")),
+            ),
+            ("challenge2-empty", agent_lab_submission(&user, None, None)),
+            (
+                "challenge2-wrong",
+                agent_lab_submission(&user, Some(&wrong), None),
+            ),
+            (
+                "challenge2-passed",
+                agent_lab_submission(&user, Some(&passed), None),
+            ),
+        ];
+        for (name, html) in pages {
+            std::fs::write(dir.join(format!("{name}.html")), html).unwrap();
+        }
+        eprintln!("wrote agent lab pages to {}", dir.display());
     }
 }

@@ -325,6 +325,235 @@ pub async fn beginner_track_submit(
     Ok(Redirect::to("/beginner-track"))
 }
 
+// ---- Agent Lab (Beginner Track) ----
+//
+// A sandbox pair of challenges for driving a browser agent around the portal. Every write
+// below targets agent_lab_*_exposure_academy and nothing else: the lab never reads or
+// writes users_exposure_academy, beginner_submissions_exposure_academy or
+// submissions_exposure_academy, so an agent loose in here cannot alter a real profile,
+// a real submission, or anybody's score.
+
+async fn agent_lab_profile_row(app: &App, user_id: Uuid) -> Option<AgentLabProfile> {
+    sqlx::query_as::<_, AgentLabProfile>(
+        "select full_name, school, grade, interest, agent_goal, updated_at
+         from agent_lab_profiles_exposure_academy where user_id = $1",
+    )
+    .bind(user_id)
+    .fetch_optional(&app.pool)
+    .await
+    .unwrap()
+}
+
+async fn agent_lab_submission_row(app: &App, user_id: Uuid) -> Option<AgentLabSubmission> {
+    sqlx::query_as::<_, AgentLabSubmission>(
+        "select project_key, repo_url, demo_url, correct, updated_at
+         from agent_lab_submissions_exposure_academy where user_id = $1",
+    )
+    .bind(user_id)
+    .fetch_optional(&app.pool)
+    .await
+    .unwrap()
+}
+
+/// The lab hub — the two challenges as cards.
+pub async fn agent_lab_hub(
+    State(app): State<App>,
+    headers: HeaderMap,
+) -> Result<Html<String>, Response> {
+    let user = require_onboarded(current_user(&app, &headers).await)?;
+    Ok(Html(html::agent_lab(&user)))
+}
+
+/// `/beginner/agent-lab` — the shorthand path, kept working so a link written either way
+/// lands in the same place. The canonical URL is the one under `/beginner-track/`.
+/// Temporary rather than permanent on purpose: a 308 sticks in browser caches long after
+/// the route it points at could be moved.
+pub async fn agent_lab_alias() -> Redirect {
+    Redirect::to(html::AGENT_LAB_PATH)
+}
+
+pub async fn agent_lab_profile_page(
+    State(app): State<App>,
+    headers: HeaderMap,
+) -> Result<Html<String>, Response> {
+    let user = require_onboarded(current_user(&app, &headers).await)?;
+    let saved = agent_lab_profile_row(&app, user.id).await;
+    Ok(Html(html::agent_lab_profile(&user, saved.as_ref(), None)))
+}
+
+#[derive(Deserialize)]
+pub struct AgentLabProfileForm {
+    #[serde(default)]
+    full_name: String,
+    #[serde(default)]
+    school: String,
+    #[serde(default)]
+    grade: String,
+    #[serde(default)]
+    interest: String,
+    #[serde(default)]
+    agent_goal: String,
+}
+
+/// Challenge 1's save. Validation is deliberately visible rather than lenient: an agent
+/// that leaves a field blank or invents a grade should get a message on the page it can
+/// read and act on, which is half of what the challenge is teaching.
+pub async fn agent_lab_profile_save(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Form(f): Form<AgentLabProfileForm>,
+) -> Result<Response, Response> {
+    let user = require_onboarded(current_user(&app, &headers).await)?;
+    let full_name = f.full_name.trim();
+    let school = f.school.trim();
+    let grade = f.grade.trim();
+    let interest = f.interest.trim();
+    let agent_goal = f.agent_goal.trim();
+    let err = if full_name.is_empty()
+        || school.is_empty()
+        || interest.is_empty()
+        || agent_goal.is_empty()
+    {
+        Some("Beş alanın da dolu olması gerekiyor.")
+    } else if !GRADES.contains(&grade) {
+        Some("Sınıf alanından listedeki seçeneklerden birini seç.")
+    } else {
+        None
+    };
+    if let Some(msg) = err {
+        let saved = agent_lab_profile_row(&app, user.id).await;
+        return Ok(Html(html::agent_lab_profile(&user, saved.as_ref(), Some(msg))).into_response());
+    }
+    sqlx::query(
+        "insert into agent_lab_profiles_exposure_academy
+           (user_id, full_name, school, grade, interest, agent_goal, updated_at)
+         values ($1,$2,$3,$4,$5,$6, now())
+         on conflict (user_id) do update set
+           full_name = excluded.full_name, school = excluded.school, grade = excluded.grade,
+           interest = excluded.interest, agent_goal = excluded.agent_goal, updated_at = now()",
+    )
+    .bind(user.id)
+    .bind(full_name)
+    .bind(school)
+    .bind(grade)
+    .bind(interest)
+    .bind(agent_goal)
+    .execute(&app.pool)
+    .await
+    .unwrap();
+    Ok(Redirect::to(&format!("{}/student-profile", html::AGENT_LAB_PATH)).into_response())
+}
+
+pub async fn agent_lab_submission_page(
+    State(app): State<App>,
+    headers: HeaderMap,
+) -> Result<Html<String>, Response> {
+    let user = require_onboarded(current_user(&app, &headers).await)?;
+    let saved = agent_lab_submission_row(&app, user.id).await;
+    Ok(Html(html::agent_lab_submission(
+        &user,
+        saved.as_ref(),
+        None,
+    )))
+}
+
+#[derive(Deserialize)]
+pub struct AgentLabSubmitForm {
+    #[serde(default)]
+    project_key: String,
+    #[serde(default)]
+    repo_url: String,
+    #[serde(default)]
+    demo_url: String,
+}
+
+/// Challenge 2's save. A pick off the list is stored whether or not it is the right one —
+/// the page then tells the student which project their agent chose, which is far more
+/// useful for debugging a run than a bare "başarısız". Only a key that isn't on the list
+/// at all is rejected outright.
+pub async fn agent_lab_submission_save(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Form(f): Form<AgentLabSubmitForm>,
+) -> Result<Response, Response> {
+    let user = require_onboarded(current_user(&app, &headers).await)?;
+    let project_key = f.project_key.trim();
+    let repo_url = f.repo_url.trim();
+    let demo_url = f.demo_url.trim();
+    let err = if !html::AGENT_LAB_PROJECTS
+        .iter()
+        .any(|(k, ..)| *k == project_key)
+    {
+        Some("Listedeki projelerden birini seç.")
+    } else if !repo_url.starts_with("https://github.com/") {
+        Some("Repo bağlantısı https://github.com/ ile başlamalı.")
+    } else if !demo_url.starts_with("https://") {
+        Some("Demo bağlantısı https:// ile başlamalı.")
+    } else {
+        None
+    };
+    if let Some(msg) = err {
+        let saved = agent_lab_submission_row(&app, user.id).await;
+        return Ok(
+            Html(html::agent_lab_submission(&user, saved.as_ref(), Some(msg))).into_response(),
+        );
+    }
+    sqlx::query(
+        "insert into agent_lab_submissions_exposure_academy
+           (user_id, project_key, repo_url, demo_url, correct, updated_at)
+         values ($1,$2,$3,$4,$5, now())
+         on conflict (user_id) do update set
+           project_key = excluded.project_key, repo_url = excluded.repo_url,
+           demo_url = excluded.demo_url, correct = excluded.correct, updated_at = now()",
+    )
+    .bind(user.id)
+    .bind(project_key)
+    .bind(repo_url)
+    .bind(demo_url)
+    .bind(project_key == html::AGENT_LAB_TARGET)
+    .execute(&app.pool)
+    .await
+    .unwrap();
+    Ok(Redirect::to(&format!("{}/project-submission", html::AGENT_LAB_PATH)).into_response())
+}
+
+#[derive(Deserialize)]
+pub struct AgentLabResetForm {
+    #[serde(default)]
+    challenge: String,
+}
+
+/// Wipe one challenge's sandbox row so the run can be repeated from empty. Scoped to the
+/// caller's own user_id, and only ever to the two lab tables.
+pub async fn agent_lab_reset(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Form(f): Form<AgentLabResetForm>,
+) -> Result<Redirect, Response> {
+    let user = require_onboarded(current_user(&app, &headers).await)?;
+    let table = match f.challenge.as_str() {
+        "student-profile" => "agent_lab_profiles_exposure_academy",
+        "project-submission" => "agent_lab_submissions_exposure_academy",
+        _ => {
+            return Err(
+                (StatusCode::BAD_REQUEST, "Challenge bulunamadı.".to_string()).into_response(),
+            );
+        }
+    };
+    // `table` is one of two literals chosen by the match above — never anything the caller
+    // typed — so the format! cannot carry a value into the statement.
+    sqlx::query(&format!("delete from {table} where user_id = $1"))
+        .bind(user.id)
+        .execute(&app.pool)
+        .await
+        .unwrap();
+    Ok(Redirect::to(&format!(
+        "{}/{}",
+        html::AGENT_LAB_PATH,
+        f.challenge
+    )))
+}
+
 /// Advanced Track — Agentic Harness and AI Monopoly, grouped behind one sidebar entry.
 pub async fn advanced_track_hub(
     State(app): State<App>,
