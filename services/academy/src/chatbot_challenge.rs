@@ -268,10 +268,10 @@ pub struct ChatbotQ {
 
 /// Beginner Track only — Advanced Track students already have Agentic Harness and
 /// AI Monopoly in prod, no need for this game too. Admins bypass so the feature
-/// stays testable regardless of the admin account's level, same reasoning
+/// stays testable regardless of admin roster membership, same reasoning
 /// require_onboarded uses to exempt admins from the nickname check.
 fn require_beginner(user: &User) -> Result<(), Response> {
-    if user.is_admin || user.level == "PRESEED" {
+    if user.is_admin || in_beginner_roster(&user.display_name) {
         Ok(())
     } else {
         Err(Redirect::to("/beginner-track").into_response())

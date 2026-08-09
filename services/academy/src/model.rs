@@ -14,8 +14,8 @@ pub struct User {
     pub is_admin: bool,
     /// PRESEED/SEED/SERIES_A, same values Video/Task use. Defaults PRESEED; flipped
     /// to SERIES_A on harness/monopoly team assignment (see teams::member_assign,
-    /// monopoly::admin_monopoly_member) — team membership is the only signal that
-    /// ever distinguished beginner from advanced students.
+    /// monopoly::admin_monopoly_member). Tracks team status only — not a beginner/
+    /// advanced flag; use `BEGINNER_ROSTER`/`in_beginner_roster` for that.
     pub level: String,
 }
 

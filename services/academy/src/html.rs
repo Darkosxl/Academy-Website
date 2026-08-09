@@ -2895,10 +2895,22 @@ pub fn chatbot_challenge_leaderboard(user: &User, rows: &[ChatbotLeaderRow]) -> 
             })
             .collect()
     };
+    let board = if user.is_admin {
+        format!(r##"<div class="lb">{list}</div>"##)
+    } else {
+        format!(
+            r##"<div class="doc-locked">
+  <div class="doc-blur" aria-hidden="true"><div class="lb">{list}</div></div>
+  <div class="doc-lockmsg">{lock}<b>Sıralama henüz açık değil</b>
+    <span>Hazır olduğunda burada açılacak.</span></div>
+</div>"##,
+            lock = ico(P_LOCK),
+        )
+    };
     let content = format!(
         r##"<h1 class="pagetitle">Chatbot Challenge — Sıralama</h1>
 <p class="muted">Kim daha çok seviye kırdı? İlk {CHATBOT_LEVEL_COUNT}/{CHATBOT_LEVEL_COUNT}'a ulaşan kazanır.</p>
-<div class="lb">{list}</div>"##
+{board}"##
     );
     layout(
         "Chatbot Challenge Sıralaması",
