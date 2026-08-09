@@ -417,10 +417,16 @@ pub async fn chatbot_challenge_leaderboard(
 ) -> Result<Html<String>, Response> {
     let user = require_onboarded(current_user(&app, &headers).await)?;
     require_beginner(&user)?;
-    let rows: Vec<ChatbotLeaderRow> = chatbot_leader_rows(&app)
-        .await
-        .into_iter()
-        .filter(|r| !r.hidden)
-        .collect();
+    // Non-admins get the locked view — don't even fetch real rows, so there is
+    // nothing in the response for devtools/view-source to recover.
+    let rows: Vec<ChatbotLeaderRow> = if user.is_admin {
+        chatbot_leader_rows(&app)
+            .await
+            .into_iter()
+            .filter(|r| !r.hidden)
+            .collect()
+    } else {
+        Vec::new()
+    };
     Ok(Html(html::chatbot_challenge_leaderboard(&user, &rows)))
 }
