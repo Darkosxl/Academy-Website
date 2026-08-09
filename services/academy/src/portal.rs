@@ -286,9 +286,9 @@ pub struct BeginnerSubmitForm {
     vercel_url: String,
 }
 
-/// Save (or replace) a student's GitHub + Vercel links for one Beginner Track project.
-/// Upserts the pair, same shape as `board_submit`'s validation but without the plan.md
-/// requirement.
+/// Save (or replace) a student's GitHub + Vercel links for one Beginner Track project
+/// (repo only, for the projects that deploy nowhere). Upserts the pair, same shape as
+/// `board_submit`'s validation but without the plan.md requirement.
 ///
 /// Changing either link sends the row back to the grading queue: status to 'pending',
 /// feedback and points cleared. Board submissions get this for free because each one
@@ -310,13 +310,21 @@ pub async fn beginner_track_submit(
         return Err(bad("Proje bulunamadı."));
     }
     let repo_url = f.repo_url.trim().to_string();
-    let vercel_url = f.vercel_url.trim().to_string();
     if !repo_url.starts_with("https://github.com/") {
         return Err(bad("Repo bağlantısı https://github.com/ ile başlamalı."));
     }
-    if !vercel_url.starts_with("https://") && !vercel_url.starts_with("http://") {
-        return Err(bad("Vercel bağlantısı https:// ile başlamalı."));
-    }
+    // Projects that run locally have no live site to hand in: their card renders no such
+    // field, and anything posted into one anyway is dropped rather than stored, so the
+    // column stays empty for exactly the rows the admin views already render as an em dash.
+    let vercel_url = if html::project_wants_live_url(&f.project_key) {
+        let url = f.vercel_url.trim().to_string();
+        if !url.starts_with("https://") && !url.starts_with("http://") {
+            return Err(bad("Vercel bağlantısı https:// ile başlamalı."));
+        }
+        url
+    } else {
+        String::new()
+    };
     sqlx::query(
         // aliased so the do-update can read the row's *current* values — Postgres needs
         // the alias declared on the INSERT target to reference it in ON CONFLICT

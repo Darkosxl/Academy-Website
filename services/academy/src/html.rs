@@ -2562,17 +2562,20 @@ pub fn advanced_track(user: &User) -> String {
 }
 
 // (key, title, one-line summary, pdf filename in static/beginner-projects/, optional
-// extra handout as (button label, pdf filename)). ponytail: hardcoded list, same pattern
-// as DEMOS — these are fixed, code-and-deploy content, not something an admin edits day
-// to day. Add a row here (and the PDF) for a new project. The extra slot is for a brief
-// that ships with its own reference sheet; `None` when the brief stands alone.
-pub const BEGINNER_PROJECTS: [(&str, &str, &str, &str, Option<(&str, &str)>); 7] = [
+// extra handout as (button label, pdf filename), whether the project deploys anywhere).
+// ponytail: hardcoded list, same pattern as DEMOS — these are fixed, code-and-deploy
+// content, not something an admin edits day to day. Add a row here (and the PDF) for a
+// new project. The extra slot is for a brief that ships with its own reference sheet;
+// `None` when the brief stands alone. The last flag is false for a project that runs
+// locally and has no live site to hand in — those ask for the repo only.
+pub const BEGINNER_PROJECTS: [(&str, &str, &str, &str, Option<(&str, &str)>, bool); 8] = [
     (
         "kisisel-web-sitesi",
         "Proje 1 — Kişisel Web Sitesi",
         "İlgi alanlarını ve ürettiklerini anlatan, yayında olan kişisel bir web sitesi kur.",
         "01-kisisel-web-sitesi.pdf",
         None,
+        true,
     ),
     (
         "kisisel-web-sitesi-chatbotu",
@@ -2580,6 +2583,7 @@ pub const BEGINNER_PROJECTS: [(&str, &str, &str, &str, Option<(&str, &str)>); 7]
         "Web siteni, profile.md dosyasından seni tanıtan bir chatbot ile genişlet.",
         "02-kisisel-web-sitesi-chatbotu.pdf",
         None,
+        true,
     ),
     (
         "ai-bouquet-maker",
@@ -2587,6 +2591,7 @@ pub const BEGINNER_PROJECTS: [(&str, &str, &str, &str, Option<(&str, &str)>); 7]
         "Annen için kişiselleştirilmiş yapay zekâ çiçek buketleri oluşturan bir uygulama geliştir.",
         "03-ai-bouquet-maker.pdf",
         None,
+        true,
     ),
     (
         "renovate-your-room",
@@ -2594,6 +2599,7 @@ pub const BEGINNER_PROJECTS: [(&str, &str, &str, &str, Option<(&str, &str)>); 7]
         "Oda fotoğrafını yükleyip yapay zekâ ile farklı dekorasyon stillerinde yeniden tasarla.",
         "04-renovate-your-room.pdf",
         None,
+        true,
     ),
     (
         "character-voice-studio",
@@ -2601,6 +2607,7 @@ pub const BEGINNER_PROJECTS: [(&str, &str, &str, &str, Option<(&str, &str)>); 7]
         "Kendi karakterini oluştur, görsel ve sesle hayata geçirip konuştur.",
         "05-character-voice-studio.pdf",
         None,
+        true,
     ),
     (
         "ai-calorie-tracker",
@@ -2608,6 +2615,7 @@ pub const BEGINNER_PROJECTS: [(&str, &str, &str, &str, Option<(&str, &str)>); 7]
         "Yemek fotoğrafını yapay zekâ ile analiz edip kalori ve besin değerlerini takip eden bir uygulama geliştir.",
         "06-ai-calorie-tracker.pdf",
         None,
+        true,
     ),
     (
         "smart-receipt",
@@ -2618,10 +2626,32 @@ pub const BEGINNER_PROJECTS: [(&str, &str, &str, &str, Option<(&str, &str)>); 7]
             "Apps Script cheat sheet ⬇",
             "07-google-apps-script-cheat-sheet.pdf",
         )),
+        true,
+    ),
+    (
+        "browser-agent",
+        "Proje 8 — Browser Agent",
+        "Browser Use ve Gemma 4 31B ile Agent Lab challenge'larını kendi başına tamamlayan bir browser agent geliştir.",
+        "08-browser-agent.pdf",
+        Some((
+            "Browser Agent cheat sheet ⬇",
+            "08-browser-agent-cheat-sheet.pdf",
+        )),
+        false,
     ),
 ];
 
-/// Beginner Track — the seven fixed projects above, each with a downloadable brief and a
+/// Whether this project hands in a live site next to its repo. An unknown key answers
+/// `true`, the stricter side — callers validate the key against the list first anyway.
+pub fn project_wants_live_url(key: &str) -> bool {
+    BEGINNER_PROJECTS
+        .iter()
+        .find(|(k, ..)| *k == key)
+        .map(|(.., wants)| *wants)
+        .unwrap_or(true)
+}
+
+/// Beginner Track — the fixed projects above, each with a downloadable brief and a
 /// save-your-links form. Self-reported, no grading: the form always shows, pre-filled
 /// with whatever was last saved, and resaving just overwrites it.
 /// The track's own hub: three subsets side by side, same pattern advanced_track()
@@ -2635,7 +2665,7 @@ pub fn beginner_track(user: &User, projects_done: usize, chatbot_level: i16) -> 
   <a class="hubcard" href="/beginner-track/projects">
     <span class="hubico">{ico_projects}</span>
     <h2>Haftalık Projeler</h2>
-    <p>7 proje. Her biri için brifi indir, projeni yap, sonra GitHub ve Vercel bağlantılarını kaydet. Kaydedilen: {projects_done}/7.</p>
+    <p>{total} proje. Her biri için brifi indir, projeni yap, sonra GitHub ve Vercel bağlantılarını kaydet. Kaydedilen: {projects_done}/{total}.</p>
     <span class="hubgo">Projelere git →</span>
   </a>
   <a class="hubcard" href="/chatbot-challenge">
@@ -2654,6 +2684,8 @@ pub fn beginner_track(user: &User, projects_done: usize, chatbot_level: i16) -> 
         ico_projects = ico(P_DOC),
         ico_chat = ico(P_CHAT),
         ico_lab = ico(P_BEAKER),
+        // Counted off the list, not typed in — adding a project should mean adding a row.
+        total = BEGINNER_PROJECTS.len(),
         chat_status = if chatbot_level > CHATBOT_LEVEL_COUNT {
             format!("{CHATBOT_LEVEL_COUNT}/{CHATBOT_LEVEL_COUNT} — tamamlandı 🏆")
         } else {
@@ -2663,12 +2695,12 @@ pub fn beginner_track(user: &User, projects_done: usize, chatbot_level: i16) -> 
     layout("Beginner Track", Some(user), "beginner-track", &content)
 }
 
-/// The weekly-projects subset: cheat sheet plus the 7 project cards, split out of
+/// The weekly-projects subset: cheat sheet plus one card per project, split out of
 /// beginner_track() so that page can stay a clean two-card hub.
 pub fn beginner_projects(user: &User, subs: &[BeginnerSubmission]) -> String {
     let cards: String = BEGINNER_PROJECTS
         .iter()
-        .map(|(key, title, summary, pdf, extra)| {
+        .map(|(key, title, summary, pdf, extra, wants_live)| {
             // A project's own reference sheet sits next to its brief, not up with the
             // track-wide cheat sheet — it is only useful once you're on this project.
             let extra_link = match extra {
@@ -2687,6 +2719,18 @@ pub fn beginner_projects(user: &User, subs: &[BeginnerSubmission]) -> String {
             } else {
                 ""
             };
+            // A locally-run project has nothing to deploy, so its card asks for the repo
+            // and stops there — no field the student can only fill by making one up. The
+            // input is dropped entirely rather than left optional; `vercel_url` defaults
+            // to empty server-side, which is what those rows store.
+            let live_input = if *wants_live {
+                format!(
+                    r#"<input name="vercel_url" type="url" placeholder="https://...vercel.app" value="{vercel_val}" required>"#,
+                    vercel_val = esc(&vercel_val),
+                )
+            } else {
+                String::new()
+            };
             format!(
                 r##"<div class="taskcard">
   <div class="taskhead"><h3>{title}</h3></div>
@@ -2699,20 +2743,20 @@ pub fn beginner_projects(user: &User, subs: &[BeginnerSubmission]) -> String {
   <form method="post" action="/beginner-track/submit" class="subform">
     <input type="hidden" name="project_key" value="{key}">
     <input name="repo_url" type="url" placeholder="https://github.com/..." value="{repo_val}" required>
-    <input name="vercel_url" type="url" placeholder="https://...vercel.app" value="{vercel_val}" required>
+    {live_input}
     <button class="btn-dark">Kaydet →</button>
   </form>
 </div>"##,
                 title = esc(title),
                 summary = esc(summary),
                 repo_val = esc(&repo_val),
-                vercel_val = esc(&vercel_val),
             )
         })
         .collect();
+    let total = BEGINNER_PROJECTS.len();
     let content = format!(
         r##"<h1 class="pagetitle">Haftalık Projeler</h1>
-<p class="muted">Başlangıç seviyesindeki 7 proje. Her biri için brifi indir, projeni yap, sonra GitHub ve Vercel bağlantılarını kaydet.</p>
+<p class="muted">Başlangıç seviyesindeki {total} proje. Her biri için brifi indir, projeni yap, sonra GitHub ve Vercel bağlantılarını kaydet.</p>
 <div class="taskcard">
   <div class="taskhead"><h3>Vibe Coding Cheat Sheet</h3></div>
   <p class="desc">Tüm beginner track projelerinde işine yarayacak hızlı referans rehberi.</p>
@@ -3968,7 +4012,7 @@ pub fn agent_lab_job_form(
     )
 }
 
-/// Admin view, step 1: the seven projects as a list, each carrying how many students have
+/// Admin view, step 1: the projects as a list, each carrying how many students have
 /// handed it in. Clicking one opens `admin_beginner_project`.
 pub fn admin_beginner_list(
     user: &User,
@@ -4046,7 +4090,7 @@ pub fn admin_beginner_project(
         .iter()
         .find(|(k, ..)| *k == key)
         .copied()
-        .unwrap_or((key, key, "", "", None));
+        .unwrap_or((key, key, "", "", None, true));
     let submitted = rows.iter().filter(|r| r.repo_url.is_some()).count();
     // Long URLs would push the table past the panel, so each cell shows a short label and
     // carries the full URL in the title attribute. href is the raw (escaped) student URL:
@@ -6094,6 +6138,58 @@ mod tests {
                 ),
             "proje 7 should link both its brief and its apps script cheat sheet"
         );
+        assert!(
+            html.contains(r#"href="/static/beginner-projects/08-browser-agent.pdf""#)
+                && html.contains(
+                    r#"href="/static/beginner-projects/08-browser-agent-cheat-sheet.pdf""#
+                ),
+            "proje 8 should link both its brief and its browser agent cheat sheet"
+        );
+    }
+
+    /// Proje 8 runs locally and deploys nowhere, so its card asks for the repo and nothing
+    /// else — a required live-site field there can only be satisfied by inventing a URL.
+    /// The projects that do deploy must keep both fields.
+    #[test]
+    fn a_project_with_no_deploy_asks_for_the_repo_only() {
+        let html = beginner_projects(&student(), &[]);
+        let card = |key: &str| {
+            let start = html
+                .find(&format!(r#"value="{key}""#))
+                .unwrap_or_else(|| panic!("no card for {key}"));
+            let end = html[start..].find("</form>").unwrap() + start;
+            html[start..end].to_string()
+        };
+        assert!(
+            !card("browser-agent").contains(r#"name="vercel_url""#),
+            "proje 8 has no live site to hand in"
+        );
+        assert!(
+            card("smart-receipt").contains(r#"name="vercel_url""#),
+            "a deployed project still asks for its live link"
+        );
+        assert!(!project_wants_live_url("browser-agent"));
+        assert!(project_wants_live_url("smart-receipt"));
+        // Unknown keys take the stricter answer rather than silently skipping validation.
+        assert!(project_wants_live_url("no-such-project"));
+    }
+
+    /// Every brief (and every extra handout) named in the list has to exist under
+    /// static/beginner-projects/ — a typo'd filename is a 404 the student hits, not a
+    /// compile error, so pin it here.
+    #[test]
+    fn beginner_project_handouts_exist_on_disk() {
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/static/beginner-projects/");
+        for (key, _, _, pdf, extra, _) in BEGINNER_PROJECTS {
+            let files = [Some(pdf), extra.map(|(_, f)| f)];
+            for file in files.into_iter().flatten() {
+                let path = format!("{dir}{file}");
+                assert!(
+                    std::path::Path::new(&path).is_file(),
+                    "{key}: missing handout {file}"
+                );
+            }
+        }
     }
 
     /// The hub is three peer hubcards (projects, chatbot, agent lab), same shape as
@@ -6110,7 +6206,7 @@ mod tests {
             3,
             "exactly three peer subsets"
         );
-        assert!(html.contains("3/7"));
+        assert!(html.contains(&format!("3/{}", BEGINNER_PROJECTS.len())));
         assert!(html.contains("seviye 2/7"));
     }
 
