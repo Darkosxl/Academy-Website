@@ -155,6 +155,12 @@ async fn main() {
         .execute(&pool)
         .await
         .expect("agent lab migration failed");
+    sqlx::raw_sql(include_str!(
+        "../migrations/017_agent_lab_job_applications.sql"
+    ))
+    .execute(&pool)
+    .await
+    .expect("agent lab job applications migration failed");
     seed_admin(&pool).await;
     seed_invite_code(&pool).await;
     seed_videos(&pool).await;
@@ -223,6 +229,14 @@ async fn main() {
         .route(
             "/beginner-track/agent-lab/project-submission",
             get(agent_lab_submission_page).post(agent_lab_submission_save),
+        )
+        .route(
+            "/beginner-track/agent-lab/job-applications",
+            get(agent_lab_jobs_page),
+        )
+        .route(
+            "/beginner-track/agent-lab/job-applications/{job_key}",
+            get(agent_lab_job_page).post(agent_lab_job_submit),
         )
         .route("/beginner-track/agent-lab/reset", post(agent_lab_reset))
         .route("/chatbot-challenge", get(chatbot_challenge_page))
