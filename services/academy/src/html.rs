@@ -3042,7 +3042,7 @@ pub fn agent_lab(user: &User) -> String {
     <span class="hubico">{icon}</span>
     <h2 lang="en">{title}</h2>
     <p>{summary}</p>
-    <span class="hubstat">{pill}</span>
+    <span class="hubstat" lang="en">{pill}</span>
     <span class="hubgo">Challenge'ı aç →</span>
   </a>"##,
                 icon = ico(match *slug {
@@ -3741,13 +3741,9 @@ fn agent_lab_job_field(job_key: &str, f: &Field, answers: Option<&Answers>) -> S
     let id = format!("{job_key}-{name}", name = f.name);
     let saved = answers.and_then(|a| a.get(f.name));
     let value = esc(&answer_text(saved));
-    // Required is marked in the label text as well as the attribute: the attribute alone is
-    // invisible to anyone reading the page rather than the DOM.
-    let mark = if f.required {
-        ""
-    } else {
-        r#" <span class="fieldnote">— optional</span>"#
-    };
+    // Optionality is carried by the label text itself — every optional field's label ends
+    // in "(Optional)", asserted in `optional_fields_say_so_in_their_label`. A second marker
+    // appended here would just read "Expected Salary (Optional) — optional".
     let attr = if f.required { " required" } else { "" };
     match &f.kind {
         FieldKind::Text | FieldKind::Email | FieldKind::Url => {
@@ -3758,7 +3754,7 @@ fn agent_lab_job_field(job_key: &str, f: &Field, answers: Option<&Answers>) -> S
             };
             format!(
                 r##"<div class="jobfield">
-  <label for="{id}">{label}{mark}</label>
+  <label for="{id}">{label}</label>
   <input type="{ty}" id="{id}" name="{name}" value="{value}"{attr}>
 </div>"##,
                 label = esc(f.label),
@@ -3767,7 +3763,7 @@ fn agent_lab_job_field(job_key: &str, f: &Field, answers: Option<&Answers>) -> S
         }
         FieldKind::Textarea => format!(
             r##"<div class="jobfield">
-  <label for="{id}">{label}{mark}</label>
+  <label for="{id}">{label}</label>
   <textarea id="{id}" name="{name}" rows="4"{attr}>{value}</textarea>
 </div>"##,
             label = esc(f.label),
@@ -3789,7 +3785,7 @@ fn agent_lab_job_field(job_key: &str, f: &Field, answers: Option<&Answers>) -> S
                 .collect();
             format!(
                 r##"<div class="jobfield">
-  <label for="{id}">{label}{mark}</label>
+  <label for="{id}">{label}</label>
   <select id="{id}" name="{name}"{attr}>{opts}</select>
 </div>"##,
                 label = esc(f.label),
@@ -3811,7 +3807,7 @@ fn agent_lab_job_field(job_key: &str, f: &Field, answers: Option<&Answers>) -> S
                 .collect();
             format!(
                 r##"<fieldset class="jobfield">
-  <legend>{label}{mark}</legend>
+  <legend>{label}</legend>
   {items}
 </fieldset>"##,
                 label = esc(f.label),
@@ -3834,7 +3830,7 @@ fn agent_lab_job_field(job_key: &str, f: &Field, answers: Option<&Answers>) -> S
             // of them be ticked; "at least one" is enforced server-side instead
             format!(
                 r##"<fieldset class="jobfield">
-  <legend>{label}{mark}</legend>
+  <legend>{label}</legend>
   {items}
 </fieldset>"##,
                 label = esc(f.label),
@@ -3954,11 +3950,11 @@ pub fn agent_lab_job_form(
 <div class="taskcard">
   {status}
   {banner}
-  <form method="post" action="{AGENT_LAB_PATH}/job-applications/{key}">
+  <form method="post" action="{AGENT_LAB_PATH}/job-applications/{key}" lang="en">
     {fields}
+    <p class="fieldnote" lang="tr">Bu form Agent Lab sandbox verisine yazar. Gerçek bir başvuru gönderilmez, dışarıya hiçbir istek çıkmaz.</p>
     <button class="btn-dark">Submit Application →</button>
   </form>
-  <p class="fieldnote">Bu form Agent Lab sandbox verisine yazar. Gerçek bir başvuru gönderilmez, dışarıya hiçbir istek çıkmaz.</p>
 </div>"##,
         company = esc(job.company),
         role = esc(job.role),
@@ -6361,6 +6357,81 @@ mod tests {
                 job.key
             );
         }
+    }
+
+    /// The page declares `<html lang="tr">`, and `text-transform:uppercase` is
+    /// language-sensitive: under Turkish casing rules a lowercase `i` uppercases to `İ`, so
+    /// an English label styled with the portal's uppercase eyebrow renders "LİNKEDIN" and
+    /// "JOİN OUR PRODUCT TEAM". Marking the English subtrees `lang="en"` is what keeps the
+    /// dot off. Every string that lands in an uppercased class needs it.
+    #[test]
+    fn english_labels_are_not_uppercased_with_turkish_rules() {
+        // .portal label and fieldset legend are both uppercase; the form owns them all.
+        // Anchored on the action, because the sidebar ships a <form method="post"> of its
+        // own (logout) that would otherwise be the first match on every page.
+        for job in &AGENT_LAB_JOBS {
+            let html = agent_lab_job_form(&student(), job, None, None, None);
+            assert!(
+                html.contains(&format!(
+                    r#"<form method="post" action="{AGENT_LAB_PATH}/job-applications/{}" lang="en">"#,
+                    job.key
+                )),
+                "{}: the form's English labels need lang=\"en\"",
+                job.key
+            );
+            // the Turkish sentence inside that English form says so for itself
+            assert!(
+                html.contains(r#"class="fieldnote" lang="tr""#),
+                "{}",
+                job.key
+            );
+        }
+        // .hubstat is uppercase too, and "Intermediate" is full of dotted i's
+        let hub = agent_lab(&student());
+        assert!(
+            hub.contains(r#"<span class="hubstat" lang="en">Challenge 3 · Intermediate</span>"#)
+        );
+    }
+
+    /// `.fieldnote` carries `margin:-10px`, which tucks it under the field above — it is a
+    /// note *about a field*, and challenges 1 and 2 both place it before their submit
+    /// button. After a button it rides 10px up over it, which is what shipped and looked
+    /// broken. Keep it inside the form, ahead of the button.
+    #[test]
+    fn the_sandbox_note_sits_above_the_submit_button() {
+        let html = agent_lab_job_form(
+            &student(),
+            agent_lab_job("orbit").unwrap(),
+            None,
+            None,
+            None,
+        );
+        let note = html.find("Bu form Agent Lab sandbox").unwrap();
+        let button = html.find("Submit Application").unwrap();
+        assert!(note < button, "the note must not follow the button");
+        assert!(
+            html[note..button].contains("</p>"),
+            "note and button must be separate blocks"
+        );
+    }
+
+    /// Optionality is communicated by the label alone now, so a label that forgets to say
+    /// so leaves an agent no way to know the field may be skipped.
+    #[test]
+    fn optional_fields_say_so_in_their_label() {
+        let mut found = 0;
+        for f in AGENT_LAB_JOBS.iter().flat_map(|j| j.fields) {
+            if f.required {
+                continue;
+            }
+            found += 1;
+            assert!(
+                f.label.contains("(Optional)"),
+                "optional field {:?} does not say so in its label",
+                f.label
+            );
+        }
+        assert!(found >= 2);
     }
 
     #[test]
