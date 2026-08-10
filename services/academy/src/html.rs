@@ -2656,27 +2656,29 @@ pub const BEGINNER_PROJECTS: [BeginnerProject; 9] = [
         true,
         1,
     ),
+    // The keys below are deliberately not numbered: these two swapped places once already,
+    // and a key is what a saved submission points at — renaming one orphans every row.
     (
-        "browser-agent",
-        "Proje 8 — Browser Agent",
-        "Browser Use ve Gemma 4 31B ile Agent Lab challenge'larını kendi başına tamamlayan bir browser agent geliştir.",
+        "campus-lost-and-found",
+        "Proje 8 — Campus Lost & Found",
+        "İki kişilik bir takımla, kampüs için ilan verme ve claim gönderme taraflarını tek uygulamada birleştiren bir Lost & Found platformu geliştir.",
         &[
-            ("Brifi indir ⬇", "08-browser-agent.pdf"),
-            ("Browser Agent cheat sheet ⬇", "08-browser-agent-cheat-sheet.pdf"),
+            ("Student 1 brifi ⬇", "08-campus-lost-and-found-student-1.pdf"),
+            ("Student 2 brifi ⬇", "08-campus-lost-and-found-student-2.pdf"),
+            ("Group project cheat sheet ⬇", "08-group-project-cheat-sheet.pdf"),
         ],
-        false,
+        true,
         2,
     ),
     (
-        "campus-lost-and-found",
-        "Proje 9 — Campus Lost & Found",
-        "İki kişilik bir takımla, kampüs için ilan verme ve claim gönderme taraflarını tek uygulamada birleştiren bir Lost & Found platformu geliştir.",
+        "browser-agent",
+        "Proje 9 — Browser Agent",
+        "Browser Use ve Gemma 4 31B ile Agent Lab challenge'larını kendi başına tamamlayan bir browser agent geliştir.",
         &[
-            ("Student 1 brifi ⬇", "09-campus-lost-and-found-student-1.pdf"),
-            ("Student 2 brifi ⬇", "09-campus-lost-and-found-student-2.pdf"),
-            ("Group project cheat sheet ⬇", "09-group-project-cheat-sheet.pdf"),
+            ("Brifi indir ⬇", "09-browser-agent.pdf"),
+            ("Browser Agent cheat sheet ⬇", "09-browser-agent-cheat-sheet.pdf"),
         ],
-        true,
+        false,
         2,
     ),
 ];
@@ -6199,22 +6201,22 @@ mod tests {
             "proje 7 should link both its brief and its apps script cheat sheet"
         );
         assert!(
-            html.contains(r#"href="/static/beginner-projects/08-browser-agent.pdf""#)
+            html.contains(r#"href="/static/beginner-projects/09-browser-agent.pdf""#)
                 && html.contains(
-                    r#"href="/static/beginner-projects/08-browser-agent-cheat-sheet.pdf""#
+                    r#"href="/static/beginner-projects/09-browser-agent-cheat-sheet.pdf""#
                 ),
-            "proje 8 should link both its brief and its browser agent cheat sheet"
+            "proje 9 should link both its brief and its browser agent cheat sheet"
         );
-        // Proje 9 is built by two students against one repo, so its card carries a brief
+        // Proje 8 is built by two students against one repo, so its card carries a brief
         // per student next to the shared git cheat sheet — all three, not a "the" brief.
         for file in [
-            "09-campus-lost-and-found-student-1.pdf",
-            "09-campus-lost-and-found-student-2.pdf",
-            "09-group-project-cheat-sheet.pdf",
+            "08-campus-lost-and-found-student-1.pdf",
+            "08-campus-lost-and-found-student-2.pdf",
+            "08-group-project-cheat-sheet.pdf",
         ] {
             assert!(
                 html.contains(&format!(r#"href="/static/beginner-projects/{file}""#)),
-                "proje 9 should link {file}"
+                "proje 8 should link {file}"
             );
         }
         // The ampersand in "Lost & Found" reaches the page escaped exactly once.
@@ -6259,9 +6261,9 @@ mod tests {
         }
     }
 
-    /// Proje 8 runs locally and deploys nowhere, so its card asks for the repo and nothing
-    /// else — a required live-site field there can only be satisfied by inventing a URL.
-    /// The projects that do deploy must keep both fields.
+    /// Browser Agent runs locally and deploys nowhere, so its card asks for the repo and
+    /// nothing else — a required live-site field there can only be satisfied by inventing
+    /// a URL. The projects that do deploy must keep both fields.
     #[test]
     fn a_project_with_no_deploy_asks_for_the_repo_only() {
         let html = beginner_projects(&student(), &[]);
@@ -6274,7 +6276,7 @@ mod tests {
         };
         assert!(
             !card("browser-agent").contains(r#"name="vercel_url""#),
-            "proje 8 has no live site to hand in"
+            "browser agent has no live site to hand in"
         );
         assert!(
             card("smart-receipt").contains(r#"name="vercel_url""#),
