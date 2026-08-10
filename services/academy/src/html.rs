@@ -2584,7 +2584,7 @@ pub type BeginnerProject = (
 // student a brief of their own — the card renders them in the order written here. The
 // flag is false for a project that runs locally and has no live site to hand in — those
 // ask for the repo only.
-pub const BEGINNER_PROJECTS: [BeginnerProject; 9] = [
+pub const BEGINNER_PROJECTS: [BeginnerProject; 10] = [
     (
         "kisisel-web-sitesi",
         "Proje 1 — Kişisel Web Sitesi",
@@ -2677,6 +2677,17 @@ pub const BEGINNER_PROJECTS: [BeginnerProject; 9] = [
         &[
             ("Brifi indir ⬇", "09-browser-agent.pdf"),
             ("Browser Agent cheat sheet ⬇", "09-browser-agent-cheat-sheet.pdf"),
+        ],
+        false,
+        2,
+    ),
+    (
+        "habit-tracker-mobile-app",
+        "Proje 10 — Habit Tracker Mobile App",
+        "React Native + Expo ile sınırsız goal, deadline hatırlatmaları ve günlük streak takibi olan gerçek bir mobil uygulama geliştir.",
+        &[
+            ("Brifi indir ⬇", "10-habit-tracker-mobile-app.pdf"),
+            ("Expo cheat sheet ⬇", "10-expo-mobile-app-cheat-sheet.pdf"),
         ],
         false,
         2,
@@ -6206,6 +6217,13 @@ mod tests {
                     r#"href="/static/beginner-projects/09-browser-agent-cheat-sheet.pdf""#
                 ),
             "proje 9 should link both its brief and its browser agent cheat sheet"
+        );
+        assert!(
+            html.contains(r#"href="/static/beginner-projects/10-habit-tracker-mobile-app.pdf""#)
+                && html.contains(
+                    r#"href="/static/beginner-projects/10-expo-mobile-app-cheat-sheet.pdf""#
+                ),
+            "proje 10 should link both its brief and its Expo cheat sheet"
         );
         // Proje 8 is built by two students against one repo, so its card carries a brief
         // per student next to the shared git cheat sheet — all three, not a "the" brief.
