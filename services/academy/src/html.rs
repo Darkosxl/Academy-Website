@@ -2565,31 +2565,33 @@ pub fn advanced_track(user: &User) -> String {
 /// of these numbers; a week nobody is assigned to renders nothing at all.
 pub const BEGINNER_WEEKS: [(u8, &str); 2] = [(1, "1. Hafta"), (2, "2. Hafta")];
 
-/// One project: key, title, one-line summary, pdf filename in static/beginner-projects/,
-/// optional extra handout as (button label, pdf filename), whether the project deploys
-/// anywhere, and which `BEGINNER_WEEKS` week it belongs to.
+/// One project: key, title, one-line summary, its handouts as (button label, pdf filename
+/// in static/beginner-projects/), whether the project deploys anywhere, and which
+/// `BEGINNER_WEEKS` week it belongs to.
 pub type BeginnerProject = (
     &'static str,
     &'static str,
     &'static str,
-    &'static str,
-    Option<(&'static str, &'static str)>,
+    &'static [(&'static str, &'static str)],
     bool,
     u8,
 );
 
 // ponytail: hardcoded list, same pattern as DEMOS — these are fixed, code-and-deploy
-// content, not something an admin edits day to day. Add a row here (and the PDF) for a
-// new project. The extra slot is for a brief that ships with its own reference sheet;
-// `None` when the brief stands alone. The flag is false for a project that runs locally
-// and has no live site to hand in — those ask for the repo only.
-pub const BEGINNER_PROJECTS: [BeginnerProject; 8] = [
+// content, not something an admin edits day to day. Add a row here (and the PDFs) for a
+// new project. Handouts are a list rather than a brief plus an optional extra because a
+// project can ship a reference sheet next to its brief, and a group project hands each
+// student a brief of their own — the card renders them in the order written here. The
+// flag is false for a project that runs locally and has no live site to hand in — those
+// ask for the repo only.
+pub const BEGINNER_PROJECTS: [BeginnerProject; 9] = [
     (
         "kisisel-web-sitesi",
         "Proje 1 — Kişisel Web Sitesi",
         "İlgi alanlarını ve ürettiklerini anlatan, yayında olan kişisel bir web sitesi kur.",
-        "01-kisisel-web-sitesi.pdf",
-        None,
+        &[
+            ("Brifi indir ⬇", "01-kisisel-web-sitesi.pdf"),
+        ],
         true,
         1,
     ),
@@ -2597,8 +2599,9 @@ pub const BEGINNER_PROJECTS: [BeginnerProject; 8] = [
         "kisisel-web-sitesi-chatbotu",
         "Proje 2 — Kişisel Web Sitesi Chatbotu",
         "Web siteni, profile.md dosyasından seni tanıtan bir chatbot ile genişlet.",
-        "02-kisisel-web-sitesi-chatbotu.pdf",
-        None,
+        &[
+            ("Brifi indir ⬇", "02-kisisel-web-sitesi-chatbotu.pdf"),
+        ],
         true,
         1,
     ),
@@ -2606,8 +2609,9 @@ pub const BEGINNER_PROJECTS: [BeginnerProject; 8] = [
         "ai-bouquet-maker",
         "Proje 3 — AI Bouquet Maker",
         "Annen için kişiselleştirilmiş yapay zekâ çiçek buketleri oluşturan bir uygulama geliştir.",
-        "03-ai-bouquet-maker.pdf",
-        None,
+        &[
+            ("Brifi indir ⬇", "03-ai-bouquet-maker.pdf"),
+        ],
         true,
         1,
     ),
@@ -2615,8 +2619,9 @@ pub const BEGINNER_PROJECTS: [BeginnerProject; 8] = [
         "renovate-your-room",
         "Proje 4 — Renovate Your Room",
         "Oda fotoğrafını yükleyip yapay zekâ ile farklı dekorasyon stillerinde yeniden tasarla.",
-        "04-renovate-your-room.pdf",
-        None,
+        &[
+            ("Brifi indir ⬇", "04-renovate-your-room.pdf"),
+        ],
         true,
         1,
     ),
@@ -2624,8 +2629,9 @@ pub const BEGINNER_PROJECTS: [BeginnerProject; 8] = [
         "character-voice-studio",
         "Proje 5 — Character Voice Studio",
         "Kendi karakterini oluştur, görsel ve sesle hayata geçirip konuştur.",
-        "05-character-voice-studio.pdf",
-        None,
+        &[
+            ("Brifi indir ⬇", "05-character-voice-studio.pdf"),
+        ],
         true,
         1,
     ),
@@ -2633,8 +2639,9 @@ pub const BEGINNER_PROJECTS: [BeginnerProject; 8] = [
         "ai-calorie-tracker",
         "Proje 6 — AI Calorie Tracker",
         "Yemek fotoğrafını yapay zekâ ile analiz edip kalori ve besin değerlerini takip eden bir uygulama geliştir.",
-        "06-ai-calorie-tracker.pdf",
-        None,
+        &[
+            ("Brifi indir ⬇", "06-ai-calorie-tracker.pdf"),
+        ],
         true,
         1,
     ),
@@ -2642,11 +2649,10 @@ pub const BEGINNER_PROJECTS: [BeginnerProject; 8] = [
         "smart-receipt",
         "Proje 7 — Smart Receipt",
         "Fiş fotoğraflarını yapay zekâ ile okuyup harcamaları Google Sheets'e otomatik aktaran bir uygulama geliştir.",
-        "07-smart-receipt.pdf",
-        Some((
-            "Apps Script cheat sheet ⬇",
-            "07-google-apps-script-cheat-sheet.pdf",
-        )),
+        &[
+            ("Brifi indir ⬇", "07-smart-receipt.pdf"),
+            ("Apps Script cheat sheet ⬇", "07-google-apps-script-cheat-sheet.pdf"),
+        ],
         true,
         1,
     ),
@@ -2654,12 +2660,23 @@ pub const BEGINNER_PROJECTS: [BeginnerProject; 8] = [
         "browser-agent",
         "Proje 8 — Browser Agent",
         "Browser Use ve Gemma 4 31B ile Agent Lab challenge'larını kendi başına tamamlayan bir browser agent geliştir.",
-        "08-browser-agent.pdf",
-        Some((
-            "Browser Agent cheat sheet ⬇",
-            "08-browser-agent-cheat-sheet.pdf",
-        )),
+        &[
+            ("Brifi indir ⬇", "08-browser-agent.pdf"),
+            ("Browser Agent cheat sheet ⬇", "08-browser-agent-cheat-sheet.pdf"),
+        ],
         false,
+        2,
+    ),
+    (
+        "campus-lost-and-found",
+        "Proje 9 — Campus Lost & Found",
+        "İki kişilik bir takımla, kampüs için ilan verme ve claim gönderme taraflarını tek uygulamada birleştiren bir Lost & Found platformu geliştir.",
+        &[
+            ("Student 1 brifi ⬇", "09-campus-lost-and-found-student-1.pdf"),
+            ("Student 2 brifi ⬇", "09-campus-lost-and-found-student-2.pdf"),
+            ("Group project cheat sheet ⬇", "09-group-project-cheat-sheet.pdf"),
+        ],
+        true,
         2,
     ),
 ];
@@ -2723,16 +2740,18 @@ pub fn beginner_track(user: &User, projects_done: usize, chatbot_level: i16) -> 
 /// the week they are handed out in — the track runs over two weeks, and a flat run of
 /// eight cards hides which ones are this week's.
 pub fn beginner_projects(user: &User, subs: &[BeginnerSubmission]) -> String {
-    let card = |(key, title, summary, pdf, extra, wants_live, _week): &BeginnerProject| {
-            // A project's own reference sheet sits next to its brief, not up with the
-            // track-wide cheat sheet — it is only useful once you're on this project.
-            let extra_link = match extra {
-                Some((label, file)) => format!(
+    let card = |(key, title, summary, handouts, wants_live, _week): &BeginnerProject| {
+            // A project's own handouts sit on its card, not up with the track-wide cheat
+            // sheet — they are only useful once you're on this project. A group project
+            // puts a brief per student here, which is why this is a list and not one
+            // download with an extra hanging off it.
+            let handout_links: String = handouts
+                .iter()
+                .map(|(label, file)| format!(
                     r#"<a class="btn-outline small" href="/static/beginner-projects/{file}" target="_blank" rel="noopener">{label}</a>"#,
                     label = esc(label),
-                ),
-                None => String::new(),
-            };
+                ))
+                .collect();
             let saved = subs.iter().find(|s| s.project_key == *key);
             let (repo_val, vercel_val) = saved
                 .map(|s| (s.repo_url.clone(), s.vercel_url.clone()))
@@ -2759,8 +2778,7 @@ pub fn beginner_projects(user: &User, subs: &[BeginnerSubmission]) -> String {
   <div class="taskhead"><h3>{title}</h3></div>
   <p class="desc">{summary}</p>
   <div class="cardactions">
-    <a class="btn-outline small" href="/static/beginner-projects/{pdf}" target="_blank" rel="noopener">Brifi indir ⬇</a>
-    {extra_link}
+    {handout_links}
   </div>
   {saved_note}
   <form method="post" action="/beginner-track/submit" class="subform">
@@ -4132,7 +4150,7 @@ pub fn admin_beginner_project(
         .iter()
         .find(|(k, ..)| *k == key)
         .copied()
-        .unwrap_or((key, key, "", "", None, true, 1));
+        .unwrap_or((key, key, "", &[], true, 1));
     let submitted = rows.iter().filter(|r| r.repo_url.is_some()).count();
     // Long URLs would push the table past the panel, so each cell shows a short label and
     // carries the full URL in the title attribute. href is the raw (escaped) student URL:
@@ -6187,6 +6205,20 @@ mod tests {
                 ),
             "proje 8 should link both its brief and its browser agent cheat sheet"
         );
+        // Proje 9 is built by two students against one repo, so its card carries a brief
+        // per student next to the shared git cheat sheet — all three, not a "the" brief.
+        for file in [
+            "09-campus-lost-and-found-student-1.pdf",
+            "09-campus-lost-and-found-student-2.pdf",
+            "09-group-project-cheat-sheet.pdf",
+        ] {
+            assert!(
+                html.contains(&format!(r#"href="/static/beginner-projects/{file}""#)),
+                "proje 9 should link {file}"
+            );
+        }
+        // The ampersand in "Lost & Found" reaches the page escaped exactly once.
+        assert!(html.contains("Campus Lost &amp; Found") && !html.contains("&amp;amp;"));
     }
 
     /// The projects are handed out over two weeks, so the page is two labelled groups and
@@ -6254,15 +6286,16 @@ mod tests {
         assert!(project_wants_live_url("no-such-project"));
     }
 
-    /// Every brief (and every extra handout) named in the list has to exist under
-    /// static/beginner-projects/ — a typo'd filename is a 404 the student hits, not a
-    /// compile error, so pin it here.
+    /// Every handout named in the list has to exist under static/beginner-projects/ — a
+    /// typo'd filename is a 404 the student hits, not a compile error, so pin it here.
+    /// A project with no handout at all is a card with nothing to download, so that is
+    /// pinned too.
     #[test]
     fn beginner_project_handouts_exist_on_disk() {
         let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/static/beginner-projects/");
-        for (key, _, _, pdf, extra, _, _) in BEGINNER_PROJECTS {
-            let files = [Some(pdf), extra.map(|(_, f)| f)];
-            for file in files.into_iter().flatten() {
+        for (key, _, _, handouts, _, _) in BEGINNER_PROJECTS {
+            assert!(!handouts.is_empty(), "{key}: has nothing to download");
+            for (_, file) in handouts {
                 let path = format!("{dir}{file}");
                 assert!(
                     std::path::Path::new(&path).is_file(),
