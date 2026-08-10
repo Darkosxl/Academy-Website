@@ -1341,10 +1341,15 @@ form.inline input, form.inline select { margin-top:0; width:auto; }
   font-size:var(--fs-h3); font-weight:700; color:var(--text);
   margin-bottom:12px; padding-bottom:10px; border-bottom:1px solid var(--border-subtle);
 }
-.portal .venue-head {
+/* section label on a portal page — the Konum heading under the schedule, and the
+   hafta headings the Beginner Track projects are grouped under */
+.portal .venue-head, .portal .weekhead {
   font-size:var(--fs-label); font-weight:600; text-transform:uppercase; letter-spacing:0.05em;
   color:var(--text-muted); margin:28px 0 10px;
 }
+/* .tasks carries its own top margin for the ungrouped case; under a heading that
+   would stack on the heading's own bottom margin and float the grid away from it */
+.portal .weekhead + .tasks { margin-top:0; }
 .venue-card { position:relative; }
 .venue-card .venue-pin { margin-bottom:12px; }
 .venue-pin {

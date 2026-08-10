@@ -2561,14 +2561,29 @@ pub fn advanced_track(user: &User) -> String {
     layout("Advanced Track", Some(user), "advanced-track", &content)
 }
 
-// (key, title, one-line summary, pdf filename in static/beginner-projects/, optional
-// extra handout as (button label, pdf filename), whether the project deploys anywhere).
+/// The weeks the track runs over, in the order they are shown. Every project carries one
+/// of these numbers; a week nobody is assigned to renders nothing at all.
+pub const BEGINNER_WEEKS: [(u8, &str); 2] = [(1, "1. Hafta"), (2, "2. Hafta")];
+
+/// One project: key, title, one-line summary, pdf filename in static/beginner-projects/,
+/// optional extra handout as (button label, pdf filename), whether the project deploys
+/// anywhere, and which `BEGINNER_WEEKS` week it belongs to.
+pub type BeginnerProject = (
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static str,
+    Option<(&'static str, &'static str)>,
+    bool,
+    u8,
+);
+
 // ponytail: hardcoded list, same pattern as DEMOS — these are fixed, code-and-deploy
 // content, not something an admin edits day to day. Add a row here (and the PDF) for a
 // new project. The extra slot is for a brief that ships with its own reference sheet;
-// `None` when the brief stands alone. The last flag is false for a project that runs
-// locally and has no live site to hand in — those ask for the repo only.
-pub const BEGINNER_PROJECTS: [(&str, &str, &str, &str, Option<(&str, &str)>, bool); 8] = [
+// `None` when the brief stands alone. The flag is false for a project that runs locally
+// and has no live site to hand in — those ask for the repo only.
+pub const BEGINNER_PROJECTS: [BeginnerProject; 8] = [
     (
         "kisisel-web-sitesi",
         "Proje 1 — Kişisel Web Sitesi",
@@ -2576,6 +2591,7 @@ pub const BEGINNER_PROJECTS: [(&str, &str, &str, &str, Option<(&str, &str)>, boo
         "01-kisisel-web-sitesi.pdf",
         None,
         true,
+        1,
     ),
     (
         "kisisel-web-sitesi-chatbotu",
@@ -2584,6 +2600,7 @@ pub const BEGINNER_PROJECTS: [(&str, &str, &str, &str, Option<(&str, &str)>, boo
         "02-kisisel-web-sitesi-chatbotu.pdf",
         None,
         true,
+        1,
     ),
     (
         "ai-bouquet-maker",
@@ -2592,6 +2609,7 @@ pub const BEGINNER_PROJECTS: [(&str, &str, &str, &str, Option<(&str, &str)>, boo
         "03-ai-bouquet-maker.pdf",
         None,
         true,
+        1,
     ),
     (
         "renovate-your-room",
@@ -2600,6 +2618,7 @@ pub const BEGINNER_PROJECTS: [(&str, &str, &str, &str, Option<(&str, &str)>, boo
         "04-renovate-your-room.pdf",
         None,
         true,
+        1,
     ),
     (
         "character-voice-studio",
@@ -2608,6 +2627,7 @@ pub const BEGINNER_PROJECTS: [(&str, &str, &str, &str, Option<(&str, &str)>, boo
         "05-character-voice-studio.pdf",
         None,
         true,
+        1,
     ),
     (
         "ai-calorie-tracker",
@@ -2616,6 +2636,7 @@ pub const BEGINNER_PROJECTS: [(&str, &str, &str, &str, Option<(&str, &str)>, boo
         "06-ai-calorie-tracker.pdf",
         None,
         true,
+        1,
     ),
     (
         "smart-receipt",
@@ -2627,6 +2648,7 @@ pub const BEGINNER_PROJECTS: [(&str, &str, &str, &str, Option<(&str, &str)>, boo
             "07-google-apps-script-cheat-sheet.pdf",
         )),
         true,
+        1,
     ),
     (
         "browser-agent",
@@ -2638,6 +2660,7 @@ pub const BEGINNER_PROJECTS: [(&str, &str, &str, &str, Option<(&str, &str)>, boo
             "08-browser-agent-cheat-sheet.pdf",
         )),
         false,
+        2,
     ),
 ];
 
@@ -2647,7 +2670,7 @@ pub fn project_wants_live_url(key: &str) -> bool {
     BEGINNER_PROJECTS
         .iter()
         .find(|(k, ..)| *k == key)
-        .map(|(.., wants)| *wants)
+        .map(|(.., wants, _week)| *wants)
         .unwrap_or(true)
 }
 
@@ -2696,11 +2719,11 @@ pub fn beginner_track(user: &User, projects_done: usize, chatbot_level: i16) -> 
 }
 
 /// The weekly-projects subset: cheat sheet plus one card per project, split out of
-/// beginner_track() so that page can stay a clean two-card hub.
+/// beginner_track() so that page can stay a clean two-card hub. Cards are grouped under
+/// the week they are handed out in — the track runs over two weeks, and a flat run of
+/// eight cards hides which ones are this week's.
 pub fn beginner_projects(user: &User, subs: &[BeginnerSubmission]) -> String {
-    let cards: String = BEGINNER_PROJECTS
-        .iter()
-        .map(|(key, title, summary, pdf, extra, wants_live)| {
+    let card = |(key, title, summary, pdf, extra, wants_live, _week): &BeginnerProject| {
             // A project's own reference sheet sits next to its brief, not up with the
             // track-wide cheat sheet — it is only useful once you're on this project.
             let extra_link = match extra {
@@ -2751,6 +2774,25 @@ pub fn beginner_projects(user: &User, subs: &[BeginnerSubmission]) -> String {
                 summary = esc(summary),
                 repo_val = esc(&repo_val),
             )
+        };
+    // One heading + grid per week, in BEGINNER_WEEKS order. A week with no projects on it
+    // yet renders nothing rather than a heading over an empty grid.
+    let sections: String = BEGINNER_WEEKS
+        .iter()
+        .filter_map(|(week, label)| {
+            let cards: String = BEGINNER_PROJECTS
+                .iter()
+                .filter(|(.., w)| w == week)
+                .map(card)
+                .collect();
+            if cards.is_empty() {
+                return None;
+            }
+            Some(format!(
+                r##"<h2 class="weekhead">{label}</h2>
+<div class="tasks">{cards}</div>"##,
+                label = esc(label),
+            ))
         })
         .collect();
     let total = BEGINNER_PROJECTS.len();
@@ -2764,7 +2806,7 @@ pub fn beginner_projects(user: &User, subs: &[BeginnerSubmission]) -> String {
     <a class="btn-outline small" href="/static/beginner-projects/vibe-coding-cheat-sheet.pdf" target="_blank" rel="noopener">Cheat sheet indir ⬇</a>
   </div>
 </div>
-<div class="tasks">{cards}</div>"##
+{sections}"##
     );
     layout("Haftalık Projeler", Some(user), "beginner-track", &content)
 }
@@ -4090,7 +4132,7 @@ pub fn admin_beginner_project(
         .iter()
         .find(|(k, ..)| *k == key)
         .copied()
-        .unwrap_or((key, key, "", "", None, true));
+        .unwrap_or((key, key, "", "", None, true, 1));
     let submitted = rows.iter().filter(|r| r.repo_url.is_some()).count();
     // Long URLs would push the table past the panel, so each cell shows a short label and
     // carries the full URL in the title attribute. href is the raw (escaped) student URL:
@@ -6147,6 +6189,44 @@ mod tests {
         );
     }
 
+    /// The projects are handed out over two weeks, so the page is two labelled groups and
+    /// not one flat run of cards: projeler 1-7 under 1. Hafta, proje 8 under 2. Hafta.
+    #[test]
+    fn projects_are_grouped_by_week() {
+        let html = beginner_projects(&student(), &[]);
+        let (w1, w2) = (
+            html.find("1. Hafta").expect("1. Hafta heading"),
+            html.find("2. Hafta").expect("2. Hafta heading"),
+        );
+        assert!(w1 < w2, "weeks render in order");
+        // Every project card falls on the correct side of the second heading.
+        for (key, title, .., week) in BEGINNER_PROJECTS {
+            let at = html
+                .find(&format!(r#"value="{key}""#))
+                .unwrap_or_else(|| panic!("no card for {key}"));
+            match week {
+                1 => assert!(at > w1 && at < w2, "{title} belongs under 1. Hafta"),
+                _ => assert!(at > w2, "{title} belongs under 2. Hafta"),
+            }
+        }
+        // Each week gets its own grid, so the two groups can't run together visually.
+        assert_eq!(html.matches(r#"<div class="tasks">"#).count(), 2);
+    }
+
+    /// A week nobody is on renders nothing — no heading hanging over an empty grid.
+    #[test]
+    fn an_empty_week_renders_no_heading() {
+        let used: Vec<u8> = BEGINNER_PROJECTS.iter().map(|(.., w)| *w).collect();
+        let html = beginner_projects(&student(), &[]);
+        for (week, label) in BEGINNER_WEEKS {
+            assert_eq!(
+                html.contains(label),
+                used.contains(&week),
+                "{label} should render only when a project is on it"
+            );
+        }
+    }
+
     /// Proje 8 runs locally and deploys nowhere, so its card asks for the repo and nothing
     /// else — a required live-site field there can only be satisfied by inventing a URL.
     /// The projects that do deploy must keep both fields.
@@ -6180,7 +6260,7 @@ mod tests {
     #[test]
     fn beginner_project_handouts_exist_on_disk() {
         let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/static/beginner-projects/");
-        for (key, _, _, pdf, extra, _) in BEGINNER_PROJECTS {
+        for (key, _, _, pdf, extra, _, _) in BEGINNER_PROJECTS {
             let files = [Some(pdf), extra.map(|(_, f)| f)];
             for file in files.into_iter().flatten() {
                 let path = format!("{dir}{file}");
