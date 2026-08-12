@@ -2585,7 +2585,7 @@ pub type BeginnerProject = (
 // open-ended project hands out nothing at all, so the list is allowed to be empty. The
 // flag is false for a project that runs locally and has no live site to hand in — those
 // ask for the repo only.
-pub const BEGINNER_PROJECTS: [BeginnerProject; 11] = [
+pub const BEGINNER_PROJECTS: [BeginnerProject; 12] = [
     (
         "kisisel-web-sitesi",
         "Proje 1 — Kişisel Web Sitesi",
@@ -2682,12 +2682,23 @@ pub const BEGINNER_PROJECTS: [BeginnerProject; 11] = [
         false,
         2,
     ),
+    (
+        "habit-tracker-mobile-app",
+        "Proje 10 — Habit Tracker Mobile App",
+        "React Native + Expo ile sınırsız goal, deadline hatırlatmaları ve günlük streak takibi olan gerçek bir mobil uygulama geliştir.",
+        &[
+            ("Brifi indir ⬇", "10-habit-tracker-mobile-app.pdf"),
+            ("Expo cheat sheet ⬇", "10-expo-mobile-app-cheat-sheet.pdf"),
+        ],
+        false,
+        2,
+    ),
     // The last two hand out nothing: the point is that the student picks the problem, so a
     // brief would be the one thing that gets in the way. Two cards rather than one because
     // a student hands in two separate builds, and a submission row is keyed per project.
     (
         "kendi-projen-1",
-        "Proje 10 — Kendi Projen I",
+        "Proje 11 — Kendi Projen I",
         "Brif yok, cheat sheet yok. Hayatındaki gerçek bir problemi seç — ailenin işletmesinin sitesi çok eski, baban işinde bir otomasyona ihtiyaç duyuyor, e-postalarını okumaya üşeniyorsun — ve öğrendiklerinle çöz. Landing page, web uygulaması, otomasyon, mobil uygulama, browser agent: formatı sen seç.",
         &[],
         true,
@@ -2695,7 +2706,7 @@ pub const BEGINNER_PROJECTS: [BeginnerProject; 11] = [
     ),
     (
         "kendi-projen-2",
-        "Proje 11 — Kendi Projen II",
+        "Proje 12 — Kendi Projen II",
         "İkinci bir problem seç ve bu kez farklı bir formatta çöz. İlk projende web uygulaması yaptıysan bu sefer bir otomasyona ya da agent'a gir; amaç aynı kası değil, yeni bir kası çalıştırmak.",
         &[],
         true,
@@ -6230,6 +6241,13 @@ mod tests {
                     r#"href="/static/beginner-projects/09-browser-agent-cheat-sheet.pdf""#
                 ),
             "proje 9 should link both its brief and its browser agent cheat sheet"
+        );
+        assert!(
+            html.contains(r#"href="/static/beginner-projects/10-habit-tracker-mobile-app.pdf""#)
+                && html.contains(
+                    r#"href="/static/beginner-projects/10-expo-mobile-app-cheat-sheet.pdf""#
+                ),
+            "proje 10 should link both its brief and its Expo cheat sheet"
         );
         // Proje 8 is built by two students against one repo, so its card carries a brief
         // per student next to the shared git cheat sheet — all three, not a "the" brief.
