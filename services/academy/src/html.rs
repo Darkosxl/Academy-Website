@@ -2689,6 +2689,7 @@ pub const BEGINNER_PROJECTS: [BeginnerProject; 12] = [
         &[
             ("Brifi indir ⬇", "10-habit-tracker-mobile-app.pdf"),
             ("Expo cheat sheet ⬇", "10-expo-mobile-app-cheat-sheet.pdf"),
+            ("Kurulum rehberi ⬇", "10-habit-tracker-mobile-app-install-guide.pdf"),
         ],
         false,
         2,
