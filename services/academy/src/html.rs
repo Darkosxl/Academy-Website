@@ -2581,10 +2581,11 @@ pub type BeginnerProject = (
 // content, not something an admin edits day to day. Add a row here (and the PDFs) for a
 // new project. Handouts are a list rather than a brief plus an optional extra because a
 // project can ship a reference sheet next to its brief, and a group project hands each
-// student a brief of their own — the card renders them in the order written here. The
+// student a brief of their own — the card renders them in the order written here. An
+// open-ended project hands out nothing at all, so the list is allowed to be empty. The
 // flag is false for a project that runs locally and has no live site to hand in — those
 // ask for the repo only.
-pub const BEGINNER_PROJECTS: [BeginnerProject; 9] = [
+pub const BEGINNER_PROJECTS: [BeginnerProject; 11] = [
     (
         "kisisel-web-sitesi",
         "Proje 1 — Kişisel Web Sitesi",
@@ -2681,6 +2682,25 @@ pub const BEGINNER_PROJECTS: [BeginnerProject; 9] = [
         false,
         2,
     ),
+    // The last two hand out nothing: the point is that the student picks the problem, so a
+    // brief would be the one thing that gets in the way. Two cards rather than one because
+    // a student hands in two separate builds, and a submission row is keyed per project.
+    (
+        "kendi-projen-1",
+        "Proje 10 — Kendi Projen I",
+        "Brif yok, cheat sheet yok. Hayatındaki gerçek bir problemi seç — ailenin işletmesinin sitesi çok eski, baban işinde bir otomasyona ihtiyaç duyuyor, e-postalarını okumaya üşeniyorsun — ve öğrendiklerinle çöz. Landing page, web uygulaması, otomasyon, mobil uygulama, browser agent: formatı sen seç.",
+        &[],
+        true,
+        2,
+    ),
+    (
+        "kendi-projen-2",
+        "Proje 11 — Kendi Projen II",
+        "İkinci bir problem seç ve bu kez farklı bir formatta çöz. İlk projende web uygulaması yaptıysan bu sefer bir otomasyona ya da agent'a gir; amaç aynı kası değil, yeni bir kası çalıştırmak.",
+        &[],
+        true,
+        2,
+    ),
 ];
 
 /// Whether this project hands in a live site next to its repo. An unknown key answers
@@ -2707,7 +2727,7 @@ pub fn beginner_track(user: &User, projects_done: usize, chatbot_level: i16) -> 
   <a class="hubcard" href="/beginner-track/projects">
     <span class="hubico">{ico_projects}</span>
     <h2>Haftalık Projeler</h2>
-    <p>{total} proje. Her biri için brifi indir, projeni yap, sonra GitHub ve Vercel bağlantılarını kaydet. Kaydedilen: {projects_done}/{total}.</p>
+    <p>{total} proje. Brifi olanın brifini indir, projeni yap, sonra GitHub ve Vercel bağlantılarını kaydet. Kaydedilen: {projects_done}/{total}.</p>
     <span class="hubgo">Projelere git →</span>
   </a>
   <a class="hubcard" href="/chatbot-challenge">
@@ -2746,14 +2766,20 @@ pub fn beginner_projects(user: &User, subs: &[BeginnerSubmission]) -> String {
             // A project's own handouts sit on its card, not up with the track-wide cheat
             // sheet — they are only useful once you're on this project. A group project
             // puts a brief per student here, which is why this is a list and not one
-            // download with an extra hanging off it.
-            let handout_links: String = handouts
-                .iter()
-                .map(|(label, file)| format!(
-                    r#"<a class="btn-outline small" href="/static/beginner-projects/{file}" target="_blank" rel="noopener">{label}</a>"#,
-                    label = esc(label),
-                ))
-                .collect();
+            // download with an extra hanging off it. An open-ended project hands out
+            // nothing, and then the actions row is dropped rather than left empty.
+            let handout_links = if handouts.is_empty() {
+                String::new()
+            } else {
+                let links: String = handouts
+                    .iter()
+                    .map(|(label, file)| format!(
+                        r#"<a class="btn-outline small" href="/static/beginner-projects/{file}" target="_blank" rel="noopener">{label}</a>"#,
+                        label = esc(label),
+                    ))
+                    .collect();
+                format!(r#"<div class="cardactions">{links}</div>"#)
+            };
             let saved = subs.iter().find(|s| s.project_key == *key);
             let (repo_val, vercel_val) = saved
                 .map(|s| (s.repo_url.clone(), s.vercel_url.clone()))
@@ -2779,9 +2805,7 @@ pub fn beginner_projects(user: &User, subs: &[BeginnerSubmission]) -> String {
                 r##"<div class="taskcard">
   <div class="taskhead"><h3>{title}</h3></div>
   <p class="desc">{summary}</p>
-  <div class="cardactions">
-    {handout_links}
-  </div>
+  {handout_links}
   {saved_note}
   <form method="post" action="/beginner-track/submit" class="subform">
     <input type="hidden" name="project_key" value="{key}">
@@ -2818,7 +2842,7 @@ pub fn beginner_projects(user: &User, subs: &[BeginnerSubmission]) -> String {
     let total = BEGINNER_PROJECTS.len();
     let content = format!(
         r##"<h1 class="pagetitle">Haftalık Projeler</h1>
-<p class="muted">Başlangıç seviyesindeki {total} proje. Her biri için brifi indir, projeni yap, sonra GitHub ve Vercel bağlantılarını kaydet.</p>
+<p class="muted">Başlangıç seviyesindeki {total} proje. Brifi olanın brifini indir, projeni yap, sonra GitHub ve Vercel bağlantılarını kaydet. Son iki proje brifsiz: problemi de çözümü de sen seçiyorsun.</p>
 <div class="taskcard">
   <div class="taskhead"><h3>Vibe Coding Cheat Sheet</h3></div>
   <p class="desc">Tüm beginner track projelerinde işine yarayacak hızlı referans rehberi.</p>
@@ -6290,13 +6314,10 @@ mod tests {
 
     /// Every handout named in the list has to exist under static/beginner-projects/ — a
     /// typo'd filename is a 404 the student hits, not a compile error, so pin it here.
-    /// A project with no handout at all is a card with nothing to download, so that is
-    /// pinned too.
     #[test]
     fn beginner_project_handouts_exist_on_disk() {
         let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/static/beginner-projects/");
         for (key, _, _, handouts, _, _) in BEGINNER_PROJECTS {
-            assert!(!handouts.is_empty(), "{key}: has nothing to download");
             for (_, file) in handouts {
                 let path = format!("{dir}{file}");
                 assert!(
@@ -6305,6 +6326,34 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// The two capstones hand out nothing on purpose — the student picks the problem. That
+    /// card is the summary and the save form, with no empty actions row left behind, and it
+    /// still asks for both links like any other deployed project.
+    #[test]
+    fn an_open_ended_project_renders_no_actions_row() {
+        let html = beginner_projects(&student(), &[]);
+        let card = |key: &str| {
+            let start = html
+                .find(&format!(r#"value="{key}""#))
+                .unwrap_or_else(|| panic!("no card for {key}"));
+            // Back up to the card's own opening tag — the form sits at the card's end.
+            let open = html[..start].rfind(r#"<div class="taskcard">"#).unwrap();
+            let end = html[start..].find("</form>").unwrap() + start;
+            html[open..end].to_string()
+        };
+        for key in ["kendi-projen-1", "kendi-projen-2"] {
+            let c = card(key);
+            assert!(!c.contains("cardactions"), "{key}: nothing to hand out");
+            assert!(
+                c.contains(r#"name="repo_url""#) && c.contains(r#"name="vercel_url""#),
+                "{key}: still hands in a repo and a live link"
+            );
+            assert!(project_wants_live_url(key));
+        }
+        // A project that does have handouts keeps its actions row.
+        assert!(card("smart-receipt").contains("cardactions"));
     }
 
     /// The hub is three peer hubcards (projects, chatbot, agent lab), same shape as
