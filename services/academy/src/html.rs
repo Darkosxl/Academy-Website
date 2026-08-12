@@ -2566,8 +2566,9 @@ pub fn advanced_track(user: &User) -> String {
 pub const BEGINNER_WEEKS: [(u8, &str); 2] = [(1, "1. Hafta"), (2, "2. Hafta")];
 
 /// One project: key, title, one-line summary, its handouts as (button label, pdf filename
-/// in static/beginner-projects/), whether the project deploys anywhere, and which
-/// `BEGINNER_WEEKS` week it belongs to.
+/// in static/beginner-projects/), whether the project deploys anywhere, which
+/// `BEGINNER_WEEKS` week it belongs to, and an optional badge shown next to the title on
+/// the card — `None` for a project that needs no flag on it.
 pub type BeginnerProject = (
     &'static str,
     &'static str,
@@ -2575,6 +2576,7 @@ pub type BeginnerProject = (
     &'static [(&'static str, &'static str)],
     bool,
     u8,
+    Option<&'static str>,
 );
 
 // ponytail: hardcoded list, same pattern as DEMOS — these are fixed, code-and-deploy
@@ -2585,7 +2587,7 @@ pub type BeginnerProject = (
 // open-ended project hands out nothing at all, so the list is allowed to be empty. The
 // flag is false for a project that runs locally and has no live site to hand in — those
 // ask for the repo only.
-pub const BEGINNER_PROJECTS: [BeginnerProject; 12] = [
+pub const BEGINNER_PROJECTS: [BeginnerProject; 11] = [
     (
         "kisisel-web-sitesi",
         "Proje 1 — Kişisel Web Sitesi",
@@ -2595,6 +2597,7 @@ pub const BEGINNER_PROJECTS: [BeginnerProject; 12] = [
         ],
         true,
         1,
+        None,
     ),
     (
         "kisisel-web-sitesi-chatbotu",
@@ -2605,6 +2608,7 @@ pub const BEGINNER_PROJECTS: [BeginnerProject; 12] = [
         ],
         true,
         1,
+        None,
     ),
     (
         "ai-bouquet-maker",
@@ -2615,6 +2619,7 @@ pub const BEGINNER_PROJECTS: [BeginnerProject; 12] = [
         ],
         true,
         1,
+        None,
     ),
     (
         "renovate-your-room",
@@ -2625,6 +2630,7 @@ pub const BEGINNER_PROJECTS: [BeginnerProject; 12] = [
         ],
         true,
         1,
+        None,
     ),
     (
         "character-voice-studio",
@@ -2635,6 +2641,7 @@ pub const BEGINNER_PROJECTS: [BeginnerProject; 12] = [
         ],
         true,
         1,
+        None,
     ),
     (
         "ai-calorie-tracker",
@@ -2645,6 +2652,7 @@ pub const BEGINNER_PROJECTS: [BeginnerProject; 12] = [
         ],
         true,
         1,
+        None,
     ),
     (
         "smart-receipt",
@@ -2656,6 +2664,7 @@ pub const BEGINNER_PROJECTS: [BeginnerProject; 12] = [
         ],
         true,
         1,
+        None,
     ),
     // The keys below are deliberately not numbered: these two swapped places once already,
     // and a key is what a saved submission points at — renaming one orphans every row.
@@ -2670,6 +2679,7 @@ pub const BEGINNER_PROJECTS: [BeginnerProject; 12] = [
         ],
         true,
         2,
+        None,
     ),
     (
         "browser-agent",
@@ -2681,6 +2691,7 @@ pub const BEGINNER_PROJECTS: [BeginnerProject; 12] = [
         ],
         false,
         2,
+        None,
     ),
     (
         "habit-tracker-mobile-app",
@@ -2692,25 +2703,19 @@ pub const BEGINNER_PROJECTS: [BeginnerProject; 12] = [
         ],
         false,
         2,
+        None,
     ),
-    // The last two hand out nothing: the point is that the student picks the problem, so a
-    // brief would be the one thing that gets in the way. Two cards rather than one because
-    // a student hands in two separate builds, and a submission row is keyed per project.
+    // The last one hands out nothing: the point is that the group picks the problem, so a
+    // brief would be the one thing that gets in the way. It is also the project that goes
+    // on stage, hence the badge — the link saved here is the one demoed on Demo Day.
     (
         "kendi-projen-1",
-        "Proje 11 — Kendi Projen I",
-        "Brif yok, cheat sheet yok. Hayatındaki gerçek bir problemi seç — ailenin işletmesinin sitesi çok eski, baban işinde bir otomasyona ihtiyaç duyuyor, e-postalarını okumaya üşeniyorsun — ve öğrendiklerinle çöz. Landing page, web uygulaması, otomasyon, mobil uygulama, browser agent: formatı sen seç.",
+        "Proje 11 — Kendi Projeniz",
+        "Brif yok, cheat sheet yok. 3 kişilik gruplar kurun ve hayatınızdaki gerçek bir problemi seçin — ailenizin işletmesinin sitesi çok eski, babanız işinde bir otomasyona ihtiyaç duyuyor, e-postalarınızı okumaya üşeniyorsunuz — sonra öğrendiklerinizle çözün. Landing page, web uygulaması, otomasyon, mobil uygulama, browser agent: formatı siz seçin.\n\nDemo Day'de sahnede gösterilecek proje bu: buraya kaydettiğiniz bağlantı sunumda kullanılacak, o yüzden grubun her üyesi aynı repo ve canlı bağlantıyı kaydetsin.",
         &[],
         true,
         2,
-    ),
-    (
-        "kendi-projen-2",
-        "Proje 12 — Kendi Projen II",
-        "İkinci bir problem seç ve bu kez farklı bir formatta çöz. İlk projende web uygulaması yaptıysan bu sefer bir otomasyona ya da agent'a gir; amaç aynı kası değil, yeni bir kası çalıştırmak.",
-        &[],
-        true,
-        2,
+        Some("Demo Day"),
     ),
 ];
 
@@ -2720,7 +2725,7 @@ pub fn project_wants_live_url(key: &str) -> bool {
     BEGINNER_PROJECTS
         .iter()
         .find(|(k, ..)| *k == key)
-        .map(|(.., wants, _week)| *wants)
+        .map(|(.., wants, _week, _badge)| *wants)
         .unwrap_or(true)
 }
 
@@ -2773,7 +2778,7 @@ pub fn beginner_track(user: &User, projects_done: usize, chatbot_level: i16) -> 
 /// the week they are handed out in — the track runs over two weeks, and a flat run of
 /// eight cards hides which ones are this week's.
 pub fn beginner_projects(user: &User, subs: &[BeginnerSubmission]) -> String {
-    let card = |(key, title, summary, handouts, wants_live, _week): &BeginnerProject| {
+    let card = |(key, title, summary, handouts, wants_live, _week, badge): &BeginnerProject| {
             // A project's own handouts sit on its card, not up with the track-wide cheat
             // sheet — they are only useful once you're on this project. A group project
             // puts a brief per student here, which is why this is a list and not one
@@ -2814,7 +2819,7 @@ pub fn beginner_projects(user: &User, subs: &[BeginnerSubmission]) -> String {
             };
             format!(
                 r##"<div class="taskcard">
-  <div class="taskhead"><h3>{title}</h3></div>
+  <div class="taskhead"><h3>{title}</h3>{badge}</div>
   <p class="desc">{summary}</p>
   {handout_links}
   {saved_note}
@@ -2828,6 +2833,11 @@ pub fn beginner_projects(user: &User, subs: &[BeginnerSubmission]) -> String {
                 title = esc(title),
                 summary = esc(summary),
                 repo_val = esc(&repo_val),
+                // Same .badge the board cards use, so a flagged project reads as flagged
+                // in the one place students already look for it — next to the title.
+                badge = badge
+                    .map(|b| format!(r#"<span class="badge">{}</span>"#, esc(b)))
+                    .unwrap_or_default(),
             )
         };
     // One heading + grid per week, in BEGINNER_WEEKS order. A week with no projects on it
@@ -2837,7 +2847,7 @@ pub fn beginner_projects(user: &User, subs: &[BeginnerSubmission]) -> String {
         .filter_map(|(week, label)| {
             let cards: String = BEGINNER_PROJECTS
                 .iter()
-                .filter(|(.., w)| w == week)
+                .filter(|(.., w, _badge)| w == week)
                 .map(card)
                 .collect();
             if cards.is_empty() {
@@ -2853,7 +2863,7 @@ pub fn beginner_projects(user: &User, subs: &[BeginnerSubmission]) -> String {
     let total = BEGINNER_PROJECTS.len();
     let content = format!(
         r##"<h1 class="pagetitle">Haftalık Projeler</h1>
-<p class="muted">Başlangıç seviyesindeki {total} proje. Brifi olanın brifini indir, projeni yap, sonra GitHub ve Vercel bağlantılarını kaydet. Son iki proje brifsiz: problemi de çözümü de sen seçiyorsun.</p>
+<p class="muted">Başlangıç seviyesindeki {total} proje. Brifi olanın brifini indir, projeni yap, sonra GitHub ve Vercel bağlantılarını kaydet. Son proje brifsiz ve 3 kişilik gruplarla: problemi de çözümü de siz seçiyorsunuz, sonuç Demo Day'de sahnede.</p>
 <div class="taskcard">
   <div class="taskhead"><h3>Vibe Coding Cheat Sheet</h3></div>
   <p class="desc">Tüm beginner track projelerinde işine yarayacak hızlı referans rehberi.</p>
@@ -4187,7 +4197,7 @@ pub fn admin_beginner_project(
         .iter()
         .find(|(k, ..)| *k == key)
         .copied()
-        .unwrap_or((key, key, "", &[], true, 1));
+        .unwrap_or((key, key, "", &[], true, 1, None));
     let submitted = rows.iter().filter(|r| r.repo_url.is_some()).count();
     // Long URLs would push the table past the panel, so each cell shows a short label and
     // carries the full URL in the title attribute. href is the raw (escaped) student URL:
@@ -6276,7 +6286,7 @@ mod tests {
         );
         assert!(w1 < w2, "weeks render in order");
         // Every project card falls on the correct side of the second heading.
-        for (key, title, .., week) in BEGINNER_PROJECTS {
+        for (key, title, _, _, _, week, _) in BEGINNER_PROJECTS {
             let at = html
                 .find(&format!(r#"value="{key}""#))
                 .unwrap_or_else(|| panic!("no card for {key}"));
@@ -6292,7 +6302,7 @@ mod tests {
     /// A week nobody is on renders nothing — no heading hanging over an empty grid.
     #[test]
     fn an_empty_week_renders_no_heading() {
-        let used: Vec<u8> = BEGINNER_PROJECTS.iter().map(|(.., w)| *w).collect();
+        let used: Vec<u8> = BEGINNER_PROJECTS.iter().map(|(.., w, _)| *w).collect();
         let html = beginner_projects(&student(), &[]);
         for (week, label) in BEGINNER_WEEKS {
             assert_eq!(
@@ -6335,7 +6345,7 @@ mod tests {
     #[test]
     fn beginner_project_handouts_exist_on_disk() {
         let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/static/beginner-projects/");
-        for (key, _, _, handouts, _, _) in BEGINNER_PROJECTS {
+        for (key, _, _, handouts, ..) in BEGINNER_PROJECTS {
             for (_, file) in handouts {
                 let path = format!("{dir}{file}");
                 assert!(
@@ -6346,11 +6356,12 @@ mod tests {
         }
     }
 
-    /// The two capstones hand out nothing on purpose — the student picks the problem. That
-    /// card is the summary and the save form, with no empty actions row left behind, and it
-    /// still asks for both links like any other deployed project.
+    /// The capstone hands out nothing on purpose — the group picks the problem. That card is
+    /// the summary and the save form, with no empty actions row left behind, and it still
+    /// asks for both links like any other deployed project. Its Demo Day badge rides in the
+    /// taskhead; every other card has no badge at all.
     #[test]
-    fn an_open_ended_project_renders_no_actions_row() {
+    fn the_capstone_has_no_actions_row_but_wears_its_badge() {
         let html = beginner_projects(&student(), &[]);
         let card = |key: &str| {
             let start = html
@@ -6361,17 +6372,31 @@ mod tests {
             let end = html[start..].find("</form>").unwrap() + start;
             html[open..end].to_string()
         };
-        for key in ["kendi-projen-1", "kendi-projen-2"] {
-            let c = card(key);
-            assert!(!c.contains("cardactions"), "{key}: nothing to hand out");
-            assert!(
-                c.contains(r#"name="repo_url""#) && c.contains(r#"name="vercel_url""#),
-                "{key}: still hands in a repo and a live link"
-            );
-            assert!(project_wants_live_url(key));
-        }
-        // A project that does have handouts keeps its actions row.
-        assert!(card("smart-receipt").contains("cardactions"));
+        let capstone = card("kendi-projen-1");
+        assert!(
+            !capstone.contains("cardactions"),
+            "the capstone has nothing to hand out"
+        );
+        assert!(
+            capstone.contains(r#"name="repo_url""#) && capstone.contains(r#"name="vercel_url""#),
+            "the capstone still hands in a repo and a live link"
+        );
+        assert!(project_wants_live_url("kendi-projen-1"));
+        assert!(
+            capstone.contains(r#"<span class="badge">Demo Day</span>"#),
+            "the capstone is the one that goes on stage"
+        );
+        // The group size and the Demo Day promise are the whole brief, so they have to be
+        // on the card — there is no PDF to fall back on.
+        assert!(capstone.contains("3 kişilik") && capstone.contains("Demo Day'de sahnede"));
+        // A project that does have handouts keeps its actions row and wears no badge.
+        let receipt = card("smart-receipt");
+        assert!(receipt.contains("cardactions") && !receipt.contains("badge"));
+        assert_eq!(
+            html.matches(r#"<span class="badge">"#).count(),
+            BEGINNER_PROJECTS.iter().filter(|(.., b)| b.is_some()).count(),
+            "a badge renders for exactly the projects that carry one"
+        );
     }
 
     /// The hub is three peer hubcards (projects, chatbot, agent lab), same shape as
