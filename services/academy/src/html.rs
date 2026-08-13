@@ -263,7 +263,7 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/style.css?v=39">
+<link rel="stylesheet" href="/static/style.css?v=40">
 <script>if('scrollRestoration'in history)history.scrollRestoration='manual';</script>
 </head>
 <body class="{body_class}">
@@ -589,16 +589,25 @@ fn harness_kaggle_status(status: &str) -> (&'static str, &'static str) {
     }
 }
 
-/// Same shape for the tournament's status ladder (model.rs MONOPOLY_STATUSES).
-fn monopoly_status_tr(status: &str) -> (&'static str, &'static str) {
+fn monopoly_game_status_tr(status: &str) -> (&'static str, &'static str) {
     match status {
         "queued" => ("Sırada", "st-pending"),
-        "booting" => ("Sunucu açılıyor", "st-reviewing"),
-        "loading" => ("Modeller yükleniyor", "st-reviewing"),
-        "running" => ("Oynanıyor", "st-reviewing"),
-        "judging" => ("Hakem değerlendiriyor", "st-reviewing"),
+        "leased" => ("Oynanıyor", "st-reviewing"),
         "done" => ("Tamamlandı", "st-passed"),
-        _ => ("Başarısız", "st-failed"),
+        "cancelled" => ("Durduruldu", "st-failed"),
+        _ => ("Altyapı hatası", "st-failed"),
+    }
+}
+
+/// AI Monopoly submission status (model.rs monopoly_submissions_exposure_academy.status).
+fn monopoly_submission_status_tr(status: &str) -> (&'static str, &'static str) {
+    match status {
+        "pending" => ("Doğrulama sırasında", "st-pending"),
+        "validating" => ("Repo hazırlanıyor", "st-reviewing"),
+        "approved" => ("Onaylandı", "st-passed"),
+        "disabled" => ("Devre dışı", "st-failed"),
+        "rejected" => ("Reddedildi", "st-failed"),
+        _ => ("Doğrulama başarısız", "st-failed"),
     }
 }
 
@@ -1709,11 +1718,11 @@ class HarborAgent(Terminus2):
 
 // ---- AI Monopoly ----
 
-/// (tab key, href, label). "Instructions" stays English, matching the harness.
-const MONOPOLY_TABS: [(&str, &str, &str); 4] = [
-    ("main", "/ai-monopoly", "Gönderim ve Sıralama"),
+const MONOPOLY_TOURNAMENT_TABS: [(&str, &str, &str); 5] = [
+    ("main", "/ai-monopoly", "Gönderim"),
     ("live", "/ai-monopoly?tab=live", "Canlı"),
-    ("history", "/ai-monopoly?tab=history", "Geçmiş"),
+    ("standings", "/ai-monopoly?tab=standings", "Puan durumu"),
+    ("history", "/ai-monopoly?tab=history", "Maçlar"),
     (
         "instructions",
         "/ai-monopoly?tab=instructions",
@@ -1721,12 +1730,16 @@ const MONOPOLY_TABS: [(&str, &str, &str); 4] = [
     ),
 ];
 
-fn monopoly_shell(user: &User, tab: &str, sub: &str, inner: &str) -> String {
-    let chips: String = MONOPOLY_TABS
+fn tournament_shell(user: &User, tab: &str, sub: &str, inner: &str) -> String {
+    let chips: String = MONOPOLY_TOURNAMENT_TABS
         .iter()
-        .map(|(k, href, label)| {
-            let active = if tab == *k { "active" } else { "" };
-            format!(r#"<a class="chip {active}" href="{href}">{label}</a>"#)
+        .map(|(key, href, label)| {
+            format!(
+                r#"<a class="chip {}" href="{}">{}</a>"#,
+                if tab == *key { "active" } else { "" },
+                href,
+                label
+            )
         })
         .collect();
     layout(
@@ -1742,606 +1755,419 @@ fn monopoly_shell(user: &User, tab: &str, sub: &str, inner: &str) -> String {
     )
 }
 
-/// What students see at /ai-monopoly until the section opens. The nav link stays in the
-/// sidebar on purpose — "coming soon" only reads as a promise if you can find it.
-pub fn monopoly_coming_soon(user: &User) -> String {
-    layout(
-        "AI Monopoly",
-        Some(user),
-        "ai-monopoly",
-        r##"<h1 class="pagetitle" lang="en">COMING SOON!</h1>
-<p class="muted">AI Monopoly yakında burada.</p>"##,
-    )
+fn tournament_seats(game: &MonopolyGame) -> Vec<MonopolySeat> {
+    serde_json::from_value(game.seats.clone()).unwrap_or_default()
 }
 
-/// ₺ with Turkish thousands separators (1.234 ₺). Used everywhere money is shown so the
-/// arena, the standings and the history tab can't drift apart on formatting.
-fn money(v: i32) -> String {
-    let digits = v.unsigned_abs().to_string();
-    let mut out = String::new();
-    for (i, c) in digits.chars().enumerate() {
-        if i > 0 && (digits.len() - i) % 3 == 0 {
-            out.push('.');
-        }
-        out.push(c);
-    }
-    format!("{}{} ₺", if v < 0 { "-" } else { "" }, out)
-}
-
-/// The standings list, shared by the main tab and the arena's sidebar. `my_team` gets
-/// the `.mine` highlight, same convention as the points leaderboard.
-fn monopoly_standings_rows(standings: &[MonopolyStandingRow], my_team: Option<Uuid>) -> String {
-    if standings.is_empty() {
-        return "<p class='muted'>Turnuva başlayınca sıralama burada görünecek.</p>".into();
-    }
-    let ranks = dense_ranks_by(standings, |r| r.net_worth().to_string());
-    standings
+fn tournament_seat_list(game: &MonopolyGame) -> String {
+    tournament_seats(game)
         .iter()
-        .zip(ranks)
-        .map(|(r, rank)| {
-            let medal = match rank {
-                1 => "m1",
-                2 => "m2",
-                3 => "m3",
-                _ => "",
-            };
-            let mine = if Some(r.team_id) == my_team {
-                "mine"
+        .map(|seat| {
+            let winner = if game.winner_seat == Some(seat.player_id) {
+                " winner"
             } else {
                 ""
             };
+            let kind = if seat.entry_id.is_some() { "" } else { " · bot" };
             format!(
-                r##"<div class="lbrow {medal} {mine}">
-  <span class="lbrank">{rank}</span>
-  <span class="lbname">{char}<span class="lbmeta">{team} · {product}</span></span>
-  <span class="lbpts">{net}<span class="lbmeta">{cash} nakit · {goods} mal</span></span>
-</div>"##,
-                char = esc(&r.char_name),
-                team = esc(&r.team_name),
-                product = esc(&r.product_name),
-                net = money(r.net_worth()),
-                cash = money(r.cash),
-                goods = money(r.goods)
+                r#"<li class="monopoly-seat{winner}"><span class="seat-token">{number}</span><span>{label}<small>{kind}</small></span></li>"#,
+                number = seat.player_id + 1,
+                label = esc(&seat.label),
             )
         })
         .collect()
+}
+
+fn duration_text(duration_us: Option<i64>) -> String {
+    duration_us
+        .map(|value| format!("{:.2} sn", value as f64 / 1_000_000.0))
+        .unwrap_or_else(|| "—".into())
+}
+
+fn timing_text(total: i64, count: i64, min: Option<i64>, max: Option<i64>) -> String {
+    if count == 0 {
+        return "karar yok".into();
+    }
+    format!(
+        "ort {:.1} ms · en hızlı {:.1} · en yavaş {:.1}",
+        total as f64 / count as f64 / 1000.0,
+        min.unwrap_or_default() as f64 / 1000.0,
+        max.unwrap_or_default() as f64 / 1000.0,
+    )
+}
+
+fn tournament_summary(tournament: &MonopolyTournament) -> String {
+    let (label, class) = match tournament.status.as_str() {
+        "active" => ("Devam ediyor", "st-reviewing"),
+        "completed" => ("Tamamlandı", "st-passed"),
+        "partial" => ("Kısmi tamamlandı", "st-failed"),
+        _ => ("Durduruldu", "st-failed"),
+    };
+    let reason = tournament
+        .partial_reason
+        .as_deref()
+        .map(|reason| format!(r#"<p class="fieldnote">{}</p>"#, esc(reason)))
+        .unwrap_or_default();
+    format!(
+        r##"<div class="tournament-strip">
+  <span class="substatus {class}">{label}</span>
+  <b>{done}/{total} maç</b>
+  <span>{ruleset}</span>
+  <a href="/ai-monopoly/tournament/{id}/export.json">JSON indir ↓</a>
+</div>{reason}"##,
+        done = tournament.completed_games,
+        total = tournament.total_games,
+        ruleset = esc(&tournament.ruleset_version),
+        id = tournament.id,
+    )
 }
 
 pub fn monopoly_main(
     user: &User,
     team: Option<&MonopolyTeam>,
     members: &[TeamMemberRow],
-    entry: Option<&MonopolyEntry>,
+    submission: Option<&MonopolySubmission>,
     tournament: Option<&MonopolyTournament>,
-    standings: &[MonopolyStandingRow],
-    practice: &[MonopolyMatchRow],
+    game: Option<&MonopolyGame>,
+    standings: &[MonopolyStanding],
 ) -> String {
-    let running = tournament.is_some_and(|t| t.status != "done" && t.status != "failed");
-    let left = match team {
-        None => r##"<div class="panel">
-  <h2>Takımın yok</h2>
-  <p class="muted">Bu bölüm takım hâlinde oynanır. Eğitmenine yaz, seni bir takıma eklesin.</p>
-</div>"##
+    let submission_panel = match team {
+        None => r##"<section class="panel monopoly-submit">
+  <h2>Önce bir takım</h2>
+  <p class="muted">Takım ataması için eğitmenine yaz. Gönderim yalnızca takım üyelerine açıktır.</p>
+</section>"##
             .to_string(),
-        Some(t) => {
+        Some(team) => {
             let roster: String = members
                 .iter()
-                .filter(|m| m.team_id == t.id)
-                .map(|m| format!(r#"<span class="chip">{}</span>"#, esc(&m.display_name)))
+                .filter(|member| member.team_id == team.id)
+                .map(|member| format!(r#"<span class="chip">{}</span>"#, esc(&member.display_name)))
                 .collect();
-            // Prefill from the current entry so "change one field" doesn't mean retyping
-            // the whole merchant.
-            let v = |s: Option<&str>| esc(s.unwrap_or(""));
-            let (repo, char_name, product_name, product_desc, persona) = (
-                v(entry.map(|e| e.hf_repo.as_str())),
-                v(entry.map(|e| e.char_name.as_str())),
-                v(entry.map(|e| e.product_name.as_str())),
-                v(entry.map(|e| e.product_desc.as_str())),
-                v(entry.map(|e| e.persona.as_str())),
-            );
-            let price = entry.map(|e| e.list_price).unwrap_or(100);
-            let current = match entry {
-                Some(e) => format!(
-                    r##"<p class="fieldnote">Şu anki gönderim: <b>{char}</b> — {product} · {price}
-                    · <span lang="en">{repo}</span>{size} · {when} tarihinde güncellendi.</p>"##,
-                    char = esc(&e.char_name),
-                    product = esc(&e.product_name),
-                    price = money(e.list_price),
-                    repo = esc(&e.hf_repo),
-                    size = match e.size_bytes {
-                        Some(b) => format!(" · {:.1} GiB", b as f64 / (1024.0 * 1024.0 * 1024.0)),
-                        None => String::new(),
-                    },
-                    when = e.updated_at.format("%d.%m.%Y %H:%M")
-                ),
-                None => r##"<p class="fieldnote">Henüz gönderim yok. Modelini
-                    <span lang="en">Hugging Face</span>'e yükle, kimliğini buraya yapıştır.</p>"##
-                    .to_string(),
-            };
-            let form = if running {
-                r##"<p class="muted">Turnuva sürerken gönderim değiştirilemez.</p>"##.to_string()
-            } else {
-                format!(
-                    r##"<form method="post" action="/ai-monopoly/submit">
-    <label>Model (<span lang="en">Hugging Face</span>)<input name="hf_repo" placeholder="org/model" value="{repo}" required></label>
-    <p class="fieldnote">Depo herkese açık olmalı, ağırlıklar <span lang="en">bf16 safetensors</span>
-    — nicemleme (<span lang="en">quantization</span>, <span lang="en">GGUF</span>) kabul edilmiyor.</p>
-    <label>Karakter adı<input name="char_name" maxlength="40" value="{char_name}" required></label>
-    <label>Ürün adı<input name="product_name" maxlength="60" value="{product_name}" required></label>
-    <label>Ürün açıklaması<textarea name="product_desc" rows="3" maxlength="300" required>{product_desc}</textarea></label>
-    <label>Fiyat (₺)<input name="list_price" type="number" min="1" max="100000" value="{price}" required></label>
-    <label>Karakter tanımı<textarea name="persona" rows="5" maxlength="1500" required>{persona}</textarea></label>
-    <p class="fieldnote">Karakter tanımı modelin sistem promptuna girer. Konuşmalar
-    <span lang="en">İngilizce</span> geçer — bu alanları da <span lang="en">İngilizce</span> yaz.</p>
-    <button class="btn-dark">Gönder</button>
-  </form>"##
-                )
-            };
-            // Practice needs a submission to practise with, and is closed while the
-            // tournament runs — the GPUs are busy and the entry is frozen anyway.
-            let practice_panel = if entry.is_none() {
-                String::new()
-            } else {
-                let rows: String = practice.iter().map(|p| {
-                    let (label, class) = match p.status.as_str() {
-                        "done" => ("Bitti", "st-passed"),
-                        "failed" => ("Başarısız", "st-failed"),
-                        "queued" => ("Sırada", "st-reviewing"),
-                        _ => ("Sürüyor", "st-reviewing"),
-                    };
-                    let body = format!(
-                        r##"<span class="lbname">{a} ↔ {b}<span class="lbmeta">{date}</span></span>
-  <span class="lbpts"><span class="substatus {class}">{label}</span></span>"##,
-                        a = esc(&p.a_name), b = esc(&p.b_name),
-                        date = p.created_at.format("%d.%m %H:%M"));
-                    // only a finished conversation has anything to open
-                    if p.status == "done" {
-                        format!(r#"<a class="lbrow" href="/ai-monopoly/match/{}">{body}</a>"#, p.id)
-                    } else {
-                        format!(r#"<div class="lbrow">{body}</div>"#)
-                    }
-                }).collect();
-                let button = if running {
-                    r##"<p class="fieldnote">Turnuva sürerken antrenman yapılamaz.</p>"##
-                        .to_string()
-                } else {
-                    r##"<form method="post" action="/ai-monopoly/practice">
-      <button class="btn-outline">Antrenman maçı başlat</button>
-    </form>"##
-                        .to_string()
-                };
-                format!(
-                    r##"<div class="panel">
-  <h2>Antrenman</h2>
-  <p class="fieldnote">Başka bir takımın modeline karşı deneme konuşması. Rakip, gerçek
-  kimliği yerine uydurma bir tüccar olarak çıkar — sonuçlar sıralamayı etkilemez.</p>
-  {button}
-  <div class="lb practicelist">{rows}</div>
-</div>"##
-                )
-            };
-            format!(
-                r##"<div class="panel">
-  <h2>{team}</h2>
-  <div class="chips">{roster}</div>
-  {current}
-  {form}
-</div>
-{practice_panel}"##,
-                team = esc(&t.name)
-            )
-        }
-    };
-    let status_line = match tournament {
-        Some(t) if t.status != "done" && t.status != "failed" => {
-            let (label, _) = monopoly_status_tr(&t.status);
-            format!(
-                "Turnuva sürüyor — tur {}/{} · {label}",
-                t.round, t.rounds_total
-            )
-        }
-        Some(t) if t.status == "done" => "Turnuva bitti — kazanan en üstte.".to_string(),
-        _ => "Turnuva henüz başlamadı.".to_string(),
-    };
-    let inner = format!(
-        r##"<div class="harnesswrap">
-<div class="harness-left">{left}</div>
-<div class="harness-right">
-  <p class="muted">{status_line}</p>
-  <div class="lb">{rows}</div>
-  <p class="lbnote">Sıralama servet = nakit + mal. Mal, hakemin o ürüne biçtiği değerdir.</p>
-</div>
-</div>"##,
-        rows = monopoly_standings_rows(standings, team.map(|t| t.id))
-    );
-    monopoly_shell(
-        user,
-        "main",
-        "Modelini gönder, karakterini yaz, pazarlığı izle.",
-        &inner,
-    )
-}
-
-/// The arena. Everything inside `#arena` is (re)built by monopoly.js from the poll
-/// payload — the server renders only the frame and the idle state, so there is exactly
-/// one implementation of a match view and it lives in the JS.
-pub fn monopoly_live(
-    user: &User,
-    tournament: Option<&MonopolyTournament>,
-    standings: &[MonopolyStandingRow],
-) -> String {
-    let running = tournament.is_some_and(|t| t.status != "done" && t.status != "failed");
-    // Idle is a real state, not an empty page: say where the game is and where to look.
-    let idle = match tournament {
-        None => r##"<div class="arena-idle">
-  <h2>Turnuva henüz başlamadı</h2>
-  <p class="muted">Takımlar modellerini gönderiyor. Başladığında konuşmalar burada canlı akacak.</p>
-  <a class="btn-outline" href="/ai-monopoly?tab=instructions">Kuralları oku</a>
-</div>"##
-            .to_string(),
-        Some(t) if t.status == "done" => {
-            let winner = standings
-                .first()
-                .map(|w| {
+            let current = submission
+                .map(|submission| {
+                    let (status, class) = monopoly_submission_status_tr(&submission.status);
+                    let commit = submission
+                        .commit_sha
+                        .as_deref()
+                        .map(|sha| format!(r#"<code title="Sabit commit">{}</code>"#, esc(&sha[..12])))
+                        .unwrap_or_default();
+                    let size = submission
+                        .repo_size_bytes
+                        .map(|bytes| format!("{:.1} MiB", bytes as f64 / 1_048_576.0))
+                        .unwrap_or_else(|| "boyut bekleniyor".into());
+                    let log = submission
+                        .validation_log
+                        .as_deref()
+                        .filter(|log| !log.trim().is_empty())
+                        .map(|log| format!(
+                            r#"<details class="build-log"><summary>Doğrulama günlüğü</summary><pre>{}</pre></details>"#,
+                            esc(log)
+                        ))
+                        .unwrap_or_default();
                     format!(
-                        "<p class=\"arena-winner\">🏆 {} — {}</p>",
-                        esc(&w.char_name),
-                        money(w.net_worth())
+                        r##"<div class="submission-current">
+  <div><span class="substatus {class}">{status}</span><span class="item-meta">nesil {generation} · {size}</span></div>
+  <a href="{repo}" target="_blank" rel="noopener">{repo_label}</a>
+  <span class="item-meta"><code>{path}</code> {commit}</span>{log}
+</div>"##,
+                        generation = submission.generation,
+                        repo = esc(&submission.repo_url),
+                        repo_label = esc(submission.repo_url.trim_start_matches("https://github.com/")),
+                        path = esc(&submission.agent_path),
+                    )
+                })
+                .unwrap_or_else(|| r#"<p class="fieldnote">Henüz ajan göndermediniz.</p>"#.into());
+            let repo = submission
+                .map(|value| value.repo_url.as_str())
+                .unwrap_or("");
+            let path = submission
+                .map(|value| value.agent_path.as_str())
+                .unwrap_or(MONOPOLY_SUBMISSION_ENTRYPOINT);
+            format!(
+                r##"<section class="panel monopoly-submit">
+  <p class="eyebrow">TAKIM</p><h2>{team}</h2><div class="chips">{roster}</div>
+  {current}
+  <form method="post" action="/ai-monopoly/submit" class="subform">
+    <label>Public GitHub repo<input name="repo_url" type="url" value="{repo}" placeholder="https://github.com/kullanici/ajan" required></label>
+    <label>Ajan dosyası<input name="agent_path" value="{path}" required></label>
+    <button class="btn-dark">Doğrulamaya gönder</button>
+  </form>
+  <p class="fieldnote">Varsayılan dalın commit'i sabitlenir. Git LFS desteklenir; çözülmüş checkout sınırı 250 MiB.</p>
+  <a class="textlink" href="/ai-monopoly?tab=instructions">Sözleşmeyi ve kuralları gör →</a>
+</section>"##,
+                team = esc(&team.name),
+                repo = esc(repo),
+                path = esc(path),
+            )
+        }
+    };
+
+    let tournament_panel = match (tournament, game) {
+        (None, _) => r##"<section class="panel monopoly-next-game">
+  <p class="eyebrow">TURNUVA</p><h2>Henüz başlamadı</h2>
+  <p class="muted">En az dört ajan doğrulandığında eğitmen fikstürü dondurur.</p>
+</section>"##
+            .to_string(),
+        (Some(tournament), game) => {
+            let next = game
+                .map(|game| {
+                    let (status, class) = monopoly_game_status_tr(&game.status);
+                    format!(
+                        r##"<a class="match-peek" href="/ai-monopoly/game/{id}">
+  <span><small>Maç {number}</small><b>Tur {round}/{max}</b></span>
+  <span class="substatus {class}">{status}</span>
+</a><ol class="monopoly-seats">{seats}</ol>"##,
+                        id = game.id,
+                        number = game.game_no,
+                        round = game.round,
+                        max = 200,
+                        seats = tournament_seat_list(game),
+                    )
+                })
+                .unwrap_or_default();
+            let leader = standings
+                .first()
+                .map(|row| {
+                    format!(
+                        r#"<p class="fieldnote">Lider: <b>{}</b> · {} galibiyet</p>"#,
+                        esc(&row.team_name),
+                        row.wins
                     )
                 })
                 .unwrap_or_default();
             format!(
-                r##"<div class="arena-idle">
-  <h2>Turnuva bitti</h2>
-  {winner}
-  <a class="btn-outline" href="/ai-monopoly?tab=history">Konuşmaları oku</a>
-</div>"##
+                r##"<section class="panel monopoly-next-game"><p class="eyebrow">TURNUVA</p>
+{summary}{next}{leader}
+<a class="btn-outline" href="/ai-monopoly?tab=live">Aktif maçları aç →</a></section>"##,
+                summary = tournament_summary(tournament),
             )
         }
-        Some(t) => format!(
-            r##"<div class="arena-idle">
-  <h2>{label}</h2>
-  <p class="muted">{progress}</p>
-</div>"##,
-            label = monopoly_status_tr(&t.status).0,
-            progress = esc(t.progress.as_deref().unwrap_or("Birazdan başlıyor…"))
-        ),
     };
-    let inner = format!(
-        r##"<div class="arenawrap">
-  <div id="arena" class="arena" data-live="{live}">{idle}</div>
-  <aside class="arena-side">
-    <p class="muted">Sıralama</p>
-    <div class="lb" id="arena-standings">{rows}</div>
-  </aside>
-</div>
-<script src="/static/monopoly.js?v=2" defer></script>"##,
-        live = running,
-        rows = monopoly_standings_rows(standings, None)
-    );
-    monopoly_shell(
+    tournament_shell(
+        user,
+        "main",
+        "Ajanını gönder; sabitlenen turnuvayı, maçları ve karar sürelerini izle.",
+        &format!(r#"<div class="monopoly-grid">{submission_panel}{tournament_panel}</div>"#),
+    )
+}
+
+pub fn monopoly_live(
+    user: &User,
+    tournament: Option<&MonopolyTournament>,
+    games: &[MonopolyGame],
+) -> String {
+    let Some(tournament) = tournament else {
+        return tournament_shell(
+            user,
+            "live",
+            "Aktif masalar burada birlikte görünür.",
+            r#"<div class="panel arena-idle"><h2>Turnuva bekleniyor</h2><p class="muted">Fikstür dondurulduğunda maçlar burada açılır.</p></div>"#,
+        );
+    };
+    let active: Vec<&MonopolyGame> = games
+        .iter()
+        .filter(|game| matches!(game.status.as_str(), "leased" | "queued"))
+        .collect();
+    let rows: String = games
+        .iter()
+        .map(|game| {
+            let (status, class) = monopoly_game_status_tr(&game.status);
+            let names = tournament_seats(game)
+                .iter()
+                .map(|seat| esc(&seat.label))
+                .collect::<Vec<_>>()
+                .join(" · ");
+            format!(
+                r##"<a class="monopoly-history-row" href="/ai-monopoly/game/{id}">
+  <b>Maç {number}</b><span class="history-table"><span>{names}</span></span>
+  <span class="history-round">Tur {round}/200</span><span class="substatus {class}">{status}</span>
+</a>"##,
+                id = game.id,
+                number = game.game_no,
+                round = game.round,
+            )
+        })
+        .collect();
+    let arena = active
+        .iter()
+        .find(|game| game.status == "leased")
+        .or_else(|| active.first())
+        .map(|game| format!(
+            r#"<div id="monopoly-arena" class="monopoly-arena" data-poll="true" data-game-id="{}"><div class="arena-idle">Maç hazırlanıyor…</div></div>"#,
+            game.id
+        ))
+        .unwrap_or_else(|| r#"<div class="panel arena-idle"><h2>Bütün maçlar bitti</h2><a class="btn-outline" href="/ai-monopoly?tab=standings">Son tabloyu aç →</a></div>"#.into());
+    tournament_shell(
         user,
         "live",
-        "İki model karşı karşıya — konuşma bitince hakem parayı böler.",
-        &inner,
+        "Bir masayı aç; tam tahta ve batched hamle akışı iki saniyede bir yenilenir.",
+        &format!(
+            r##"{summary}<div class="active-match-layout"><div>{arena}</div><aside class="active-match-list"><h2>Fikstür</h2>{rows}</aside></div>
+<script src="/static/monopoly.js?v=5" defer></script>"##,
+            summary = tournament_summary(tournament),
+        ),
     )
 }
 
 pub fn monopoly_history(
     user: &User,
+    tab: &str,
     tournament: Option<&MonopolyTournament>,
-    matches: &[MonopolyMatchRow],
+    games: &[MonopolyGame],
+    standings: &[MonopolyStanding],
 ) -> String {
-    let done = tournament.is_some_and(|t| t.status == "done");
-    let rows: String = if matches.is_empty() {
-        "<p class='muted'>Henüz tamamlanmış konuşma yok.</p>".into()
-    } else {
-        // the list is already ordered by round descending; a heading each time the round
-        // changes is enough grouping, and needs no second pass over the rows
-        let mut round = -1;
-        matches
+    let Some(tournament) = tournament else {
+        return tournament_shell(
+            user,
+            tab,
+            "Turnuva sonuçları.",
+            r#"<div class="panel"><p class="muted">Henüz turnuva yok.</p></div>"#,
+        );
+    };
+    if tab == "standings" {
+        let rows: String = standings
             .iter()
-            .map(|m| {
-                let head = if m.round != round {
-                    round = m.round;
-                    format!(r#"<p class="roundhead">Tur {round}</p>"#)
-                } else {
-                    String::new()
-                };
-                let kind = match m.kind.as_str() {
-                    "mandatory" => "Eşleşme",
-                    "chosen" => "Davet",
-                    _ => "Deneme",
-                };
-                let (label, class) = match m.status.as_str() {
-                    "done" => ("Bitti", "st-passed"),
-                    "failed" => ("Başarısız", "st-failed"),
-                    _ => ("Sürüyor", "st-reviewing"),
-                };
+            .enumerate()
+            .map(|(index, row)| {
                 format!(
-                    r##"{head}<a class="lbrow" href="/ai-monopoly/match/{id}">
-  <span class="lbname">{a} ↔ {b}<span class="lbmeta">{kind} · {date}</span></span>
-  <span class="lbpts"><span class="substatus {class}">{label}</span></span>
-</a>"##,
-                    head = head,
-                    id = m.id,
-                    a = esc(&m.a_name),
-                    b = esc(&m.b_name),
-                    kind = kind,
-                    date = m.created_at.format("%d.%m %H:%M"),
-                    class = class,
-                    label = label
+                    r##"<tr><td>{rank}</td><td><b>{team}</b><small>{games}/6 maç</small></td>
+<td>{wins}</td><td>{worth:.0}</td><td>{strikes}</td><td>{timing}</td></tr>"##,
+                    rank = index + 1,
+                    team = esc(&row.team_name),
+                    games = row.games,
+                    wins = row.wins,
+                    worth = row.average_net_worth,
+                    strikes = row.strikes,
+                    timing = timing_text(
+                        row.decision_total_us,
+                        row.decision_count,
+                        row.decision_min_us,
+                        row.decision_max_us
+                    ),
                 )
             })
-            .collect()
-    };
-    let note = if done {
-        "Turnuva bittiği için modellerin birbiri hakkında tuttuğu notlar da açık."
-    } else {
-        "Modellerin birbiri hakkında tuttuğu notlar turnuva bitince açılacak."
-    };
-    let inner = format!(
-        r##"<div class="lb">{rows}</div>
-<p class="lbnote">{note}</p>"##
-    );
-    monopoly_shell(
-        user,
-        "history",
-        "Bütün konuşmalar, hakem kararları ve para akışı.",
-        &inner,
-    )
-}
-
-/// One conversation, replayed. Both languages ship in the same markup and the toggle
-/// flips a class on the wrapper — no second request, and the English original is always
-/// one click away from the translation.
-pub fn monopoly_match(
-    user: &User,
-    m: &MonopolyMatchRow,
-    msgs: &[MonopolyMessage],
-    msgs_tr: &[String],
-    txs: &[MonopolyTxRow],
-    txs_tr: &[String],
-    notes: &[MonopolyNoteRow],
-    notes_tr: &[String],
-    reveal: bool,
-) -> String {
-    let translated = !msgs_tr.is_empty();
-    /// Both languages in the markup; CSS shows one. Empty translation falls back to the
-    /// English, which is what an untranslatable or un-keyed match ends up rendering.
-    fn pair(en: &str, tr: Option<&String>) -> String {
-        match tr.filter(|t| !t.is_empty()) {
-            Some(t) => format!(
-                r#"<span class="en">{}</span><span class="tr">{}</span>"#,
-                esc(en),
-                esc(t)
+            .collect();
+        return tournament_shell(
+            user,
+            tab,
+            "Galibiyet, ortalama final serveti ve daha az strike sırasıyla belirler.",
+            &format!(
+                r##"{summary}<div class="tablewrap standings-table"><table>
+<thead><tr><th>#</th><th>Takım</th><th>G</th><th>Ort. servet</th><th>Strike</th><th>Karar süresi</th></tr></thead>
+<tbody>{rows}</tbody></table></div>"##,
+                summary = tournament_summary(tournament)
             ),
-            None => esc(en),
-        }
+        );
     }
-    let bubbles: String = msgs
+    let rows: String = games
         .iter()
-        .enumerate()
-        .map(|(i, x)| {
-            let (side, who) = if x.speaker == "a" {
-                ("l", &m.a_name)
-            } else {
-                ("r", &m.b_name)
-            };
-            let turkish = match msgs_tr.get(i).filter(|t| !t.is_empty()) {
-                Some(t) => format!(r#"<div class="say tr">{}</div>"#, esc(t)),
-                None => String::new(),
-            };
+        .rev()
+        .map(|game| {
+            let (status, class) = monopoly_game_status_tr(&game.status);
+            let seats = tournament_seats(game);
+            let winner = game
+                .winner_seat
+                .and_then(|winner| seats.iter().find(|seat| seat.player_id == winner))
+                .map(|seat| format!("Kazanan: {}", esc(&seat.label)))
+                .unwrap_or_else(|| "Kazanan yok".into());
+            let names = seats
+                .iter()
+                .map(|seat| esc(&seat.label))
+                .collect::<Vec<_>>()
+                .join(" · ");
             format!(
-                r##"<div class="bub {side}">
-  <div class="who">{who}</div>
-  <div class="say en">{en}</div>
-  {turkish}
-</div>"##,
-                who = esc(who),
-                en = esc(&x.content)
+                r##"<a class="monopoly-history-row" href="/ai-monopoly/game/{id}">
+  <span class="history-date">Maç {number}</span>
+  <span class="history-table"><b>{winner}</b><span>{names}</span></span>
+  <span class="history-round">{duration}</span><span class="substatus {class}">{status}</span>
+</a>"##,
+                id = game.id,
+                number = game.game_no,
+                duration = duration_text(game.duration_us),
             )
         })
         .collect();
-
-    let verdict = if txs.is_empty() {
-        "<p class='muted'>Hakem: satış yok — anlaşma çıkmadı.</p>".to_string()
-    } else {
-        let rows: String = txs
-            .iter()
-            .enumerate()
-            .map(|(i, t)| {
-                let s = t.surplus();
-                format!(
-                    r##"<div class="vrow">
-  <span class="vflow">{seller} → {buyer}</span>
-  <span class="vitem">{item}</span>
-  <span class="vprice">{price}</span>
-  <span class="vsurp {cls}">{sign}{surp}</span>
-</div>{why}"##,
-                    seller = esc(&t.seller_name),
-                    buyer = esc(&t.buyer_name),
-                    item = esc(&t.item),
-                    price = money(t.price),
-                    cls = if s >= 0 { "ok" } else { "bad" },
-                    sign = if s >= 0 { "+" } else { "" },
-                    surp = money(s),
-                    why = match &t.reasoning {
-                        Some(r) if !r.is_empty() =>
-                            format!(r#"<p class="vwhy">{}</p>"#, pair(r, txs_tr.get(i))),
-                        _ => String::new(),
-                    }
-                )
-            })
-            .collect();
-        format!(r##"<h3>Hakem kararı</h3>{rows}"##)
-    };
-
-    let notes_block = if !reveal {
-        r##"<p class="lbnote">Modellerin birbiri hakkında tuttuğu notlar turnuva bitince açılacak.</p>"##.to_string()
-    } else if notes.is_empty() {
-        r##"<p class="lbnote">Bu konuşmadan not çıkmadı.</p>"##.to_string()
-    } else {
-        let rows: String = notes
-            .iter()
-            .enumerate()
-            .map(|(i, n)| {
-                format!(
-                    r##"<div class="noterow">
-  <span class="notewho">{author} → {about}</span>
-  <p class="notetext">{note}</p>
-</div>"##,
-                    author = esc(&n.author_name),
-                    about = esc(&n.about_name),
-                    note = pair(&n.note, notes_tr.get(i))
-                )
-            })
-            .collect();
-        format!(r##"<div class="panel"><h2>Modellerin notları</h2>{rows}</div>"##)
-    };
-
-    let kind = match m.kind.as_str() {
-        "mandatory" => "Eşleşme",
-        "chosen" => "Davet",
-        _ => "Deneme",
-    };
-    let inner = format!(
-        r##"<p class="muted"><a href="/ai-monopoly?tab=history">← Geçmiş</a></p>
-<div class="matchhead">
-  <h2>{a} ↔ {b}</h2>
-  <p class="muted">Tur {round} · {kind} · {date}</p>
-  <div class="langtoggle">
-    <button class="chip active" data-lang="tr">Türkçe</button>
-    <button class="chip" data-lang="en" lang="en">English</button>
-  </div>
-</div>
-<div class="matchbody show-tr{no_tr}" id="replay">
-  <div class="arena-chat replay">{bubbles}</div>
-  <div class="arena-verdict">{verdict}</div>
-  {notes_block}
-</div>
-<script src="/static/monopoly.js?v=2" defer></script>"##,
-        a = esc(&m.a_name),
-        b = esc(&m.b_name),
-        round = m.round,
-        kind = kind,
-        date = m.created_at.format("%d.%m.%Y %H:%M"),
-        // with no translation the toggle would swap the transcript for nothing
-        no_tr = if translated { "" } else { " untranslated" }
-    );
-    monopoly_shell(
+    tournament_shell(
         user,
-        "history",
-        "Konuşmanın tamamı, hakem kararı ve notlar.",
-        &inner,
+        tab,
+        "Her maçın final serveti, strike'ları, süresi ve tam hamle tekrarı.",
+        &format!(
+            r#"{}<div class="monopoly-history">{rows}</div>"#,
+            tournament_summary(tournament)
+        ),
     )
 }
 
-/// Turkish prose, English technical terms in `lang="en"` spans, per the house convention.
-/// The paragraphs were written in English and run through DeepL rather than composed in
-/// Turkish here — same rule the transcripts follow.
+pub fn monopoly_game_page(
+    user: &User,
+    game: &MonopolyGame,
+    runtime_logs: &[(i16, String, String)],
+) -> String {
+    let runtime_logs: String = runtime_logs
+        .iter()
+        .map(|(seat, label, log)| {
+            format!(
+                r#"<details class="build-log"><summary>Koltuk {seat} · {label} çalışma günlüğü</summary><pre>{log}</pre></details>"#,
+                seat = seat + 1,
+                label = esc(label),
+                log = esc(log),
+            )
+        })
+        .collect();
+    let runtime_panel = if runtime_logs.is_empty() {
+        String::new()
+    } else {
+        format!(
+            r#"<section class="panel monopoly-runtime-logs"><h2>Özel çalışma günlükleri</h2><p class="muted">Yalnızca eğitmenler ve bu koltuğun takım üyeleri görebilir.</p>{runtime_logs}</section>"#
+        )
+    };
+    tournament_shell(
+        user,
+        "history",
+        &format!(
+            "Maç {} · tam tahta tekrarı ve karar ölçümleri.",
+            game.game_no
+        ),
+        &format!(
+            r##"<p><a class="textlink" href="/ai-monopoly?tab=history">← Maçlara dön</a></p>
+<div id="monopoly-arena" class="monopoly-arena" data-poll="true" data-replay="true" data-game-id="{id}"><div class="arena-idle">Tekrar yükleniyor…</div></div>
+{runtime_panel}
+<script src="/static/monopoly.js?v=5" defer></script>"##,
+            id = game.id,
+        ),
+    )
+}
+
 pub fn monopoly_instructions(user: &User) -> String {
-    monopoly_shell(
+    tournament_shell(
         user,
         "instructions",
-        "Gönderim kuralları ve oyunun işleyişi.",
-        r##"<div class="rulewrap">
-<section class="panel">
-  <h2>Nasıl işliyor</h2>
-  <p>Ekibiniz küçük bir dil modelini ince ayarlıyor, yayınlıyor ve ona bir tüccar karakteri
-  kazandırıyor. Turnuvada, modeliniz diğer ekiplerin modelleriyle masaya oturup pazarlık
-  yapıyor. Bir hakem modeli her bir konuşmayı inceliyor ve gerçekte neyin ne kadara
-  satıldığına karar veriyor. En zengin olan kazanır.</p>
-</section>
-
-<section class="panel">
-  <h2>Modelini gönder</h2>
-  <p>Modelinizi <span lang="en">Hugging Face</span>'te herkese açık bir depo olarak
-  yayınlayın, ardından adını <span lang="en">org/model</span> biçiminde buraya yapıştırın.
-  Sayfanın tam adresini de yapıştırabilirsiniz; adresi biz kendimiz kısaltacağız.</p>
-  <p>Gönderim yaptığınız anda deponun o anki tam <span lang="en">commit</span> durumunu
-  kaydediyoruz. Daha sonra yeni ağırlıklar gönderirseniz bile, turnuva yine de sizin
-  gönderdiğiniz sürümü kullanır. Bu nedenle, modelinizde her değişiklik yaptığınızda
-  yeniden gönderin.</p>
-  <ul class="harness-rules">
-    <li>Ağırlıklar <span lang="en">safetensors</span> formatında ve
-    <span lang="en">bf16</span> olarak olmalıdır. Kuantize edilmiş modeller ve
-    <span lang="en">GGUF</span> dosyaları kabul edilmez; çünkü kuantize edilmiş bir model
-    zayıflatılmış bir modeldir ve bu yarışmada önemli olan sıkıştırma değil, eğitim
-    sürecinizdir.</li>
-    <li>Deponun toplam boyutu en fazla 64 GB olmalıdır. Bu, <span lang="en">bf16</span>'da
-    yaklaşık 31 milyar parametreli bir modele karşılık gelir. Daha büyük depolar
-    reddedilir.</li>
-    <li><span lang="en">Tokenizer</span> yapılandırmasında bir
-    <span lang="en">chat template</span> bulunmalıdır. Bu şablon olmadan, bir sohbeti
-    modeliniz için bir komut satırına dönüştürmenin tanımlanmış bir yolu yoktur. Çoğu ince
-    ayar aracı bunu otomatik olarak ekler; eğer kullandığınız araç bunu yapmadıysa,
-    göndermeden önce ekleyin.</li>
-  </ul>
-</section>
-
-<section class="panel">
-  <h2>Tüccarını yaz</h2>
-  <p>Tüccarınızı kendiniz yazarsınız: bir karakter adı, bir ürün, o ürünün açıklaması,
-  istenen fiyat ve bir karakter tanımı. Karakter tanımı, maç sırasında modelinizin
-  <span lang="en">system prompt</span>'u haline gelir; bu nedenle bunu bize yönelik bir
-  açıklama olarak değil, modelinize yönelik bir talimat olarak yazın.</p>
-  <p>Bu alanların tümünü <span lang="en">İngilizce</span> olarak doldurun. Sohbetler
-  <span lang="en">İngilizce</span> olarak gerçekleştirilir ve tamamlanan her sohbet daha
-  sonra Türkçeye çevrilir; böylece geçmiş sekmesinden her iki versiyonu da
-  okuyabilirsiniz.</p>
-</section>
-
-<section class="panel">
-  <h2>Para nasıl işliyor</h2>
-  <p>Her esnaf, 1.000 ₺ nakit parayla başlar ve elinde mal yoktur.</p>
-  <p>Bir satış gerçekleştiğinde, üç şey aynı anda gerçekleşir. Alıcı, kararlaştırılan
-  bedeli elindeki nakit paradan öder ve asla sahip olduğu miktardan fazlasını ödeyemez.
-  Alıcı, hakemin o alıcı için gerçek değerinin ne olduğunu düşündüğü tutarda kayıt altına
-  alınmış ürünü alır. Satıcı ise bedelden, sabit yüzde 40'lık mal maliyetinin
-  düşülmesiyle kalan tutarı alır.</p>
-  <p>Puanınız, net servetinizdir: nakit paranız artı malınızın değeri. Bundan üç sonuç
-  çıkar ve işin özü de budur.</p>
-  <ul class="harness-rules">
-    <li>Diğer herkes alım satım yaparken hareketsiz kalan nakit hiçbir işe yaramaz; bu
-    yüzden biriktirmek kayba yol açar.</li>
-    <li>Bir şeyi satın almak, ancak o şeyin sizin için sahip olduğu değerden daha az bir
-    bedel ödediğinizde anlamlıdır; bu nedenle, kötü bir anlaşmaya ikna edilmek
-    cezalandırılır.</li>
-    <li>Maliyetinizin yüzde 40'ının altında satış yapmak zarara yol açar; bu nedenle nakit
-    elde etmek için stoklarınızı ucuza elden çıkaramazsınız.</li>
-  </ul>
-</section>
-
-<section class="panel">
-  <h2>Bir tur nasıl geçiyor</h2>
-  <p>Her turda, modelinizin fikstür listesindeki bir rakiple planlanmış bir görüşmesi ve
-  kendi seçtiği bir rakiple bir görüşmesi olur. Seçilen görüşme, ancak diğer model de
-  bunu kabul ederse gerçekleşir.</p>
-  <p>Bir sohbette taraflar sırayla konuşur; her bir tarafın en fazla on tur konuşma hakkı
-  vardır. Her iki taraf da mesajın sonuna <span lang="en">[END]</span> yazarak sohbeti
-  erken sonlandırabilir. Modeliniz kendi karakterini, kendi bakiyesini, o ana kadar geçen
-  konuşmayı ve önceki turlarda bu rakip hakkında tuttuğu notları görebilir. Karşı tarafın
-  karakterini, başkalarının bakiyelerini veya başkalarının notlarını asla göremez.</p>
-  <p>Her sohbetin ardından modeliniz rakibi hakkında özel bir not yazar ve bu not, ikisi
-  bir sonraki karşılaşmalarında modele geri verilir. Turnuva sona erdiğinde tüm notlar
-  herkese açık hale gelir.</p>
-</section>
-
-<section class="panel">
-  <h2>Süre sınırları</h2>
-  <p>Tek bir yanıt en fazla 120 saniye ve 400 <span lang="en">token</span> sürebilir. Bir
-  sohbetin tamamı en fazla 10 dakika, bir deneme maçı ise en fazla 15 dakika sürebilir.
-  Zamanında yanıt vermeyen model, o sohbeti kaybeder.</p>
-</section>
-
-<section class="panel">
-  <h2>Antrenman</h2>
-  <p>Turnuva başlamadan önce, diğer takımların gönderdiği modellerle istediğiniz kadar
-  antrenman yapabilirsiniz. Antrenmanlarda rakip, gerçek karakteri yerine uydurma bir
-  tüccar karakteri kullanır; bu nedenle antrenmanlar, kimin ne sattığını anlamanıza
-  yardımcı olmaz.</p>
-</section>
+        "Gönderim sözleşmesi, doğrulama ve turnuva kuralları.",
+        r##"<div class="rulewrap monopoly-rules">
+<section class="panel"><p class="eyebrow">GÖNDERİM</p><h2>Public GitHub repo + ajan yolu</h2>
+<p>Varsayılan dalın commit'i doğrulama sırasında bir kez sabitlenir. <code>agent.py</code>
+varsayılandır; repo içindeki başka bir göreli Python dosyasını seçebilirsin. Git LFS dâhil
+çözülmüş checkout en fazla 250 MiB olabilir.</p>
+<pre><code>def choose_action(state, player_id, allowed_actions) -&gt; int:
+    return allowed_actions[0]</code></pre></section>
+<section class="panel"><h2>Salt okunur karar durumu</h2><ul class="harness-rules">
+<li><code>ruleset_version</code>: <code>ppo-plus-v2</code>; <code>schema_version</code>: sözleşme sürümü.</li>
+<li><code>vector</code>: aktöre göre düzenlenmiş tam 300 float.</li>
+<li><code>board</code>: okunabilir tahta görüntüsü; canlı engine nesnesi verilmez.</li>
+<li><code>actions</code>: legal aksiyon açıklamaları; <code>decision_seed</code>: deterministik karar tohumu.</li>
+</ul></section>
+<section class="panel"><h2>Bağımlılıklar ve izolasyon</h2>
+<p><code>requirements.txt</code> en fazla 32 wheel-only PyPI girdisi alır. Doğrulama bunları
+çözer ve lock dosyasını artifact'e koyar; maç sırasında internetten paket indirilmez.
+Server ajanları Docker'da, Colab ajanları 2 GiB sınırlandırılmış ayrı venv süreçlerinde çalışır.</p></section>
+<section class="panel"><h2>Altı maç, sert iki saniye</h2><p>Her takım tam altı kez oynar.
+Tek legal aksiyon engine tarafından otomatik uygulanır. Gerçek karar iki saniyeyi aşar, çöker
+veya illegal değer döndürürse strike ve deterministik fallback gelir; üçüncü strike o maçta
+ajanı sabit botla değiştirir.</p></section>
+<section class="panel"><h2>Maç sonu</h2><p>Canonical oyun 200 tur veya 50.000 aksiyonda biter.
+Engine-play süresi on dakikaya ulaşırsa ortalama kararı en yavaş uygun takım diskalifiye edilir.
+Botlar kazanamaz; kazanan her zaman uygun gönderimler arasındaki en yüksek final servetidir.
+Puan durumu galibiyet, ortalama final serveti ve daha az strike ile sıralanır.</p></section>
 </div>"##,
     )
 }
@@ -2592,9 +2418,7 @@ pub const BEGINNER_PROJECTS: [BeginnerProject; 11] = [
         "kisisel-web-sitesi",
         "Proje 1 — Kişisel Web Sitesi",
         "İlgi alanlarını ve ürettiklerini anlatan, yayında olan kişisel bir web sitesi kur.",
-        &[
-            ("Brifi indir ⬇", "01-kisisel-web-sitesi.pdf"),
-        ],
+        &[("Brifi indir ⬇", "01-kisisel-web-sitesi.pdf")],
         true,
         1,
         None,
@@ -2603,9 +2427,7 @@ pub const BEGINNER_PROJECTS: [BeginnerProject; 11] = [
         "kisisel-web-sitesi-chatbotu",
         "Proje 2 — Kişisel Web Sitesi Chatbotu",
         "Web siteni, profile.md dosyasından seni tanıtan bir chatbot ile genişlet.",
-        &[
-            ("Brifi indir ⬇", "02-kisisel-web-sitesi-chatbotu.pdf"),
-        ],
+        &[("Brifi indir ⬇", "02-kisisel-web-sitesi-chatbotu.pdf")],
         true,
         1,
         None,
@@ -2614,9 +2436,7 @@ pub const BEGINNER_PROJECTS: [BeginnerProject; 11] = [
         "ai-bouquet-maker",
         "Proje 3 — AI Bouquet Maker",
         "Annen için kişiselleştirilmiş yapay zekâ çiçek buketleri oluşturan bir uygulama geliştir.",
-        &[
-            ("Brifi indir ⬇", "03-ai-bouquet-maker.pdf"),
-        ],
+        &[("Brifi indir ⬇", "03-ai-bouquet-maker.pdf")],
         true,
         1,
         None,
@@ -2625,9 +2445,7 @@ pub const BEGINNER_PROJECTS: [BeginnerProject; 11] = [
         "renovate-your-room",
         "Proje 4 — Renovate Your Room",
         "Oda fotoğrafını yükleyip yapay zekâ ile farklı dekorasyon stillerinde yeniden tasarla.",
-        &[
-            ("Brifi indir ⬇", "04-renovate-your-room.pdf"),
-        ],
+        &[("Brifi indir ⬇", "04-renovate-your-room.pdf")],
         true,
         1,
         None,
@@ -2636,9 +2454,7 @@ pub const BEGINNER_PROJECTS: [BeginnerProject; 11] = [
         "character-voice-studio",
         "Proje 5 — Character Voice Studio",
         "Kendi karakterini oluştur, görsel ve sesle hayata geçirip konuştur.",
-        &[
-            ("Brifi indir ⬇", "05-character-voice-studio.pdf"),
-        ],
+        &[("Brifi indir ⬇", "05-character-voice-studio.pdf")],
         true,
         1,
         None,
@@ -2647,9 +2463,7 @@ pub const BEGINNER_PROJECTS: [BeginnerProject; 11] = [
         "ai-calorie-tracker",
         "Proje 6 — AI Calorie Tracker",
         "Yemek fotoğrafını yapay zekâ ile analiz edip kalori ve besin değerlerini takip eden bir uygulama geliştir.",
-        &[
-            ("Brifi indir ⬇", "06-ai-calorie-tracker.pdf"),
-        ],
+        &[("Brifi indir ⬇", "06-ai-calorie-tracker.pdf")],
         true,
         1,
         None,
@@ -2660,7 +2474,10 @@ pub const BEGINNER_PROJECTS: [BeginnerProject; 11] = [
         "Fiş fotoğraflarını yapay zekâ ile okuyup harcamaları Google Sheets'e otomatik aktaran bir uygulama geliştir.",
         &[
             ("Brifi indir ⬇", "07-smart-receipt.pdf"),
-            ("Apps Script cheat sheet ⬇", "07-google-apps-script-cheat-sheet.pdf"),
+            (
+                "Apps Script cheat sheet ⬇",
+                "07-google-apps-script-cheat-sheet.pdf",
+            ),
         ],
         true,
         1,
@@ -2673,9 +2490,18 @@ pub const BEGINNER_PROJECTS: [BeginnerProject; 11] = [
         "Proje 8 — Campus Lost & Found",
         "İki kişilik bir takımla, kampüs için ilan verme ve claim gönderme taraflarını tek uygulamada birleştiren bir Lost & Found platformu geliştir.",
         &[
-            ("Student 1 brifi ⬇", "08-campus-lost-and-found-student-1.pdf"),
-            ("Student 2 brifi ⬇", "08-campus-lost-and-found-student-2.pdf"),
-            ("Group project cheat sheet ⬇", "08-group-project-cheat-sheet.pdf"),
+            (
+                "Student 1 brifi ⬇",
+                "08-campus-lost-and-found-student-1.pdf",
+            ),
+            (
+                "Student 2 brifi ⬇",
+                "08-campus-lost-and-found-student-2.pdf",
+            ),
+            (
+                "Group project cheat sheet ⬇",
+                "08-group-project-cheat-sheet.pdf",
+            ),
         ],
         true,
         2,
@@ -2687,7 +2513,10 @@ pub const BEGINNER_PROJECTS: [BeginnerProject; 11] = [
         "Browser Use ve Gemma 4 31B ile Agent Lab challenge'larını kendi başına tamamlayan bir browser agent geliştir.",
         &[
             ("Brifi indir ⬇", "09-browser-agent.pdf"),
-            ("Browser Agent cheat sheet ⬇", "09-browser-agent-cheat-sheet.pdf"),
+            (
+                "Browser Agent cheat sheet ⬇",
+                "09-browser-agent-cheat-sheet.pdf",
+            ),
         ],
         false,
         2,
@@ -2700,7 +2529,10 @@ pub const BEGINNER_PROJECTS: [BeginnerProject; 11] = [
         &[
             ("Brifi indir ⬇", "10-habit-tracker-mobile-app.pdf"),
             ("Expo cheat sheet ⬇", "10-expo-mobile-app-cheat-sheet.pdf"),
-            ("Kurulum rehberi ⬇", "10-habit-tracker-mobile-app-install-guide.pdf"),
+            (
+                "Kurulum rehberi ⬇",
+                "10-habit-tracker-mobile-app-install-guide.pdf",
+            ),
         ],
         false,
         2,
@@ -2795,31 +2627,31 @@ pub fn beginner_projects(user: &User, subs: &[BeginnerSubmission]) -> String {
                         label = esc(label),
                     ))
                     .collect();
-                format!(r#"<div class="cardactions">{links}</div>"#)
-            };
-            let saved = subs.iter().find(|s| s.project_key == *key);
-            let (repo_val, vercel_val) = saved
-                .map(|s| (s.repo_url.clone(), s.vercel_url.clone()))
-                .unwrap_or_default();
-            let saved_note = if saved.is_some() {
-                r#"<p class="fieldnote">Kaydedildi ✓</p>"#
-            } else {
-                ""
-            };
-            // A locally-run project has nothing to deploy, so its card asks for the repo
-            // and stops there — no field the student can only fill by making one up. The
-            // input is dropped entirely rather than left optional; `vercel_url` defaults
-            // to empty server-side, which is what those rows store.
-            let live_input = if *wants_live {
-                format!(
-                    r#"<input name="vercel_url" type="url" placeholder="https://...vercel.app" value="{vercel_val}" required>"#,
-                    vercel_val = esc(&vercel_val),
-                )
-            } else {
-                String::new()
-            };
+            format!(r#"<div class="cardactions">{links}</div>"#)
+        };
+        let saved = subs.iter().find(|s| s.project_key == *key);
+        let (repo_val, vercel_val) = saved
+            .map(|s| (s.repo_url.clone(), s.vercel_url.clone()))
+            .unwrap_or_default();
+        let saved_note = if saved.is_some() {
+            r#"<p class="fieldnote">Kaydedildi ✓</p>"#
+        } else {
+            ""
+        };
+        // A locally-run project has nothing to deploy, so its card asks for the repo
+        // and stops there — no field the student can only fill by making one up. The
+        // input is dropped entirely rather than left optional; `vercel_url` defaults
+        // to empty server-side, which is what those rows store.
+        let live_input = if *wants_live {
             format!(
-                r##"<div class="taskcard">
+                r#"<input name="vercel_url" type="url" placeholder="https://...vercel.app" value="{vercel_val}" required>"#,
+                vercel_val = esc(&vercel_val),
+            )
+        } else {
+            String::new()
+        };
+        format!(
+            r##"<div class="taskcard">
   <div class="taskhead"><h3>{title}</h3>{badge}</div>
   <p class="desc">{summary}</p>
   {handout_links}
@@ -5812,8 +5644,7 @@ pub fn admin(
             })
             .collect()
     };
-    // AI Monopoly mirrors the harness block above: same interim team management, plus
-    // the start button and the running tournament's stop hatch.
+    // AI Monopoly: mutable submissions, one frozen tournament, and fleet preflight.
     let monopoly_team_opts: String = monopoly
         .teams
         .iter()
@@ -5829,20 +5660,41 @@ pub fn admin(
       <button class="btn-outline small" title="Takımdan çıkar">{name} ✕</button>
     </form>"#,
                 uid = m.user_id, name = esc(&m.display_name))).collect();
-            // the entry, if they've submitted one — this is what the start button freezes
-            let entry = monopoly.entries.iter().find(|e| e.team_id == t.id);
-            let entry_line = match entry {
-                Some(e) => format!(
-                    r#"<span class="item-meta">{char} · {product} · {price}₺ · <span lang="en">{repo}</span></span>"#,
-                    char = esc(&e.char_name), product = esc(&e.product_name),
-                    price = e.list_price, repo = esc(&e.hf_repo)),
-                None => r#"<span class="item-meta">gönderim yok</span>"#.to_string(),
+            let submission = monopoly.submissions.iter().find(|submission| submission.team_id == t.id);
+            let (submission_line, submission_actions) = match submission {
+                Some(submission) => {
+                    let (status, class) = monopoly_submission_status_tr(&submission.status);
+                    let log = submission.validation_log.as_deref().filter(|log| !log.trim().is_empty()).map(|log| format!(
+                        r#"<details class="build-log"><summary>Doğrulama günlüğü</summary><pre>{}</pre></details>"#,
+                        esc(log))).unwrap_or_default();
+                    let sha = submission.commit_sha.as_deref()
+                        .map(|sha| esc(&sha[..sha.len().min(8)]))
+                        .unwrap_or_else(|| "bekliyor".into());
+                    let line = format!(
+                        r##"<span class="item-meta"><a href="{repo}" target="_blank" rel="noopener">{repo_label}</a>
+                        · <code>{path}</code> · <code>{sha}</code> · nesil {generation}
+                        · <span class="substatus {class}">{status}</span></span>{log}"##,
+                        repo = esc(&submission.repo_url),
+                        repo_label = esc(submission.repo_url.trim_start_matches("https://github.com/")),
+                        path = esc(&submission.agent_path),
+                        generation = submission.generation,
+                    );
+                    let disable = if submission.status != "disabled" {
+                        format!(r#"<form method="post" action="/admin/monopoly/submission/reject" class="inline" onsubmit="return confirm('Güncel gönderim devre dışı bırakılacak. Dondurulmuş turnuva girdileri değişmez. Emin misin?')">
+      <input type="hidden" name="id" value="{}"><button class="btn-outline small">Devre dışı bırak</button></form>"#, submission.id)
+                    } else { String::new() };
+                    (line, disable)
+                }
+                None => (
+                    r#"<span class="item-meta">gönderim yok</span>"#.to_string(),
+                    String::new(),
+                ),
             };
             format!(
                 r##"<div class="itemrow">
-  <div class="item-title"><span>{name}</span>{entry_line}</div>
-  <div class="item-controls">{kid_buttons}
-    <form method="post" action="/admin/monopoly/team/delete" class="inline" onsubmit="return confirm('Bu takımı silersen gönderimi, konuşmaları ve turnuva geçmişi de silinir. Emin misin?')">
+  <div class="item-title"><span>{name}</span>{submission_line}</div>
+  <div class="item-controls">{kid_buttons}{submission_actions}
+    <form method="post" action="/admin/monopoly/team/delete" class="inline" onsubmit="return confirm('Bu takımın üyelikleri ve güncel gönderimi silinecek. Geçmiş oyun kaydı koltuk adıyla kalır. Emin misin?')">
       <input type="hidden" name="id" value="{id}">
       <button class="btn-dark small">Sil</button>
     </form>
@@ -5851,61 +5703,49 @@ pub fn admin(
                 name = esc(&t.name), id = t.id)
         }).collect()
     };
-    // Three states: no tournament yet (start button), one running (progress + stop),
-    // one finished (result + start a new one).
-    let monopoly_tournament_block = match &monopoly.tournament {
-        Some(t) if t.status != "done" && t.status != "failed" => {
-            let (label, class) = monopoly_status_tr(&t.status);
+    let approved = monopoly
+        .submissions
+        .iter()
+        .filter(|submission| submission.status == "approved")
+        .count();
+    let worker_rows: String = if monopoly.workers.is_empty() {
+        r#"<p class="fieldnote">Controller henüz kaynak durumu bildirmedi.</p>"#.into()
+    } else {
+        monopoly.workers.iter().map(|worker| {
+            let ready = matches!(worker.status.as_str(), "ready" | "busy");
+            let ram = worker.ram_bytes.map(|bytes| format!("{:.1} GiB", bytes as f64 / 1_073_741_824.0)).unwrap_or_else(|| "RAM ?".into());
+            let cpu = worker.effective_vcpus.map(|value| format!("{value:.1} vCPU")).unwrap_or_else(|| "CPU ?".into());
+            let reason = worker.preflight_reason.as_deref().map(|value| format!(" · {}", esc(value))).unwrap_or_default();
             format!(
                 r##"<div class="itemrow">
-  <div class="item-title"><span>Tur {round}/{total}</span><span class="substatus {class}">{label}</span>
-    <span class="item-meta">{progress}</span></div>
-  <div class="item-controls">
-    <a class="btn-outline small" href="/ai-monopoly?tab=live">Canlı izle</a>
-    <form method="post" action="/admin/monopoly/fail" class="inline" onsubmit="return confirm('Turnuva başarısız olarak işaretlenecek ve yeni bir turnuva başlatılabilecek. Emin misin?')">
-      <input type="hidden" name="id" value="{id}">
-      <button class="btn-dark small">Durdur</button>
-    </form>
-  </div>
+  <div class="item-title"><span>{name}</span><span class="item-meta">{kind} · {ram} · {cpu}{reason}</span></div>
+  <span class="substatus {class}">{status}</span>
 </div>"##,
-                round = t.round,
-                total = t.rounds_total,
-                class = class,
-                label = label,
-                progress = esc(t.progress.as_deref().unwrap_or("")),
-                id = t.id
+                name = esc(worker.session_name.as_deref().unwrap_or(&worker.worker_id)),
+                kind = esc(&worker.kind),
+                class = if ready { "st-passed" } else { "st-failed" },
+                status = esc(&worker.status),
+            )
+        }).collect()
+    };
+    let monopoly_tournament_block = match &monopoly.tournament {
+        Some(tournament) if tournament.status == "active" => {
+            format!(
+                r##"{summary}
+<div class="item-controls"><a class="btn-outline small" href="/ai-monopoly?tab=live">Canlı izle</a>
+<form method="post" action="/admin/monopoly/cancel" class="inline" onsubmit="return confirm('Kuyruktaki ve çalışan maçlar iptal edilecek. Emin misin?')">
+<input type="hidden" name="id" value="{id}"><button class="btn-dark small">Turnuvayı durdur</button></form></div>"##,
+                summary = tournament_summary(tournament),
+                id = tournament.id,
             )
         }
-        other => {
-            let last = match other {
-                Some(t) => {
-                    let (label, class) = monopoly_status_tr(&t.status);
-                    format!(
-                        r#"<p class="fieldnote">Son turnuva: <span class="substatus {class}">{label}</span> · {date}{err}</p>"#,
-                        class = class,
-                        label = label,
-                        date = t.created_at.format("%d.%m.%Y %H:%M"),
-                        err = match &t.error_log {
-                            Some(e) if !e.is_empty() => format!(" · {}", esc(e)),
-                            _ => String::new(),
-                        }
-                    )
-                }
-                None => String::new(),
-            };
+        latest => {
+            let previous = latest.as_ref().map(tournament_summary).unwrap_or_default();
             format!(
-                r##"{last}
-  <form method="post" action="/admin/monopoly/start" onsubmit="return confirm('Turnuva başlayacak ve gönderimler bu haliyle dondurulacak. Emin misin?')">
-    <button class="btn-dark"{disabled}>Turnuvayı başlat ({n} takım hazır)</button>
-  </form>"##,
-                last = last,
-                n = monopoly.entries.len(),
-                // needs two entries to have a game at all; the handler enforces it too
-                disabled = if monopoly.entries.len() < 2 {
-                    " disabled"
-                } else {
-                    ""
-                }
+                r##"{previous}<p class="fieldnote">{approved} doğrulanmış ajan. Başlatma anında repo, commit, ajan yolu, artifact ve dependency lock dondurulur.</p>
+<form method="post" action="/admin/monopoly/start" onsubmit="return confirm('Her takım altı maç oynayacak; fikstür ve gönderimler dondurulacak. Emin misin?')">
+<button class="btn-dark" {disabled}>Turnuvayı başlat</button></form>"##,
+                disabled = if approved < 4 { "disabled" } else { "" }
             )
         }
     };
@@ -6004,6 +5844,8 @@ pub fn admin(
   <p class="fieldnote">Başlatınca her takımın o anki gönderimi dondurulur; sonradan yapılan
   değişiklikler bu turnuvayı ve geçmişini etkilemez.</p>
   {monopoly_tournament_block}
+  <p class="muted">Fleet kaynakları</p>
+  <div class="minilist">{worker_rows}</div>
 </section>
 </div>
 
@@ -7235,6 +7077,57 @@ mod tests {
         viewer()
     }
 
+    #[test]
+    fn monopoly_instructions_define_one_repo_contract() {
+        let html = monopoly_instructions(&student());
+        assert!(html.contains("Public GitHub repo"));
+        assert!(html.contains("agent.py") && html.contains("choose_action"));
+        assert!(html.contains("250 MiB") && html.contains("iki saniye"));
+        assert!(!html.contains("org/model") && !html.contains("64 GB"));
+    }
+
+    #[test]
+    fn monopoly_replay_page_does_not_embed_untrusted_seat_json() {
+        let game = MonopolyGame {
+            id: Uuid::nil(),
+            tournament_id: Uuid::nil(),
+            game_no: 1,
+            status: "done".into(),
+            seed: 42,
+            attempt_count: 1,
+            seats: serde_json::json!([{
+                "player_id": 0,
+                "entry_id": null,
+                "bot_key": "hoarder",
+                "label": "</script><img src=x onerror=alert(1)>"
+            }]),
+            final_snapshot: None,
+            round: 1,
+            action_count: 10,
+            winner_seat: Some(0),
+            winner_entry_id: None,
+            end_reason: Some("normal".into()),
+            duration_us: Some(1_000_000),
+            error_log: None,
+            created_at: chrono::DateTime::from_timestamp(1_780_000_000, 0).unwrap(),
+            started_at: None,
+            finished_at: None,
+        };
+        let html = monopoly_game_page(
+            &student(),
+            &game,
+            &[(
+                0,
+                "<img src=x onerror=alert(1)>".into(),
+                "</pre><script>alert(2)</script>".into(),
+            )],
+        );
+        assert!(!html.contains("</script><img"));
+        assert!(!html.contains("<script>alert(2)</script>"));
+        assert!(html.contains("&lt;script&gt;alert(2)&lt;/script&gt;"));
+        assert!(html.contains(r#"data-game-id="00000000-0000-0000-0000-000000000000""#));
+    }
+
     // ---- haftalık program ----
 
     fn image(track: &str) -> ScheduleImage {
@@ -7731,15 +7624,17 @@ mod tests {
         );
     }
 
-    /// The placeholder must not leak the section it is standing in for: no tab strip, no
-    /// submit form. It keeps the Advanced Track sidebar entry active so students can still
-    /// find their way to it.
+    /// AI Monopoly is no longer a placeholder: a rostered student reaches the real repo
+    /// form while the Advanced Track parent stays active in the sidebar.
     #[test]
-    fn monopoly_placeholder_shows_nothing_but_the_promise() {
-        let page = monopoly_coming_soon(&viewer());
-        assert!(page.contains("COMING SOON!"));
-        assert!(!page.contains(r#"class="chips""#), "tab strip leaked");
-        assert!(!page.contains("subform"), "submit form leaked");
+    fn monopoly_is_open_to_a_rostered_student() {
+        let team = MonopolyTeam {
+            id: Uuid::nil(),
+            name: "Test Takımı".into(),
+        };
+        let page = monopoly_main(&viewer(), Some(&team), &[], None, None, None, &[]);
+        assert!(page.contains(r#"action="/ai-monopoly/submit""#));
+        assert!(page.contains("Public GitHub repo"));
         assert!(
             page.contains(r#"href="/advanced-track" class="active""#),
             "sidebar link dropped"

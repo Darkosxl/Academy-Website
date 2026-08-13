@@ -436,7 +436,7 @@ const REPO_URL_MAX: usize = 2000;
 /// version used. Nothing new can reach the worker: `executor.rs::valid_repo_url` and
 /// `runner.py::valid_repo_url` re-check the stored value and both are strict, so the output
 /// shape is a contract (see `normalized_urls_satisfy_the_worker_contract`).
-fn github_repo_url(raw: &str) -> Result<String, RepoUrlError> {
+pub(crate) fn github_repo_url(raw: &str) -> Result<String, RepoUrlError> {
     use RepoUrlError::*;
     let raw = raw.trim();
     if raw.is_empty() {
@@ -521,7 +521,11 @@ fn github_repo_url(raw: &str) -> Result<String, RepoUrlError> {
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
     };
     if bad_charset(owner) || bad_charset(repo) {
-        return Err(if raw_path.is_ascii() { BadChars } else { NonAscii });
+        return Err(if raw_path.is_ascii() {
+            BadChars
+        } else {
+            NonAscii
+        });
     }
     // GitHub's own limits, and what bounds the value we store and render.
     if owner.len() > 39 || repo.len() > 100 {
@@ -534,22 +538,46 @@ fn github_repo_url(raw: &str) -> Result<String, RepoUrlError> {
 
 /// The student-facing sentence for each reason. Every one names the thing to change and shows
 /// the target shape, because the reader is a teenager looking at a plain 400 page.
-fn repo_error_tr(err: RepoUrlError) -> &'static str {
+pub(crate) fn repo_error_tr(err: RepoUrlError) -> &'static str {
     use RepoUrlError::*;
     match err {
-        Empty => "Repo bağlantısı boş. GitHub'da repo sayfanı aç, adres çubuğundaki bağlantıyı kopyalayıp buraya yapıştır.",
-        TooLong => "Bağlantı çok uzun. Yalnızca repo sayfasının adresini yapıştır: https://github.com/kullanici/repo",
-        NotAUrl => "Bu bir bağlantıya benzemiyor. Repo sayfasının adresini olduğu gibi yapıştır: https://github.com/kullanici/repo",
-        NotGithub => "Bu bağlantı github.com adresinde değil. Ajanını GitHub'a yükle ve repo sayfasının adresini yapıştır: https://github.com/kullanici/repo",
-        GistLink => "Bu bir Gist bağlantısı. Ajanın normal bir GitHub repo'su olmalı — repo'nun ana sayfasının adresini yapıştır.",
-        RawFileLink => "Bu tek bir dosyanın (raw) bağlantısı. Repo'nun ana sayfasına dön ve oradaki adresi yapıştır: https://github.com/kullanici/repo",
-        Credentials => "Bağlantıda kullanıcı adı, şifre veya port var. Sade repo adresini yapıştır: https://github.com/kullanici/repo",
+        Empty => {
+            "Repo bağlantısı boş. GitHub'da repo sayfanı aç, adres çubuğundaki bağlantıyı kopyalayıp buraya yapıştır."
+        }
+        TooLong => {
+            "Bağlantı çok uzun. Yalnızca repo sayfasının adresini yapıştır: https://github.com/kullanici/repo"
+        }
+        NotAUrl => {
+            "Bu bir bağlantıya benzemiyor. Repo sayfasının adresini olduğu gibi yapıştır: https://github.com/kullanici/repo"
+        }
+        NotGithub => {
+            "Bu bağlantı github.com adresinde değil. Ajanını GitHub'a yükle ve repo sayfasının adresini yapıştır: https://github.com/kullanici/repo"
+        }
+        GistLink => {
+            "Bu bir Gist bağlantısı. Ajanın normal bir GitHub repo'su olmalı — repo'nun ana sayfasının adresini yapıştır."
+        }
+        RawFileLink => {
+            "Bu tek bir dosyanın (raw) bağlantısı. Repo'nun ana sayfasına dön ve oradaki adresi yapıştır: https://github.com/kullanici/repo"
+        }
+        Credentials => {
+            "Bağlantıda kullanıcı adı, şifre veya port var. Sade repo adresini yapıştır: https://github.com/kullanici/repo"
+        }
         NoRepo => "Bağlantıda repo adı yok. https://github.com/kullanici/repo biçiminde olmalı.",
-        OwnerOnly => "Bu senin GitHub profilinin bağlantısı, repo'nun değil. Profilinde ajanın repo'sunu aç, sonra o sayfanın adresini yapıştır: https://github.com/kullanici/repo",
-        ReservedOwner => "Bu bir repo sayfası değil, GitHub'ın kendi sayfalarından biri. Repo'nun ana sayfasını aç ve oradaki adresi yapıştır.",
-        NonAscii => "Repo veya kullanıcı adında Türkçe karakter (ö, ç, ş, ğ, ı, ü) görünüyor. GitHub adreslerinde bu harfler bulunmaz — repo sayfasını aç ve adres çubuğundaki adresi olduğu gibi kopyala.",
-        BadChars => "Repo veya kullanıcı adında geçersiz karakter var (boşluk gibi). Yalnızca harf, rakam, '-', '_' ve '.' olabilir — bağlantıyı elle yazmak yerine adres çubuğundan kopyala.",
-        SegmentTooLong => "Kullanıcı veya repo adı çok uzun. Repo sayfasının adresini yapıştır: https://github.com/kullanici/repo",
+        OwnerOnly => {
+            "Bu senin GitHub profilinin bağlantısı, repo'nun değil. Profilinde ajanın repo'sunu aç, sonra o sayfanın adresini yapıştır: https://github.com/kullanici/repo"
+        }
+        ReservedOwner => {
+            "Bu bir repo sayfası değil, GitHub'ın kendi sayfalarından biri. Repo'nun ana sayfasını aç ve oradaki adresi yapıştır."
+        }
+        NonAscii => {
+            "Repo veya kullanıcı adında Türkçe karakter (ö, ç, ş, ğ, ı, ü) görünüyor. GitHub adreslerinde bu harfler bulunmaz — repo sayfasını aç ve adres çubuğundaki adresi olduğu gibi kopyala."
+        }
+        BadChars => {
+            "Repo veya kullanıcı adında geçersiz karakter var (boşluk gibi). Yalnızca harf, rakam, '-', '_' ve '.' olabilir — bağlantıyı elle yazmak yerine adres çubuğundan kopyala."
+        }
+        SegmentTooLong => {
+            "Kullanıcı veya repo adı çok uzun. Repo sayfasının adresini yapıştır: https://github.com/kullanici/repo"
+        }
     }
 }
 
@@ -719,15 +747,8 @@ pub async fn harness_submit(
             // omits the raw input — that's the one field here with a privacy cost, and the
             // table already holds it behind an admin session.
             eprintln!("harness submit rejected: user={} reason={err:?}", user.id);
-            record_rejected_submission(
-                &app,
-                user.id,
-                team.id,
-                &f.repo_url,
-                err,
-                &f.benchmark_kind,
-            )
-            .await;
+            record_rejected_submission(&app, user.id, team.id, &f.repo_url, err, &f.benchmark_kind)
+                .await;
             return Err(bad(source_error_tr(user.is_admin, err)));
         }
     };
@@ -2000,7 +2021,10 @@ mod tests {
             ("https://github.com/öğrenci/proje", NonAscii),
             // ASCII but illegal — must NOT be reported as a Turkish-character problem
             ("https://github.com/ali/pro je", BadChars),
-            ("https://github.com/orgs/exposure/repositories", ReservedOwner),
+            (
+                "https://github.com/orgs/exposure/repositories",
+                ReservedOwner,
+            ),
             ("https://github.com/settings/profile", ReservedOwner),
             ("https://github.com/apps/copilot", ReservedOwner),
             ("ali/proje", NotAUrl),

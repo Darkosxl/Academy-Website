@@ -1,0 +1,49 @@
+[Unit]
+Description=Exposure Academy AI Monopoly fleet controller
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=exposure-monopoly
+Group=exposure-monopoly
+SupplementaryGroups=docker
+WorkingDirectory=/opt/exposure-academy
+EnvironmentFile=/etc/exposure-academy/monopoly-controller.env
+Environment=HOME=/var/lib/exposure-monopoly
+Environment=XDG_CONFIG_HOME=/var/lib/exposure-monopoly/.config
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=MONOPOLY_CACHE_DIR=/run/exposure-monopoly/artifact-cache
+RuntimeDirectory=exposure-monopoly
+RuntimeDirectoryMode=0700
+ExecStart=/opt/exposure-academy/.venv-monopoly/bin/python /opt/exposure-academy/services/monopoly-worker/monopoly_controller.py --max-colab 5
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=15min
+KillSignal=SIGTERM
+KillMode=control-group
+UMask=0077
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=/var/lib/exposure-monopoly /var/lib/exposure/monopoly-artifacts /run/docker.sock
+
+[Install]
+WantedBy=multi-user.target

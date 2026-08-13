@@ -47,6 +47,9 @@ pub struct App {
     pub microlink_key: String,
     /// DeepL key for the Turkish transcripts. Blank just means the toggle shows English.
     pub deepl_key: String,
+    /// Persistent, controller-written, hash-addressed agent archives. The HTTP process
+    /// only serves exact SHA filenames after worker authentication.
+    pub monopoly_artifact_dir: std::path::PathBuf,
     /// XChaCha20-Poly1305 key for team Kaggle tokens. None disables official submit.
     pub kaggle_key: Option<[u8; 32]>,
     /// DeepInfra bearer token, read directly by the academy process for real-time
@@ -161,6 +164,10 @@ async fn main() {
     .execute(&pool)
     .await
     .expect("agent lab job applications migration failed");
+    sqlx::raw_sql(include_str!("../migrations/018_rl_monopoly.sql"))
+        .execute(&pool)
+        .await
+        .expect("RL Monopoly migration failed");
     seed_admin(&pool).await;
     seed_invite_code(&pool).await;
     seed_videos(&pool).await;
@@ -182,6 +189,13 @@ async fn main() {
     .execute(&pool)
     .await;
 
+    let monopoly_artifact_dir = std::path::PathBuf::from(
+        std::env::var("MONOPOLY_ARTIFACT_DIR")
+            .unwrap_or_else(|_| "var/monopoly-artifacts".to_string()),
+    );
+    tokio::fs::create_dir_all(&monopoly_artifact_dir)
+        .await
+        .expect("MONOPOLY_ARTIFACT_DIR could not be created");
     let app = App {
         pool,
         worker_token: std::env::var("WORKER_TOKEN").unwrap_or_default(),
@@ -197,6 +211,7 @@ async fn main() {
         base_url: std::env::var("APP_BASE_URL").expect("APP_BASE_URL missing (.env)"),
         microlink_key: std::env::var("MICROLINK_API_KEY").unwrap_or_default(),
         deepl_key: std::env::var("DEEPL_API_KEY").unwrap_or_default(),
+        monopoly_artifact_dir,
         kaggle_key: secret_key("KAGGLE_CREDENTIAL_KEY"),
         deepinfra_api_key: std::env::var("DEEPINFRA_API_KEY").unwrap_or_default(),
     };
@@ -204,6 +219,7 @@ async fn main() {
     // background: keeps submissions' live site URLs up to date. Students deploy after they
     // submit, so this can't be a one-shot at submit time.
     spawn_resolver(app.clone());
+    spawn_monopoly_retention(app.clone());
 
     let router = Router::new()
         .route("/", get(landing))
@@ -283,8 +299,11 @@ async fn main() {
         .route("/ai-monopoly", get(ai_monopoly))
         .route("/ai-monopoly/submit", post(monopoly_submit))
         .route("/ai-monopoly/live", get(monopoly_live_json))
-        .route("/ai-monopoly/practice", post(monopoly_practice))
-        .route("/ai-monopoly/match/{id}", get(monopoly_match_page))
+        .route("/ai-monopoly/game/{id}", get(monopoly_game_page))
+        .route(
+            "/ai-monopoly/tournament/{id}/export.json",
+            get(monopoly_export),
+        )
         .route("/demos", get(demos))
         .route("/watch/{id}", get(watch))
         .route("/api/progress", post(progress))
@@ -349,8 +368,12 @@ async fn main() {
             "/admin/monopoly/member/remove",
             post(admin_monopoly_member_remove),
         )
+        .route(
+            "/admin/monopoly/submission/reject",
+            post(admin_monopoly_submission_reject),
+        )
         .route("/admin/monopoly/start", post(admin_monopoly_start))
-        .route("/admin/monopoly/fail", post(admin_monopoly_fail))
+        .route("/admin/monopoly/cancel", post(admin_monopoly_cancel))
         .route("/api/worker/pending", get(worker_pending))
         .route("/api/worker/result", post(worker_result))
         .route("/api/worker/harness/claim", post(worker_harness_claim))
@@ -381,23 +404,46 @@ async fn main() {
             "/api/worker/harness/kaggle/result",
             post(worker_harness_kaggle_result),
         )
-        .route("/api/worker/monopoly/pending", get(worker_monopoly_pending))
-        .route("/api/worker/monopoly/stage", post(worker_monopoly_stage))
         .route(
-            "/api/worker/monopoly/progress",
-            post(worker_monopoly_progress),
+            "/api/worker/rl-monopoly/claim",
+            post(worker_rl_monopoly_claim),
         )
         .route(
-            "/api/worker/monopoly/message",
-            post(worker_monopoly_message),
+            "/api/worker/rl-monopoly/heartbeat",
+            post(worker_rl_monopoly_heartbeat),
         )
-        .route("/api/worker/monopoly/invite", post(worker_monopoly_invite))
         .route(
-            "/api/worker/monopoly/verdict",
-            post(worker_monopoly_verdict),
+            "/api/worker/rl-monopoly/events",
+            post(worker_rl_monopoly_events).layer(DefaultBodyLimit::max(6 * 1024 * 1024)),
         )
-        .route("/api/worker/monopoly/note", post(worker_monopoly_note))
-        .route("/api/worker/monopoly/result", post(worker_monopoly_result))
+        .route(
+            "/api/worker/rl-monopoly/result",
+            post(worker_rl_monopoly_result),
+        )
+        .route(
+            "/api/worker/rl-monopoly/demand",
+            get(worker_rl_monopoly_demand),
+        )
+        .route(
+            "/api/worker/rl-monopoly/submissions/claim",
+            post(worker_rl_monopoly_validation_claim),
+        )
+        .route(
+            "/api/worker/rl-monopoly/submissions/heartbeat",
+            post(worker_rl_monopoly_validation_heartbeat),
+        )
+        .route(
+            "/api/worker/rl-monopoly/submissions/result",
+            post(worker_rl_monopoly_validation_result),
+        )
+        .route(
+            "/api/worker/rl-monopoly/artifact/{sha256}",
+            get(worker_rl_monopoly_artifact),
+        )
+        .route(
+            "/api/worker/rl-monopoly/resource",
+            post(worker_rl_monopoly_resource),
+        )
         // rolling session refresh — applies to the routes above only; static assets
         // are mounted after the layer so they don't each cost a session write
         .layer(middleware::from_fn_with_state(app.clone(), rolling_session))

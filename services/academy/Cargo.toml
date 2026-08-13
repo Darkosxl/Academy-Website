@@ -16,6 +16,7 @@ serde_json.workspace = true
 sqlx = { version = "0.8", features = ["postgres", "runtime-tokio-rustls", "uuid", "chrono"] }
 tokio.workspace = true
 tokio-stream = { version = "0.1", features = ["sync"] }
+tokio-util = { version = "0.7", features = ["io"] }
 tower-http = { version = "0.6", features = ["fs", "compression-gzip"] }
 uuid.workspace = true
 zip.workspace = true

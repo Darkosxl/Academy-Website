@@ -6,6 +6,7 @@
 
 use crate::html;
 use crate::model::*;
+use crate::monopoly::latest_tournament;
 use crate::{App, auth::*, random_token};
 use axum::{
     Form,
@@ -66,9 +67,7 @@ pub async fn admin_page(
         .await
         .unwrap_or_default(),
     };
-    // Same interim shape for AI Monopoly. `entries` drives the "N takım hazır" line and
-    // the start button; `tournament` is the live one if there is one, so the admin can
-    // watch it and has somewhere to press stop.
+    // AI Monopoly keeps mutable submissions beside one immutable active/latest tournament.
     let monopoly = MonopolyAdmin {
         teams: sqlx::query_as(
             "select id, name from monopoly_teams_exposure_academy order by lower(name)",
@@ -86,21 +85,23 @@ pub async fn admin_page(
         .fetch_all(&app.pool)
         .await
         .unwrap(),
-        entries: sqlx::query_as(
-            "select id, team_id, hf_repo, hf_revision, size_bytes, char_name, product_name,
-                    product_desc, list_price, persona, updated_at
-             from monopoly_entries_exposure_academy order by updated_at desc",
+        submissions: sqlx::query_as(
+            "select id, team_id, generation, repo_url, agent_path, status,
+                    commit_sha, repo_size_bytes, validation_log
+             from monopoly_submissions_exposure_academy order by updated_at desc",
         )
         .fetch_all(&app.pool)
         .await
         .unwrap(),
-        tournament: sqlx::query_as(
-            "select id, status, round, rounds_total, progress, error_log, created_at
-             from monopoly_tournaments_exposure_academy order by created_at desc limit 1",
+        tournament: latest_tournament(&app).await,
+        workers: sqlx::query_as(
+            "select worker_id, kind, session_name, status, ram_bytes, effective_vcpus,
+                    machine_shape, preflight_reason, current_game_id, last_seen_at
+             from monopoly_workers_exposure_academy order by worker_id",
         )
-        .fetch_optional(&app.pool)
+        .fetch_all(&app.pool)
         .await
-        .unwrap(),
+        .unwrap_or_default(),
     };
     let schedule_images = sqlx::query_as::<_, ScheduleImage>(
         "select track, content_type, uploaded_at, length(image)::bigint as bytes

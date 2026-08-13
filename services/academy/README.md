@@ -96,6 +96,28 @@ To build (a script/daemon in `worker/`, runs on the admin's machine — never on
 Safety notes for the worker: run student code in a container (podman/docker) with no
 network egress except package registries, memory/time limits, throwaway filesystem.
 
+### AI Monopoly tournament API
+
+The Monopoly controller is a separate Academy-host service. It validates public GitHub
+submissions, writes hash-addressed archives to `MONOPOLY_ARTIFACT_DIR`, and manages five named
+CPU-only Colab workers. The Academy process only persists tournament state and serves
+authenticated APIs; it never provisions a worker from an HTTP handler.
+
+Worker routes require `X-Worker-Token`. Claims use 90-second renewable leases, and stale lease
+heartbeats, events, or results return `409`.
+
+- `POST /api/worker/rl-monopoly/submissions/claim`, `/heartbeat`, and `/result` validate and
+  auto-approve pinned submissions.
+- `POST /api/worker/rl-monopoly/claim`, `/heartbeat`, `/events`, and `/result` execute frozen
+  tournament games with bounded event batches.
+- `GET /api/worker/rl-monopoly/artifact/{sha256}` serves validated archives only to workers.
+- `POST /api/worker/rl-monopoly/resource` records worker hardware and preflight failures.
+- `GET /api/worker/rl-monopoly/demand` exposes credentialed fleet demand without team code.
+
+Logged-in Academy users can view live matches, replays, standings, and the complete authenticated
+tournament JSON export. Runtime log tails are filtered to the submitting team and administrators.
+See `services/monopoly-worker/README.md` for validation, isolation, and fleet rollout commands.
+
 ### Agentic Harness runner API
 
 Production execution lives in `services/benchmark-node`: a credential-owning Rust
