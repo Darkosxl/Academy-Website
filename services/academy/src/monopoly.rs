@@ -516,7 +516,7 @@ pub async fn admin_monopoly_team(
     .execute(&app.pool)
     .await
     .map_err(|error| db_error("team create", error))?;
-    Ok(Redirect::to("/admin"))
+    Ok(Redirect::to("/admin/monopoly"))
 }
 
 pub async fn admin_monopoly_team_delete(
@@ -530,7 +530,7 @@ pub async fn admin_monopoly_team_delete(
         .execute(&app.pool)
         .await
         .map_err(|_| conflict("Dondurulmuş turnuvada yer alan takım silinemez."))?;
-    Ok(Redirect::to("/admin"))
+    Ok(Redirect::to("/admin/monopoly"))
 }
 
 pub async fn admin_monopoly_member(
@@ -561,7 +561,7 @@ pub async fn admin_monopoly_member(
     tx.commit()
         .await
         .map_err(|error| db_error("member commit", error))?;
-    Ok(Redirect::to("/admin"))
+    Ok(Redirect::to("/admin/monopoly"))
 }
 
 pub async fn admin_monopoly_member_remove(
@@ -591,7 +591,7 @@ pub async fn admin_monopoly_member_remove(
     tx.commit()
         .await
         .map_err(|error| db_error("member removal commit", error))?;
-    Ok(Redirect::to("/admin"))
+    Ok(Redirect::to("/admin/monopoly"))
 }
 
 /// Disable the mutable submission. Frozen entries deliberately remain untouched.
@@ -613,7 +613,7 @@ pub async fn admin_monopoly_submission_reject(
     .execute(&app.pool)
     .await
     .map_err(|error| db_error("submission disable", error))?;
-    Ok(Redirect::to("/admin"))
+    Ok(Redirect::to("/admin/monopoly"))
 }
 
 #[derive(FromRow)]
@@ -978,7 +978,7 @@ pub async fn admin_monopoly_start(
     tx.commit()
         .await
         .map_err(|error| db_error("tournament commit", error))?;
-    Ok(Redirect::to("/admin"))
+    Ok(Redirect::to("/admin/monopoly"))
 }
 
 pub async fn admin_monopoly_cancel(
@@ -1033,7 +1033,7 @@ pub async fn admin_monopoly_cancel(
     tx.commit()
         .await
         .map_err(|error| db_error("cancel commit", error))?;
-    Ok(Redirect::to("/admin"))
+    Ok(Redirect::to("/admin/monopoly"))
 }
 
 // ---- worker resources and validation -------------------------------------

@@ -358,6 +358,7 @@ async fn main() {
         .route("/admin/takimlar/team/delete", post(team_delete))
         .route("/admin/takimlar/member", post(member_assign))
         .route("/admin/takimlar/member/remove", post(member_remove))
+        .route("/admin/monopoly", get(admin_monopoly_page))
         .route("/admin/monopoly/team", post(admin_monopoly_team))
         .route(
             "/admin/monopoly/team/delete",

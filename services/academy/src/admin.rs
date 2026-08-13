@@ -17,6 +17,44 @@ use axum::{
 use serde::Deserialize;
 use uuid::Uuid;
 
+async fn monopoly_admin_data(app: &App) -> MonopolyAdmin {
+    MonopolyAdmin {
+        teams: sqlx::query_as(
+            "select id, name from monopoly_teams_exposure_academy order by lower(name)",
+        )
+        .fetch_all(&app.pool)
+        .await
+        .unwrap(),
+        members: sqlx::query_as(
+            "select tm.team_id, tm.user_id, u.display_name,
+                    (u.nickname is not null and not u.hidden_from_leaderboard) as public
+             from monopoly_team_members_exposure_academy tm
+             join users_exposure_academy u on u.id = tm.user_id
+             order by lower(u.display_name)",
+        )
+        .fetch_all(&app.pool)
+        .await
+        .unwrap(),
+        submissions: sqlx::query_as(
+            "select id, team_id, generation, repo_url, agent_path, status,
+                    commit_sha, repo_size_bytes, validation_log
+             from monopoly_submissions_exposure_academy order by updated_at desc",
+        )
+        .fetch_all(&app.pool)
+        .await
+        .unwrap(),
+        tournament: latest_tournament(app).await,
+        workers: sqlx::query_as(
+            "select worker_id, kind, session_name, status, ram_bytes, effective_vcpus,
+                    machine_shape, preflight_reason, current_game_id, last_seen_at
+             from monopoly_workers_exposure_academy order by worker_id",
+        )
+        .fetch_all(&app.pool)
+        .await
+        .unwrap_or_default(),
+    }
+}
+
 pub async fn admin_page(
     State(app): State<App>,
     headers: HeaderMap,
@@ -67,42 +105,7 @@ pub async fn admin_page(
         .await
         .unwrap_or_default(),
     };
-    // AI Monopoly keeps mutable submissions beside one immutable active/latest tournament.
-    let monopoly = MonopolyAdmin {
-        teams: sqlx::query_as(
-            "select id, name from monopoly_teams_exposure_academy order by lower(name)",
-        )
-        .fetch_all(&app.pool)
-        .await
-        .unwrap(),
-        members: sqlx::query_as(
-            "select tm.team_id, tm.user_id, u.display_name,
-                    (u.nickname is not null and not u.hidden_from_leaderboard) as public
-             from monopoly_team_members_exposure_academy tm
-             join users_exposure_academy u on u.id = tm.user_id
-             order by lower(u.display_name)",
-        )
-        .fetch_all(&app.pool)
-        .await
-        .unwrap(),
-        submissions: sqlx::query_as(
-            "select id, team_id, generation, repo_url, agent_path, status,
-                    commit_sha, repo_size_bytes, validation_log
-             from monopoly_submissions_exposure_academy order by updated_at desc",
-        )
-        .fetch_all(&app.pool)
-        .await
-        .unwrap(),
-        tournament: latest_tournament(&app).await,
-        workers: sqlx::query_as(
-            "select worker_id, kind, session_name, status, ram_bytes, effective_vcpus,
-                    machine_shape, preflight_reason, current_game_id, last_seen_at
-             from monopoly_workers_exposure_academy order by worker_id",
-        )
-        .fetch_all(&app.pool)
-        .await
-        .unwrap_or_default(),
-    };
+    let monopoly = monopoly_admin_data(&app).await;
     let schedule_images = sqlx::query_as::<_, ScheduleImage>(
         "select track, content_type, uploaded_at, length(image)::bigint as bytes
          from schedule_image_exposure_academy",
@@ -136,6 +139,22 @@ pub async fn admin_page(
         &consent_locks,
         &consent_urls,
     )))
+}
+
+pub async fn admin_monopoly_page(
+    State(app): State<App>,
+    headers: HeaderMap,
+) -> Result<Html<String>, Response> {
+    let user = require_admin(current_user(&app, &headers).await)?;
+    let members = sqlx::query_as::<_, MemberRow>(
+        "select id, display_name, email, nickname, is_admin, hidden_from_leaderboard
+         from users_exposure_academy order by is_admin desc, lower(coalesce(nickname, display_name))",
+    )
+    .fetch_all(&app.pool)
+    .await
+    .unwrap();
+    let monopoly = monopoly_admin_data(&app).await;
+    Ok(Html(html::admin_monopoly_page(&user, &members, &monopoly)))
 }
 
 // ---- Beginner Track gönderimleri ----

@@ -120,7 +120,7 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
         Some(u) => {
             let admin_block = if u.is_admin {
                 format!(
-                    r#"<div class="sb-head">Yönetim</div>{}{}{}{}{}"#,
+                    r#"<div class="sb-head">Yönetim</div>{}{}{}{}{}{}"#,
                     nav_link("/admin", active, "admin", &ico(P_ADMIN), "Yönetici paneli"),
                     nav_link(
                         "/admin/beginner-track",
@@ -149,6 +149,13 @@ fn layout(title: &str, user: Option<&User>, active: &str, content: &str) -> Stri
                         "harness-admin",
                         &ico(P_HARNESS),
                         "Agentic Harness (Admin)"
+                    ),
+                    nav_link(
+                        "/admin/monopoly",
+                        active,
+                        "monopoly-admin",
+                        &ico(P_MONOPOLY),
+                        "AI Monopoly (Admin)"
                     )
                 )
             } else {
@@ -5451,6 +5458,216 @@ fn grading_row(r: &GradeRow, tasks: &[Task], filter_fields: &str) -> String {
     )
 }
 
+fn admin_monopoly_panel(members: &[MemberRow], monopoly: &MonopolyAdmin) -> String {
+    let student_opts: String = members
+        .iter()
+        .filter(|member| !member.is_admin)
+        .map(|member| {
+            format!(
+                r#"<option value="{}">{}</option>"#,
+                member.id,
+                esc(&member.display_name)
+            )
+        })
+        .collect();
+    let team_opts: String = monopoly
+        .teams
+        .iter()
+        .map(|team| {
+            format!(
+                r#"<option value="{}">{}</option>"#,
+                team.id,
+                esc(&team.name)
+            )
+        })
+        .collect();
+    let team_rows: String = if monopoly.teams.is_empty() {
+        "<p class='muted'>Henüz takım yok</p>".into()
+    } else {
+        monopoly
+            .teams
+            .iter()
+            .map(|team| {
+                let member_buttons: String = monopoly
+                    .members
+                    .iter()
+                    .filter(|member| member.team_id == team.id)
+                    .map(|member| {
+                        format!(
+                            r#"<form method="post" action="/admin/monopoly/member/remove" class="inline">
+      <input type="hidden" name="id" value="{uid}">
+      <button class="btn-outline small" title="Takımdan çıkar">{name} ✕</button>
+    </form>"#,
+                            uid = member.user_id,
+                            name = esc(&member.display_name)
+                        )
+                    })
+                    .collect();
+                let submission = monopoly
+                    .submissions
+                    .iter()
+                    .find(|submission| submission.team_id == team.id);
+                let (submission_line, submission_actions) = match submission {
+                    Some(submission) => {
+                        let (status, class) = monopoly_submission_status_tr(&submission.status);
+                        let log = submission
+                            .validation_log
+                            .as_deref()
+                            .filter(|log| !log.trim().is_empty())
+                            .map(|log| {
+                                format!(
+                                    r#"<details class="build-log"><summary>Doğrulama günlüğü</summary><pre>{}</pre></details>"#,
+                                    esc(log)
+                                )
+                            })
+                            .unwrap_or_default();
+                        let sha = submission
+                            .commit_sha
+                            .as_deref()
+                            .map(|sha| esc(&sha[..sha.len().min(8)]))
+                            .unwrap_or_else(|| "bekliyor".into());
+                        let line = format!(
+                            r##"<span class="item-meta"><a href="{repo}" target="_blank" rel="noopener">{repo_label}</a>
+                        · <code>{path}</code> · <code>{sha}</code> · nesil {generation}
+                        · <span class="substatus {class}">{status}</span></span>{log}"##,
+                            repo = esc(&submission.repo_url),
+                            repo_label = esc(
+                                submission.repo_url.trim_start_matches("https://github.com/")
+                            ),
+                            path = esc(&submission.agent_path),
+                            generation = submission.generation,
+                        );
+                        let disable = if submission.status != "disabled" {
+                            format!(
+                                r#"<form method="post" action="/admin/monopoly/submission/reject" class="inline" onsubmit="return confirm('Güncel gönderim devre dışı bırakılacak. Dondurulmuş turnuva girdileri değişmez. Emin misin?')">
+      <input type="hidden" name="id" value="{}"><button class="btn-outline small">Devre dışı bırak</button></form>"#,
+                                submission.id
+                            )
+                        } else {
+                            String::new()
+                        };
+                        (line, disable)
+                    }
+                    None => (
+                        r#"<span class="item-meta">gönderim yok</span>"#.to_string(),
+                        String::new(),
+                    ),
+                };
+                format!(
+                    r##"<div class="itemrow">
+  <div class="item-title"><span>{name}</span>{submission_line}</div>
+  <div class="item-controls">{member_buttons}{submission_actions}
+    <form method="post" action="/admin/monopoly/team/delete" class="inline" onsubmit="return confirm('Bu takımın üyelikleri ve güncel gönderimi silinecek. Geçmiş oyun kaydı koltuk adıyla kalır. Emin misin?')">
+      <input type="hidden" name="id" value="{id}">
+      <button class="btn-dark small">Sil</button>
+    </form>
+  </div>
+</div>"##,
+                    name = esc(&team.name),
+                    id = team.id
+                )
+            })
+            .collect()
+    };
+    let approved = monopoly
+        .submissions
+        .iter()
+        .filter(|submission| submission.status == "approved")
+        .count();
+    let worker_rows: String = if monopoly.workers.is_empty() {
+        r#"<p class="fieldnote">Controller henüz kaynak durumu bildirmedi.</p>"#.into()
+    } else {
+        monopoly
+            .workers
+            .iter()
+            .map(|worker| {
+                let ready = matches!(worker.status.as_str(), "ready" | "busy");
+                let ram = worker
+                    .ram_bytes
+                    .map(|bytes| format!("{:.1} GiB", bytes as f64 / 1_073_741_824.0))
+                    .unwrap_or_else(|| "RAM ?".into());
+                let cpu = worker
+                    .effective_vcpus
+                    .map(|value| format!("{value:.1} vCPU"))
+                    .unwrap_or_else(|| "CPU ?".into());
+                let reason = worker
+                    .preflight_reason
+                    .as_deref()
+                    .map(|value| format!(" · {}", esc(value)))
+                    .unwrap_or_default();
+                format!(
+                    r##"<div class="itemrow">
+  <div class="item-title"><span>{name}</span><span class="item-meta">{kind} · {ram} · {cpu}{reason}</span></div>
+  <span class="substatus {class}">{status}</span>
+</div>"##,
+                    name = esc(worker.session_name.as_deref().unwrap_or(&worker.worker_id)),
+                    kind = esc(&worker.kind),
+                    class = if ready { "st-passed" } else { "st-failed" },
+                    status = esc(&worker.status),
+                )
+            })
+            .collect()
+    };
+    let tournament_block = match &monopoly.tournament {
+        Some(tournament) if tournament.status == "active" => {
+            format!(
+                r##"{summary}
+<div class="item-controls"><a class="btn-outline small" href="/ai-monopoly?tab=live">Canlı izle</a>
+<form method="post" action="/admin/monopoly/cancel" class="inline" onsubmit="return confirm('Kuyruktaki ve çalışan maçlar iptal edilecek. Emin misin?')">
+<input type="hidden" name="id" value="{id}"><button class="btn-dark small">Turnuvayı durdur</button></form></div>"##,
+                summary = tournament_summary(tournament),
+                id = tournament.id,
+            )
+        }
+        latest => {
+            let previous = latest.as_ref().map(tournament_summary).unwrap_or_default();
+            format!(
+                r##"{previous}<p class="fieldnote">{approved} doğrulanmış ajan. Başlatma anında repo, commit, ajan yolu, artifact ve dependency lock dondurulur.</p>
+<form method="post" action="/admin/monopoly/start" onsubmit="return confirm('Her takım altı maç oynayacak; fikstür ve gönderimler dondurulacak. Emin misin?')">
+<button class="btn-dark" {disabled}>Turnuvayı başlat</button></form>"##,
+                disabled = if approved < 4 { "disabled" } else { "" }
+            )
+        }
+    };
+    format!(
+        r##"<section class="panel" id="monopoly-admin-panel">
+  <h2 lang="en">AI Monopoly — <span lang="tr">Takımlar ve gönderimler</span></h2>
+  <p class="fieldnote">Gönderimler controller doğrulamasını geçince otomatik onaylanır. Buradan durumu ve doğrulama günlüğünü izleyebilir, güncel gönderimi devre dışı bırakabilirsin.</p>
+  <form method="post" action="/admin/monopoly/team">
+    <label>Takım adı<input name="name" required></label>
+    <button class="btn-dark">Takım oluştur</button>
+  </form>
+  <form method="post" action="/admin/monopoly/member">
+    <label>Öğrenci<select name="user_id">{student_opts}</select></label>
+    <label>Takım<select name="team_id">{team_opts}</select></label>
+    <button class="btn-dark">Takıma ata</button>
+  </form>
+  <div class="minilist">{team_rows}</div>
+  <p class="muted">Turnuva</p>
+  <p class="fieldnote">Başlatınca her takımın o anki gönderimi dondurulur; sonradan yapılan değişiklikler bu turnuvayı ve geçmişini etkilemez.</p>
+  {tournament_block}
+  <p class="muted">Fleet kaynakları</p>
+  <div class="minilist">{worker_rows}</div>
+</section>"##
+    )
+}
+
+pub fn admin_monopoly_page(user: &User, members: &[MemberRow], monopoly: &MonopolyAdmin) -> String {
+    let panel = admin_monopoly_panel(members, monopoly);
+    layout(
+        "AI Monopoly (Admin)",
+        Some(user),
+        "monopoly-admin",
+        &format!(
+            r##"<div id="admin-root">
+<h1 class="pagetitle" lang="en">AI Monopoly — Admin</h1>
+<p class="muted">Takımları, ajan doğrulamalarını, turnuvayı ve worker kaynaklarını yönet.</p>
+<div class="admingrid stack">{panel}</div>
+</div>"##
+        ),
+    )
+}
+
 pub fn admin(
     user: &User,
     stats: &[StatRow],
@@ -5589,18 +5806,6 @@ pub fn admin(
             )
         }).collect()
     };
-    // Shared by the Monopoly assign form below; the harness one moved to /admin/takimlar.
-    let harness_student_opts: String = members
-        .iter()
-        .filter(|m| !m.is_admin)
-        .map(|m| {
-            format!(
-                r#"<option value="{}">{}</option>"#,
-                m.id,
-                esc(&m.display_name)
-            )
-        })
-        .collect();
     // "Başarısız say" is the stuck-run escape hatch: a worker that died mid-run
     // otherwise blocks the team's resubmits forever (one-active-run index).
     let harness_run_rows: String = if harness.active_runs.is_empty() {
@@ -5644,111 +5849,7 @@ pub fn admin(
             })
             .collect()
     };
-    // AI Monopoly: mutable submissions, one frozen tournament, and fleet preflight.
-    let monopoly_team_opts: String = monopoly
-        .teams
-        .iter()
-        .map(|t| format!(r#"<option value="{}">{}</option>"#, t.id, esc(&t.name)))
-        .collect();
-    let monopoly_team_rows: String = if monopoly.teams.is_empty() {
-        "<p class='muted'>Henüz takım yok</p>".into()
-    } else {
-        monopoly.teams.iter().map(|t| {
-            let kid_buttons: String = monopoly.members.iter().filter(|m| m.team_id == t.id).map(|m| format!(
-                r#"<form method="post" action="/admin/monopoly/member/remove" class="inline">
-      <input type="hidden" name="id" value="{uid}">
-      <button class="btn-outline small" title="Takımdan çıkar">{name} ✕</button>
-    </form>"#,
-                uid = m.user_id, name = esc(&m.display_name))).collect();
-            let submission = monopoly.submissions.iter().find(|submission| submission.team_id == t.id);
-            let (submission_line, submission_actions) = match submission {
-                Some(submission) => {
-                    let (status, class) = monopoly_submission_status_tr(&submission.status);
-                    let log = submission.validation_log.as_deref().filter(|log| !log.trim().is_empty()).map(|log| format!(
-                        r#"<details class="build-log"><summary>Doğrulama günlüğü</summary><pre>{}</pre></details>"#,
-                        esc(log))).unwrap_or_default();
-                    let sha = submission.commit_sha.as_deref()
-                        .map(|sha| esc(&sha[..sha.len().min(8)]))
-                        .unwrap_or_else(|| "bekliyor".into());
-                    let line = format!(
-                        r##"<span class="item-meta"><a href="{repo}" target="_blank" rel="noopener">{repo_label}</a>
-                        · <code>{path}</code> · <code>{sha}</code> · nesil {generation}
-                        · <span class="substatus {class}">{status}</span></span>{log}"##,
-                        repo = esc(&submission.repo_url),
-                        repo_label = esc(submission.repo_url.trim_start_matches("https://github.com/")),
-                        path = esc(&submission.agent_path),
-                        generation = submission.generation,
-                    );
-                    let disable = if submission.status != "disabled" {
-                        format!(r#"<form method="post" action="/admin/monopoly/submission/reject" class="inline" onsubmit="return confirm('Güncel gönderim devre dışı bırakılacak. Dondurulmuş turnuva girdileri değişmez. Emin misin?')">
-      <input type="hidden" name="id" value="{}"><button class="btn-outline small">Devre dışı bırak</button></form>"#, submission.id)
-                    } else { String::new() };
-                    (line, disable)
-                }
-                None => (
-                    r#"<span class="item-meta">gönderim yok</span>"#.to_string(),
-                    String::new(),
-                ),
-            };
-            format!(
-                r##"<div class="itemrow">
-  <div class="item-title"><span>{name}</span>{submission_line}</div>
-  <div class="item-controls">{kid_buttons}{submission_actions}
-    <form method="post" action="/admin/monopoly/team/delete" class="inline" onsubmit="return confirm('Bu takımın üyelikleri ve güncel gönderimi silinecek. Geçmiş oyun kaydı koltuk adıyla kalır. Emin misin?')">
-      <input type="hidden" name="id" value="{id}">
-      <button class="btn-dark small">Sil</button>
-    </form>
-  </div>
-</div>"##,
-                name = esc(&t.name), id = t.id)
-        }).collect()
-    };
-    let approved = monopoly
-        .submissions
-        .iter()
-        .filter(|submission| submission.status == "approved")
-        .count();
-    let worker_rows: String = if monopoly.workers.is_empty() {
-        r#"<p class="fieldnote">Controller henüz kaynak durumu bildirmedi.</p>"#.into()
-    } else {
-        monopoly.workers.iter().map(|worker| {
-            let ready = matches!(worker.status.as_str(), "ready" | "busy");
-            let ram = worker.ram_bytes.map(|bytes| format!("{:.1} GiB", bytes as f64 / 1_073_741_824.0)).unwrap_or_else(|| "RAM ?".into());
-            let cpu = worker.effective_vcpus.map(|value| format!("{value:.1} vCPU")).unwrap_or_else(|| "CPU ?".into());
-            let reason = worker.preflight_reason.as_deref().map(|value| format!(" · {}", esc(value))).unwrap_or_default();
-            format!(
-                r##"<div class="itemrow">
-  <div class="item-title"><span>{name}</span><span class="item-meta">{kind} · {ram} · {cpu}{reason}</span></div>
-  <span class="substatus {class}">{status}</span>
-</div>"##,
-                name = esc(worker.session_name.as_deref().unwrap_or(&worker.worker_id)),
-                kind = esc(&worker.kind),
-                class = if ready { "st-passed" } else { "st-failed" },
-                status = esc(&worker.status),
-            )
-        }).collect()
-    };
-    let monopoly_tournament_block = match &monopoly.tournament {
-        Some(tournament) if tournament.status == "active" => {
-            format!(
-                r##"{summary}
-<div class="item-controls"><a class="btn-outline small" href="/ai-monopoly?tab=live">Canlı izle</a>
-<form method="post" action="/admin/monopoly/cancel" class="inline" onsubmit="return confirm('Kuyruktaki ve çalışan maçlar iptal edilecek. Emin misin?')">
-<input type="hidden" name="id" value="{id}"><button class="btn-dark small">Turnuvayı durdur</button></form></div>"##,
-                summary = tournament_summary(tournament),
-                id = tournament.id,
-            )
-        }
-        latest => {
-            let previous = latest.as_ref().map(tournament_summary).unwrap_or_default();
-            format!(
-                r##"{previous}<p class="fieldnote">{approved} doğrulanmış ajan. Başlatma anında repo, commit, ajan yolu, artifact ve dependency lock dondurulur.</p>
-<form method="post" action="/admin/monopoly/start" onsubmit="return confirm('Her takım altı maç oynayacak; fikstür ve gönderimler dondurulacak. Emin misin?')">
-<button class="btn-dark" {disabled}>Turnuvayı başlat</button></form>"##,
-                disabled = if approved < 4 { "disabled" } else { "" }
-            )
-        }
-    };
+    let monopoly_panel = admin_monopoly_panel(members, monopoly);
     layout(
         "Yönetici paneli",
         Some(user),
@@ -5826,27 +5927,7 @@ pub fn admin(
   <div class="minilist">{harness_rejected_rows}</div>
 </section>
 
-<section class="panel">
-  <h2 lang="en">AI Monopoly — <span lang="tr">Takımlar</span></h2>
-  <p class="fieldnote">Bu bölümün takımları <span lang="en">Agentic Harness</span> takımlarından
-  ayrıdır. Bir öğrenci aynı anda tek Monopoly takımında olabilir.</p>
-  <form method="post" action="/admin/monopoly/team">
-    <label>Takım adı<input name="name" required></label>
-    <button class="btn-dark">Takım oluştur</button>
-  </form>
-  <form method="post" action="/admin/monopoly/member">
-    <label>Öğrenci<select name="user_id">{harness_student_opts}</select></label>
-    <label>Takım<select name="team_id">{monopoly_team_opts}</select></label>
-    <button class="btn-dark">Takıma ata</button>
-  </form>
-  <div class="minilist">{monopoly_team_rows}</div>
-  <p class="muted">Turnuva</p>
-  <p class="fieldnote">Başlatınca her takımın o anki gönderimi dondurulur; sonradan yapılan
-  değişiklikler bu turnuvayı ve geçmişini etkilemez.</p>
-  {monopoly_tournament_block}
-  <p class="muted">Fleet kaynakları</p>
-  <div class="minilist">{worker_rows}</div>
-</section>
+{monopoly_panel}
 </div>
 
 <section class="panel wide">
@@ -7075,6 +7156,22 @@ mod tests {
     /// The same viewer under the name the ported page tests were written against.
     fn student() -> User {
         viewer()
+    }
+
+    #[test]
+    fn monopoly_admin_has_its_own_management_page() {
+        let monopoly = MonopolyAdmin {
+            teams: Vec::new(),
+            members: Vec::new(),
+            submissions: Vec::new(),
+            tournament: None,
+            workers: Vec::new(),
+        };
+        let page = admin_monopoly_page(&admin_user(), &[], &monopoly);
+        assert!(page.contains(r#"href="/admin/monopoly" class="active""#));
+        assert!(page.contains("AI Monopoly (Admin)"));
+        assert!(page.contains(r#"action="/admin/monopoly/team""#));
+        assert!(page.contains("otomatik onaylanır"));
     }
 
     #[test]
