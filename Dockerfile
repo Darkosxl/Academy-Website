@@ -16,6 +16,7 @@ WORKDIR /app
 COPY --from=builder /app/target/release/academy ./academy
 # CARGO_MANIFEST_DIR is embedded in the binary, so preserve its build-time asset path.
 COPY services/academy/static ./services/academy/static
+RUN install -d -o app -g app /app/var/monopoly-artifacts
 
 USER app
 ENV BIND=0.0.0.0:3000
