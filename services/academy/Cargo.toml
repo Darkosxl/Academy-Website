@@ -13,6 +13,7 @@ rand.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 sqlx = { version = "0.8", features = ["postgres", "runtime-tokio-rustls", "uuid", "chrono"] }
 tokio.workspace = true
 tokio-stream = { version = "0.1", features = ["sync"] }

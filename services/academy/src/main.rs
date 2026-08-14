@@ -439,7 +439,7 @@ async fn main() {
         )
         .route(
             "/api/worker/rl-monopoly/artifact/{sha256}",
-            get(worker_rl_monopoly_artifact),
+            get(worker_rl_monopoly_artifact).put(worker_rl_monopoly_artifact_upload),
         )
         .route(
             "/api/worker/rl-monopoly/resource",

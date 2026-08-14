@@ -157,6 +157,35 @@ def api(path: str, body: dict | None = None, *, timeout: float = 60) -> dict | N
         raise ApiError(None, str(error)) from error
 
 
+def upload_artifact(
+    path: Path, sha256: str, validation: dict, *, timeout: float = 1200
+) -> None:
+    with open(path, "rb") as source:
+        request = urllib.request.Request(
+            SITE + f"/api/worker/rl-monopoly/artifact/{sha256}",
+            data=source,
+            headers={
+                "X-Worker-Token": WORKER_TOKEN,
+                "Content-Type": "application/gzip",
+                "Content-Length": str(path.stat().st_size),
+                "X-Validation-Submission": str(validation["id"]),
+                "X-Validation-Generation": str(validation["generation"]),
+                "X-Validation-Lease": str(validation["lease_id"]),
+                "X-Validation-Worker": str(validation["worker_id"]),
+                "User-Agent": "exposure-monopoly-controller/1",
+            },
+            method="PUT",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                response.read()
+        except urllib.error.HTTPError as error:
+            detail = error.read(1000).decode(errors="replace")
+            raise ApiError(error.code, detail or f"HTTP {error.code}") from error
+        except (OSError, TimeoutError) as error:
+            raise ApiError(None, str(error)) from error
+
+
 def report_fleet(
     name: str,
     status: str,
@@ -762,8 +791,9 @@ def validate_submission(job: dict) -> dict:
                         timeout=1200,
                     )
                     built_image = tag
-                process = docker_agent(artifact_sha, agent_path)
+                process = None
                 try:
+                    process = docker_agent(artifact_sha, agent_path)
                     env = MonopolyEnv(max_rounds=1)
                     player_id = env.whose_turn()
                     allowed = [
@@ -812,7 +842,8 @@ def validate_submission(job: dict) -> dict:
                     temporary_archive = None
                     continue
                 finally:
-                    process.close()
+                    if process is not None:
+                        process.close()
                 break
             if auto_added_packages:
                 output.write(
@@ -875,10 +906,17 @@ def validation_once() -> bool:
         with ValidationLease(job) as lease:
             result = validate_submission(job)
             lease.check()
-        api(
-            "/api/worker/rl-monopoly/submissions/result",
-            {**base, "status": "approved", **result},
-        )
+            approval = {**base, "status": "approved", **result}
+            try:
+                api("/api/worker/rl-monopoly/submissions/result", approval)
+            except ApiError as error:
+                if error.status != 412:
+                    raise
+                artifact = ARTIFACT_DIR / f"{result['artifact_sha256']}.tar.gz"
+                log(f"uploading artifact {result['artifact_sha256'][:12]} to Academy")
+                upload_artifact(artifact, result["artifact_sha256"], base)
+                lease.check()
+                api("/api/worker/rl-monopoly/submissions/result", approval)
         log(f"approved submission {job['id']} at {result['commit_sha'][:12]}")
     except Exception as error:
         message = f"{type(error).__name__}: {error}"[-12_000:]

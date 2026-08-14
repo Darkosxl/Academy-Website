@@ -30,7 +30,8 @@ See [`examples/minimal-agent/agent.py`](examples/minimal-agent/agent.py) for a b
 
 ## Host setup
 
-The Academy and controller must share the persistent artifact directory. Configure:
+Academy owns the persistent artifact directory. A co-located controller may share that path as a
+fast path; otherwise it uploads each validated archive over the authenticated worker API. Configure:
 
 ```text
 MONOPOLY_SITE=https://academy.example
@@ -92,14 +93,11 @@ resolves over Docker's own DNS. Going out to the public URL instead means routin
 Cloudflare, which challenges plain HTTP clients with a JS bot check no non-browser client can pass
 — that's a dead end, not a "add a header" problem.
 
-One thing Dokploy won't do for you: the controller and the Academy app are two separate Dokploy
-apps, so `MONOPOLY_ARTIFACT_DIR` only actually works if both containers have the **same host
-directory** bind-mounted at that path — the compose file already mounts
-`/var/lib/exposure/monopoly-artifacts` on the host into itself; add the identical bind mount to
-the Academy app in Dokploy's Mounts tab (its own `Dockerfile` doesn't declare one today), pointing
-at `/app/var/monopoly-artifacts` with `MONOPOLY_ARTIFACT_DIR=/app/var/monopoly-artifacts` set in
-its env vars. Without that, validation will build and smoke-test fine but approval will fail the
-artifact-existence check on the Academy side.
+The compose file keeps `/var/lib/exposure/monopoly-artifacts` as an optional shared-disk fast path.
+If Academy uses a different persistent volume, approval returns `412`, the controller streams the
+hash-addressed archive to Academy's authenticated artifact endpoint, and retries approval. Academy
+still needs its own persistent `MONOPOLY_ARTIFACT_DIR`; the two Dokploy apps no longer need matching
+host bind mounts.
 
 The compose file also mounts `/var/run/docker.sock` — Docker-outside-of-Docker, so games run as
 sibling containers on the host's real Docker daemon instead of needing Docker-in-Docker. That

@@ -627,6 +627,189 @@ class ValidationTests(unittest.TestCase):
         )
         self.assertIsNone(controller.missing_module_from_error("boom, unrelated"))
 
+    def test_startup_missing_module_is_auto_healed(self):
+        commit = "a" * 40
+        with tempfile.TemporaryDirectory() as name:
+            artifacts = Path(name) / "artifacts"
+
+            def run_logged(command, _output, **_kwargs):
+                if command[:2] == ["git", "ls-remote"]:
+                    return f"ref: refs/heads/main\tHEAD\n{commit}\tHEAD\n"
+                if command[:3] == ["git", "init", "--quiet"]:
+                    checkout = Path(command[-1])
+                    checkout.mkdir()
+                    (checkout / "agent.py").write_text(
+                        "def choose_action(*args): return 0\n"
+                    )
+                return None
+
+            requirements_seen = []
+
+            def prepare_dependencies(checkout, staging, _output):
+                requirements = checkout / "requirements.txt"
+                lock = requirements.read_text() if requirements.exists() else ""
+                requirements_seen.append(lock)
+                (staging / "wheelhouse").mkdir(exist_ok=True)
+                (staging / "requirements.lock").write_text(lock)
+                return lock
+
+            process = mock.Mock()
+            docker_result = mock.Mock(returncode=1, stdout="")
+            with (
+                mock.patch.object(controller, "ARTIFACT_DIR", artifacts),
+                mock.patch.object(controller, "run_logged", side_effect=run_logged),
+                mock.patch.object(controller, "inspect_git_tree"),
+                mock.patch.object(
+                    controller, "resolved_tree_size", return_value=(10, False)
+                ),
+                mock.patch.object(
+                    controller,
+                    "prepare_dependencies",
+                    side_effect=prepare_dependencies,
+                ),
+                mock.patch.object(
+                    controller, "agent_image_fingerprint", return_value="runtime"
+                ),
+                mock.patch.object(
+                    controller.subprocess, "run", return_value=docker_result
+                ),
+                mock.patch.object(
+                    controller,
+                    "docker_agent",
+                    side_effect=[
+                        runner.AgentCallError("startup", "No module named 'numpy'"),
+                        process,
+                    ],
+                ) as docker_agent,
+            ):
+                result = controller.validate_submission(
+                    {
+                        "id": "submission-id",
+                        "repo_url": "https://github.com/example/repo",
+                        "agent_path": "agent.py",
+                    }
+                )
+
+            self.assertEqual(requirements_seen, ["", "numpy\n"])
+            self.assertEqual(docker_agent.call_count, 2)
+            self.assertIn(
+                "[auto-heal] agent import failed on 'numpy'", result["validation_log"]
+            )
+            process.close.assert_called_once()
+
+    def test_artifact_upload_streams_the_archive(self):
+        with tempfile.TemporaryDirectory() as name:
+            path = Path(name) / "artifact.tar.gz"
+            path.write_bytes(b"artifact bytes")
+            seen = {}
+
+            class Response:
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *_args):
+                    return False
+
+                def read(self):
+                    return b""
+
+            def urlopen(request, *, timeout):
+                seen["method"] = request.method
+                seen["url"] = request.full_url
+                seen["headers"] = dict(request.header_items())
+                seen["body"] = request.data.read()
+                seen["timeout"] = timeout
+                return Response()
+
+            with mock.patch.object(
+                controller.urllib.request, "urlopen", side_effect=urlopen
+            ):
+                controller.upload_artifact(
+                    path,
+                    "a" * 64,
+                    {
+                        "id": "submission-id",
+                        "generation": 3,
+                        "lease_id": "lease-id",
+                        "worker_id": "validation-worker",
+                    },
+                )
+
+            self.assertEqual(seen["method"], "PUT")
+            self.assertTrue(seen["url"].endswith("/artifact/" + "a" * 64))
+            self.assertEqual(
+                seen["headers"]["Content-length"], str(path.stat().st_size)
+            )
+            self.assertEqual(
+                seen["headers"]["X-validation-submission"], "submission-id"
+            )
+            self.assertEqual(seen["headers"]["X-validation-generation"], "3")
+            self.assertEqual(seen["headers"]["X-validation-lease"], "lease-id")
+            self.assertEqual(
+                seen["headers"]["X-validation-worker"], "validation-worker"
+            )
+            self.assertEqual(seen["body"], b"artifact bytes")
+            self.assertEqual(seen["timeout"], 1200)
+
+    def test_missing_academy_artifact_is_uploaded_and_result_retried(self):
+        with tempfile.TemporaryDirectory() as name:
+            artifact_dir = Path(name)
+            sha256 = "b" * 64
+            artifact = artifact_dir / f"{sha256}.tar.gz"
+            artifact.write_bytes(b"artifact")
+            job = {
+                "id": "submission-id",
+                "generation": 1,
+                "lease_id": "lease-id",
+            }
+            result = {
+                "commit_sha": "a" * 40,
+                "repo_size_bytes": 1,
+                "artifact_sha256": sha256,
+                "artifact_size_bytes": artifact.stat().st_size,
+                "dependency_lock": "",
+                "validation_log": "ok",
+            }
+            approval_attempts = 0
+
+            def api(path, body=None, **_kwargs):
+                nonlocal approval_attempts
+                if path.endswith("/submissions/claim"):
+                    return job
+                if body and body.get("status") == "approved":
+                    approval_attempts += 1
+                    if approval_attempts == 1:
+                        raise controller.ApiError(412, "artifact missing")
+                return None
+
+            lease = mock.MagicMock()
+            lease.__enter__.return_value = lease
+            lease.__exit__.return_value = False
+            with (
+                mock.patch.object(controller, "ARTIFACT_DIR", artifact_dir),
+                mock.patch.object(controller, "api", side_effect=api),
+                mock.patch.object(
+                    controller, "validate_submission", return_value=result
+                ),
+                mock.patch.object(controller, "ValidationLease", return_value=lease),
+                mock.patch.object(controller, "upload_artifact") as upload,
+            ):
+                self.assertTrue(controller.validation_once())
+
+            self.assertEqual(approval_attempts, 2)
+            upload.assert_called_once_with(
+                artifact,
+                sha256,
+                {
+                    "worker_id": controller.VALIDATION_WORKER_ID,
+                    "id": job["id"],
+                    "generation": job["generation"],
+                    "lease_id": job["lease_id"],
+                },
+            )
+            self.assertEqual(lease.check.call_count, 2)
+            self.assertTrue(artifact.exists())
+
     def test_append_requirement_adds_a_trailing_newline_once(self):
         with tempfile.TemporaryDirectory() as name:
             path = Path(name) / "requirements.txt"

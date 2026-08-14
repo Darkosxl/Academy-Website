@@ -24,12 +24,8 @@ services:
       # submitted-agent containers run as siblings, not nested. This is a
       # root-equivalent grant on the host — see the Dockerfile comment.
       - /var/run/docker.sock:/var/run/docker.sock
-      # Must be the SAME host path the Academy app itself has bind-mounted
-      # for MONOPOLY_ARTIFACT_DIR — these are two separate Dokploy apps, so
-      # this only works if both point at one shared directory on the host,
-      # not two independent volumes. Configure the matching bind mount on
-      # the Academy app in Dokploy's own Mounts tab; nothing in that app's
-      # Dockerfile declares one today.
+      # Optional shared-disk fast path. If Academy uses a separate volume,
+      # the controller streams validated artifacts to its authenticated API.
       - /var/lib/exposure/monopoly-artifacts:/var/lib/exposure/monopoly-artifacts
     # Bounds the Python controller/worker processes themselves. Each
     # submitted agent's own Docker container is capped independently (2

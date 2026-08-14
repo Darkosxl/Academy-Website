@@ -8,19 +8,22 @@ use crate::{App, auth::*};
 use axum::{
     Form, Json,
     body::{Body, Bytes},
-    extract::{Path, Query, State},
+    extract::{Path, Query, Request, State},
     http::{HeaderMap, StatusCode, header},
     response::{Html, IntoResponse, Redirect, Response},
 };
 use rand::{Rng, SeedableRng, rngs::StdRng, seq::SliceRandom};
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use sqlx::{FromRow, Postgres, Transaction};
 use std::{
     collections::{HashMap, HashSet},
     convert::Infallible,
     path::Component,
 };
-use tokio_stream::wrappers::ReceiverStream;
+use tokio::io::AsyncWriteExt;
+use tokio::sync::Semaphore;
+use tokio_stream::{StreamExt, wrappers::ReceiverStream};
 use tokio_util::io::ReaderStream;
 use uuid::Uuid;
 
@@ -31,6 +34,8 @@ const MAX_ACTIONS: i32 = 50_000;
 const MAX_ACTION_INDEX: i32 = 2_957;
 const MAX_ROUNDS: i32 = 200;
 const PLAY_LIMIT_US: i64 = 600_000_000;
+const ARTIFACT_MAX_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+static ARTIFACT_UPLOADS: Semaphore = Semaphore::const_new(1);
 const BUILTIN_BOTS: [&str; 6] = [
     "hoarder",
     "dealmaker",
@@ -1134,6 +1139,7 @@ pub async fn worker_rl_monopoly_validation_claim(
         .map_err(|error| db_error("validation claim transaction", error))?;
     sqlx::query(
         "update monopoly_submissions_exposure_academy set status = 'pending',
+           artifact_sha256 = null,
            validation_lease_id = null, validation_worker_id = null,
            validation_lease_expires_at = null, updated_at = now()
          where status = 'validating' and validation_lease_expires_at < now()",
@@ -1149,7 +1155,8 @@ pub async fn worker_rl_monopoly_validation_claim(
            for update skip locked limit 1
          )
          update monopoly_submissions_exposure_academy s set
-           status = 'validating', validation_lease_id = $1, validation_worker_id = $2,
+           status = 'validating', artifact_sha256 = null,
+           validation_lease_id = $1, validation_worker_id = $2,
            validation_lease_expires_at = now() + make_interval(mins => $3), updated_at = now()
          from candidate where s.id = candidate.id
          returning s.id, s.generation, s.repo_url, s.agent_path",
@@ -1234,6 +1241,14 @@ fn valid_sha(value: &str, length: usize) -> bool {
             .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
 }
 
+fn required_header<'a>(headers: &'a HeaderMap, name: &str) -> Result<&'a str, Response> {
+    headers
+        .get(name)
+        .and_then(|value| value.to_str().ok())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| StatusCode::BAD_REQUEST.into_response())
+}
+
 pub async fn worker_rl_monopoly_validation_result(
     State(app): State<App>,
     headers: HeaderMap,
@@ -1261,19 +1276,50 @@ pub async fn worker_rl_monopoly_validation_result(
         if !valid_sha(commit, 40)
             || !valid_sha(artifact, 64)
             || !(0..=MONOPOLY_SUBMISSION_REPO_MAX_BYTES).contains(&repo_size)
-            || !(1..=2 * 1024 * 1024 * 1024_i64).contains(&artifact_size)
+            || !(1..=ARTIFACT_MAX_BYTES as i64).contains(&artifact_size)
             || lock.len() > 100_000
         {
             return Err(StatusCode::BAD_REQUEST.into_response());
         }
+        let owns_lease: bool = sqlx::query_scalar(
+            "select exists(
+               select 1 from monopoly_submissions_exposure_academy
+               where id = $1 and generation = $2 and status = 'validating'
+                 and validation_lease_id = $3 and validation_worker_id = $4
+                 and validation_lease_expires_at >= now()
+             )",
+        )
+        .bind(request.id)
+        .bind(request.generation)
+        .bind(request.lease_id)
+        .bind(&request.worker_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|error| db_error("validation result lease", error))?;
+        if !owns_lease {
+            return Err(conflict("Doğrulama sonucu eski bir gönderime ait."));
+        }
         let path = app.monopoly_artifact_dir.join(format!("{artifact}.tar.gz"));
-        let metadata = tokio::fs::metadata(&path)
-            .await
-            .map_err(|_| bad_request("Artifact sunucu diskinde bulunamadı."))?;
+        let metadata = match tokio::fs::metadata(&path).await {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Err((
+                    StatusCode::PRECONDITION_FAILED,
+                    "Artifact sunucu diskinde bulunamadı.",
+                )
+                    .into_response());
+            }
+            Err(error) => {
+                eprintln!("AI Monopoly artifact metadata failed: {error}");
+                return Err(StatusCode::SERVICE_UNAVAILABLE.into_response());
+            }
+        };
         if metadata.len() != artifact_size as u64 {
-            return Err(bad_request(
+            return Err((
+                StatusCode::PRECONDITION_FAILED,
                 "Artifact boyutu doğrulama sonucuyla eşleşmiyor.",
-            ));
+            )
+                .into_response());
         }
         sqlx::query(
             "insert into monopoly_artifacts_exposure_academy (sha256, size_bytes)
@@ -1292,7 +1338,8 @@ pub async fn worker_rl_monopoly_validation_result(
                validation_lease_expires_at = null, approved_at = now(), updated_at = now()
              where id = $1 and generation = $2 and status = 'validating'
                and validation_lease_id = $3 and validation_worker_id = $4
-               and validation_lease_expires_at >= now()",
+               and validation_lease_expires_at >= now()
+               and (artifact_sha256 is null or artifact_sha256 = $7)",
         )
         .bind(request.id)
         .bind(request.generation)
@@ -1336,6 +1383,164 @@ pub async fn worker_rl_monopoly_validation_result(
         .await
         .map_err(|error| db_error("validation result commit", error))?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+async fn store_uploaded_artifact(
+    app: &App,
+    sha256: &str,
+    declared_size: u64,
+    request: Request,
+) -> Result<StatusCode, Response> {
+    if !(1..=ARTIFACT_MAX_BYTES).contains(&declared_size) {
+        return Err(StatusCode::PAYLOAD_TOO_LARGE.into_response());
+    }
+    let destination = app.monopoly_artifact_dir.join(format!("{sha256}.tar.gz"));
+    let temporary = app.monopoly_artifact_dir.join(format!(".{sha256}.upload"));
+    let _permit = ARTIFACT_UPLOADS
+        .try_acquire()
+        .map_err(|_| StatusCode::TOO_MANY_REQUESTS.into_response())?;
+    let result = tokio::time::timeout(std::time::Duration::from_secs(15 * 60), async {
+        let mut file = tokio::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temporary)
+            .await
+            .map_err(|error| {
+                if error.kind() == std::io::ErrorKind::AlreadyExists {
+                    conflict("Bu artifact için bir yükleme zaten devam ediyor.")
+                } else {
+                    db_error("artifact upload create", error.into())
+                }
+            })?;
+        let mut body = request.into_body().into_data_stream();
+        let mut digest = Sha256::new();
+        let mut size = 0_u64;
+        while let Some(chunk) = body.next().await {
+            let chunk = chunk.map_err(|_| bad_request("Artifact yüklemesi okunamadı."))?;
+            size = size
+                .checked_add(chunk.len() as u64)
+                .ok_or_else(|| StatusCode::PAYLOAD_TOO_LARGE.into_response())?;
+            if size > ARTIFACT_MAX_BYTES {
+                return Err(StatusCode::PAYLOAD_TOO_LARGE.into_response());
+            }
+            digest.update(&chunk);
+            file.write_all(&chunk)
+                .await
+                .map_err(|error| db_error("artifact upload write", error.into()))?;
+        }
+        file.flush()
+            .await
+            .map_err(|error| db_error("artifact upload flush", error.into()))?;
+        drop(file);
+        if size != declared_size || format!("{:x}", digest.finalize()) != sha256 {
+            return Err(bad_request("Artifact SHA-256 doğrulaması başarısız."));
+        }
+        tokio::fs::rename(&temporary, destination)
+            .await
+            .map_err(|error| db_error("artifact upload commit", error.into()))?;
+        Ok(StatusCode::NO_CONTENT)
+    })
+    .await
+    .unwrap_or_else(|_| Err(StatusCode::REQUEST_TIMEOUT.into_response()));
+    if result.is_err() {
+        let _ = tokio::fs::remove_file(temporary).await;
+    }
+    result
+}
+
+pub async fn worker_rl_monopoly_artifact_upload(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(sha256): Path<String>,
+    request: Request,
+) -> Result<StatusCode, Response> {
+    check_worker(&app, &headers)?;
+    if !valid_sha(&sha256, 64) {
+        return Err(StatusCode::NOT_FOUND.into_response());
+    }
+    let declared_size = required_header(&headers, "content-length")?
+        .parse::<u64>()
+        .map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
+    if !(1..=ARTIFACT_MAX_BYTES).contains(&declared_size) {
+        return Err(StatusCode::PAYLOAD_TOO_LARGE.into_response());
+    }
+    let submission_id = required_header(&headers, "x-validation-submission")?
+        .parse::<Uuid>()
+        .map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
+    let generation = required_header(&headers, "x-validation-generation")?
+        .parse::<i32>()
+        .map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
+    let lease_id = required_header(&headers, "x-validation-lease")?
+        .parse::<Uuid>()
+        .map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
+    let worker_id = required_header(&headers, "x-validation-worker")?;
+    if !short_text(worker_id, 120) {
+        return Err(StatusCode::BAD_REQUEST.into_response());
+    }
+
+    let mut tx = app
+        .pool
+        .begin()
+        .await
+        .map_err(|error| db_error("artifact upload transaction", error))?;
+    let reserved: Option<String> = sqlx::query_scalar(
+        "insert into monopoly_artifacts_exposure_academy (sha256, size_bytes)
+         values ($1,$2) on conflict (sha256) do update set last_used_at = now()
+         where monopoly_artifacts_exposure_academy.size_bytes = excluded.size_bytes
+         returning sha256",
+    )
+    .bind(&sha256)
+    .bind(declared_size as i64)
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(|error| db_error("artifact upload reservation", error))?;
+    if reserved.is_none() {
+        return Err(bad_request("Artifact boyutu mevcut kayıtla eşleşmiyor."));
+    }
+    let claimed = sqlx::query(
+        "update monopoly_submissions_exposure_academy set
+           artifact_sha256 = $5, updated_at = now()
+         where id = $1 and generation = $2 and status = 'validating'
+           and validation_lease_id = $3 and validation_worker_id = $4
+           and validation_lease_expires_at >= now()
+           and (artifact_sha256 is null or artifact_sha256 = $5)",
+    )
+    .bind(submission_id)
+    .bind(generation)
+    .bind(lease_id)
+    .bind(worker_id)
+    .bind(&sha256)
+    .execute(&mut *tx)
+    .await
+    .map_err(|error| db_error("artifact upload lease", error))?;
+    if claimed.rows_affected() == 0 {
+        return Err(conflict("Artifact yükleme lease'i geçersiz."));
+    }
+    tx.commit()
+        .await
+        .map_err(|error| db_error("artifact upload reservation commit", error))?;
+
+    let status = store_uploaded_artifact(&app, &sha256, declared_size, request).await?;
+    let lease_valid: bool = sqlx::query_scalar(
+        "select exists(
+           select 1 from monopoly_submissions_exposure_academy
+           where id = $1 and generation = $2 and status = 'validating'
+             and validation_lease_id = $3 and validation_worker_id = $4
+             and validation_lease_expires_at >= now() and artifact_sha256 = $5
+         )",
+    )
+    .bind(submission_id)
+    .bind(generation)
+    .bind(lease_id)
+    .bind(worker_id)
+    .bind(&sha256)
+    .fetch_one(&app.pool)
+    .await
+    .map_err(|error| db_error("artifact upload final lease", error))?;
+    if !lease_valid {
+        return Err(conflict("Artifact yükleme lease'i artık geçerli değil."));
+    }
+    Ok(status)
 }
 
 pub async fn worker_rl_monopoly_artifact(
@@ -2310,6 +2515,8 @@ async fn run_monopoly_retention_once(app: &App) {
     if let Ok(mut directory) = tokio::fs::read_dir(&app.monopoly_artifact_dir).await {
         let cutoff = std::time::SystemTime::now()
             .checked_sub(std::time::Duration::from_secs(30 * 24 * 60 * 60));
+        let upload_cutoff =
+            std::time::SystemTime::now().checked_sub(std::time::Duration::from_secs(2 * 60 * 60));
         while let Ok(Some(entry)) = directory.next_entry().await {
             let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
                 continue;
@@ -2319,10 +2526,16 @@ async fn run_monopoly_retention_once(app: &App) {
                 sha256.is_some_and(|sha256| valid_sha(sha256, 64) && !known.contains(sha256));
             let abandoned_validation =
                 name.starts_with(".validation-") && name.ends_with(".tar.gz");
-            if !orphan_sha && !abandoned_validation {
+            let abandoned_upload = name.starts_with('.') && name.ends_with(".upload");
+            if !orphan_sha && !abandoned_validation && !abandoned_upload {
                 continue;
             }
-            let old_enough = match (entry.metadata().await, cutoff) {
+            let file_cutoff = if abandoned_upload {
+                upload_cutoff
+            } else {
+                cutoff
+            };
+            let old_enough = match (entry.metadata().await, file_cutoff) {
                 (Ok(metadata), Some(cutoff)) => {
                     metadata.modified().is_ok_and(|modified| modified < cutoff)
                 }
@@ -2556,6 +2769,47 @@ mod tests {
             kaggle_key: None,
             deepinfra_api_key: String::new(),
         }
+    }
+
+    #[tokio::test]
+    async fn worker_artifact_upload_streams_and_verifies_sha256() {
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://localhost/exposure-test")
+            .unwrap();
+        let directory =
+            std::env::temp_dir().join(format!("academy-monopoly-upload-{}", Uuid::new_v4()));
+        tokio::fs::create_dir(&directory).await.unwrap();
+        let mut app = test_app(pool);
+        app.monopoly_artifact_dir = directory.clone();
+        let payload = Bytes::from_static(b"validated artifact");
+        let sha256 = format!("{:x}", Sha256::digest(&payload));
+        let request = Request::builder()
+            .header(header::CONTENT_LENGTH, payload.len())
+            .body(Body::from(payload.clone()))
+            .unwrap();
+
+        let status = store_uploaded_artifact(&app, &sha256, payload.len() as u64, request)
+            .await
+            .unwrap();
+
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        assert_eq!(
+            tokio::fs::read(directory.join(format!("{sha256}.tar.gz")))
+                .await
+                .unwrap(),
+            payload
+        );
+
+        let oversized = Request::builder()
+            .header(header::CONTENT_LENGTH, ARTIFACT_MAX_BYTES + 1)
+            .body(Body::empty())
+            .unwrap();
+        let response =
+            store_uploaded_artifact(&app, &"b".repeat(64), ARTIFACT_MAX_BYTES + 1, oversized)
+                .await
+                .unwrap_err();
+        assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+        tokio::fs::remove_dir_all(directory).await.unwrap();
     }
 
     async fn insert_test_game(pool: &PgPool) -> (Uuid, Uuid) {
