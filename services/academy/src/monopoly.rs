@@ -2096,30 +2096,75 @@ pub async fn worker_rl_monopoly_events(
     if request.events[0].seq > last_stored.saturating_add(1) {
         return Err(conflict("Olay paketinde önceki hamleler eksik."));
     }
-    for event in &request.events {
-        sqlx::query(
-            "insert into monopoly_events_exposure_academy
-               (game_id, attempt_no, seq, acted_player, round, phase, action_idx,
-                action_desc, decision_us, strike, info, snapshot)
-             values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12::jsonb)
-             on conflict (game_id, attempt_no, seq) do nothing",
-        )
-        .bind(request.game_id)
-        .bind(request.attempt_no)
-        .bind(event.seq)
-        .bind(event.acted_player)
-        .bind(event.round)
-        .bind(&event.phase)
-        .bind(event.action_idx)
-        .bind(&event.action_desc)
-        .bind(event.decision_us)
-        .bind(event.strike)
-        .bind(event.info.to_string())
-        .bind(event.snapshot.to_string())
-        .execute(&mut *tx)
-        .await
-        .map_err(|error| db_error("event insert", error))?;
-    }
+    // ponytail: this was one INSERT per event, so a 100-event batch was 100
+    // round-trips to a Postgres in another region — ~5s, which measured as 91%
+    // of a game's wall clock. One statement instead, same unnest shape the
+    // tournament creator uses to insert 1500 games.
+    let sequences: Vec<i32> = request.events.iter().map(|event| event.seq).collect();
+    let players: Vec<i16> = request
+        .events
+        .iter()
+        .map(|event| event.acted_player)
+        .collect();
+    let rounds: Vec<i32> = request.events.iter().map(|event| event.round).collect();
+    let phases: Vec<String> = request
+        .events
+        .iter()
+        .map(|event| event.phase.clone())
+        .collect();
+    let action_indexes: Vec<i32> = request
+        .events
+        .iter()
+        .map(|event| event.action_idx)
+        .collect();
+    let descriptions: Vec<String> = request
+        .events
+        .iter()
+        .map(|event| event.action_desc.clone())
+        .collect();
+    let timings: Vec<Option<i64>> = request
+        .events
+        .iter()
+        .map(|event| event.decision_us)
+        .collect();
+    let strikes: Vec<bool> = request.events.iter().map(|event| event.strike).collect();
+    let infos: Vec<String> = request
+        .events
+        .iter()
+        .map(|event| event.info.to_string())
+        .collect();
+    let snapshots: Vec<String> = request
+        .events
+        .iter()
+        .map(|event| event.snapshot.to_string())
+        .collect();
+    sqlx::query(
+        "insert into monopoly_events_exposure_academy
+           (game_id, attempt_no, seq, acted_player, round, phase, action_idx,
+            action_desc, decision_us, strike, info, snapshot)
+         select $1, $2, seq, acted_player, round, phase, action_idx, action_desc,
+                decision_us, strike, info::jsonb, snapshot::jsonb
+           from unnest($3::int4[], $4::int2[], $5::int4[], $6::text[], $7::int4[],
+                       $8::text[], $9::int8[], $10::bool[], $11::text[], $12::text[])
+             as event(seq, acted_player, round, phase, action_idx, action_desc,
+                      decision_us, strike, info, snapshot)
+         on conflict (game_id, attempt_no, seq) do nothing",
+    )
+    .bind(request.game_id)
+    .bind(request.attempt_no)
+    .bind(&sequences)
+    .bind(&players)
+    .bind(&rounds)
+    .bind(&phases)
+    .bind(&action_indexes)
+    .bind(&descriptions)
+    .bind(&timings)
+    .bind(&strikes)
+    .bind(&infos)
+    .bind(&snapshots)
+    .execute(&mut *tx)
+    .await
+    .map_err(|error| db_error("event insert", error))?;
     let last = request.events.last().expect("non-empty event batch");
     sqlx::query(
         "update monopoly_games_exposure_academy set
