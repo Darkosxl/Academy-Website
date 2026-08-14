@@ -274,9 +274,14 @@ class MonopolyEnv:
             else:
                 # Unpaid rent must be settled before the turn can continue.
                 if self.debt_player == pid:
+                    # Only cash-RAISING moves can settle a debt. Redeeming a
+                    # mortgage or building a house costs money, so offering
+                    # them here lets any policy that takes the first legal
+                    # action livelock (mortgage <-> unmortgage on one square)
+                    # until the round or action ceiling ends the game.
                     rescue = []
-                    rescue += self._improve_actions(pid)  # sell_house / sell_hotel
-                    rescue += self._mortgage_actions(pid)  # mortgage properties
+                    rescue += self._improve_actions(pid, raise_cash_only=True)
+                    rescue += self._mortgage_actions(pid, raise_cash_only=True)
                     rescue += self._sell_property_actions(pid)
                     if rescue:
                         return rescue
@@ -290,8 +295,11 @@ class MonopolyEnv:
                 if prop and prop.owner is None and player.can_afford(prop.price):
                     allowed.append(int(ActionType.BUY_PROPERTY))
 
-                # Can also mortgage to raise cash, or end turn
-                allowed += self._mortgage_actions(pid)
+                # Can also mortgage to raise cash, or end turn. Redeeming a
+                # mortgage is a pre-roll action: allowing it here too lets a
+                # policy toggle one square between mortgaged and redeemed
+                # forever without ever reaching END_TURN below.
+                allowed += self._mortgage_actions(pid, raise_cash_only=True)
                 allowed += self._sell_property_actions(pid)
                 allowed.append(int(ActionType.END_TURN))
 
@@ -902,7 +910,7 @@ class MonopolyEnv:
             self.properties[sq].houses for sq in COLOR_GROUPS[prop.color]
         )
 
-    def _mortgage_actions(self, pid: int) -> List[int]:
+    def _mortgage_actions(self, pid: int, raise_cash_only: bool = False) -> List[int]:
         player = self.players[pid]
         allowed = []
         for i, sq in enumerate(PROPERTY_IDS):
@@ -910,12 +918,14 @@ class MonopolyEnv:
             if prop.owner == pid:
                 if not prop.mortgaged and prop.houses == 0:
                     allowed.append(OFFSETS["mortgage"] + i)
+                if raise_cash_only:
+                    continue  # unmortgaging costs 1.1x and raises nothing
                 cost = int(prop.mortgage_v * 1.1)
                 if prop.mortgaged and player.can_afford(cost):
                     allowed.append(OFFSETS["unmortgage"] + i)
         return allowed
 
-    def _improve_actions(self, pid: int) -> List[int]:
+    def _improve_actions(self, pid: int, raise_cash_only: bool = False) -> List[int]:
         player = self.players[pid]
         allowed = []
         for i, sq in enumerate(REAL_ESTATE_IDS):
@@ -924,7 +934,8 @@ class MonopolyEnv:
                 continue
             hp = prop.data["house_price"]
             if (
-                prop.is_monopoly
+                not raise_cash_only
+                and prop.is_monopoly
                 and not prop.mortgaged
                 and prop.houses < MAX_HOUSES
                 and self._is_least_developed(prop)
@@ -933,7 +944,8 @@ class MonopolyEnv:
             ):
                 allowed.append(OFFSETS["improve_house"] + i)
             if (
-                prop.is_monopoly
+                not raise_cash_only
+                and prop.is_monopoly
                 and not prop.mortgaged
                 and prop.houses == MAX_HOUSES
                 and self._is_least_developed(prop)

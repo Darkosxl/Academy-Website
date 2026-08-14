@@ -518,10 +518,14 @@ class ValidationTests(unittest.TestCase):
     def test_requirements_are_wheel_only_pypi_and_bounded(self):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "requirements.txt"
-            path.write_text("numpy==2.3.1\nonnxruntime>=1.20,<2\n")
-            self.assertEqual(len(controller.validate_requirements(path)), 2)
+            path.write_text(
+                controller.PYTORCH_CPU_EXTRA_INDEX
+                + "\nnumpy==2.3.1\nonnxruntime>=1.20,<2\n"
+            )
+            self.assertEqual(len(controller.validate_requirements(path)), 3)
             for unsafe in [
                 "evil @ https://example.com/evil.whl\n",
+                "--extra-index-url https://example.com/simple\n",
                 "-r other.txt\n",
                 "../local-package\n",
                 "\n".join(f"package-{index}" for index in range(33)),
@@ -931,6 +935,39 @@ class FleetTests(unittest.TestCase):
         self.assertEqual(colab.call_args_list[0].args[0], ["new", "-s", "ai-monopoly-1"])
         report.assert_called_once()
         self.assertEqual(report.call_args.args[1], "error")
+
+
+class DebtRescueTests(unittest.TestCase):
+    """A first-legal-action policy must not be able to livelock the engine.
+
+    Two 2026 tournament entries fell back to ``allowed_actions[0]`` and spent
+    entire games alternating mortgage/unmortgage on one square at round 0,
+    because the debt-rescue menu offered moves that cost cash instead of
+    raising it.
+    """
+
+    def test_first_legal_policy_terminates_and_debt_menu_only_raises_cash(self):
+        from monopoly_game_engine.actions import action_to_description
+
+        for seed in (1, 2, 3):
+            game = SharedGame.new(seed)
+            env = game.env
+            actions = 0
+            while not env.done and actions < 20_000:
+                pid = env.whose_turn()
+                allowed = env.get_allowed_actions(pid)
+                if env.debt_player == pid:
+                    for action in allowed:
+                        description = action_to_description(action)
+                        self.assertFalse(
+                            description.startswith(("unmortgage", "improve_")),
+                            f"seed {seed}: debt menu offered {description}",
+                        )
+                game.step(allowed[0])
+                actions += 1
+            self.assertTrue(
+                env.done, f"seed {seed}: livelocked, still running after {actions}"
+            )
 
 
 if __name__ == "__main__":
