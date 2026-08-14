@@ -80,9 +80,17 @@ only checks it isn't obviously starved (`MONOPOLY_MIN_RAM_BYTES`/`MONOPOLY_MIN_V
 `Dockerfile` + `compose.dokploy.yml` in this directory let Dokploy build and run the controller
 the same way it already runs the Academy app and the benchmark worker: add a new Compose
 application in Dokploy pointing at `services/monopoly-worker/compose.dokploy.yml`, set
-`MONOPOLY_SITE` and `WORKER_TOKEN` (same value as the Academy app's own `WORKER_TOKEN`) in
+`WORKER_TOKEN` (same value as the Academy app's own `WORKER_TOKEN`) and `MONOPOLY_SITE` in
 Dokploy's env vars, and deploy. No SSH, no systemd, no manual venv — pushing to `main` and
 redeploying in Dokploy is the whole update flow.
+
+If the controller runs on the same Dokploy host as the Academy app (the normal case), set
+`MONOPOLY_SITE` to Academy's **internal** address — its Dokploy service name plus port 3000 (from
+the root `Dockerfile`'s `EXPOSE 3000`), e.g. `http://exposureai-academy-website-mrriuv:3000` — not
+its public `https://` URL. The compose file already joins the shared `dokploy-network` so that
+resolves over Docker's own DNS. Going out to the public URL instead means routing back in through
+Cloudflare, which challenges plain HTTP clients with a JS bot check no non-browser client can pass
+— that's a dead end, not a "add a header" problem.
 
 One thing Dokploy won't do for you: the controller and the Academy app are two separate Dokploy
 apps, so `MONOPOLY_ARTIFACT_DIR` only actually works if both containers have the **same host

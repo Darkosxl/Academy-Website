@@ -5,18 +5,20 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     environment:
-      MONOPOLY_SITE: ${MONOPOLY_SITE:?Set the public Academy URL in Dokploy}
+      # Both apps run on the same Dokploy Swarm host, so this should be the
+      # INTERNAL address (Academy's Dokploy service name + its port 3000
+      # from the root Dockerfile), not the public https URL — going out
+      # over the public internet just to come back in hits Cloudflare's bot
+      # challenge, which a plain HTTP client can never pass. e.g.
+      # MONOPOLY_SITE=http://exposureai-academy-website-mrriuv:3000
+      MONOPOLY_SITE: ${MONOPOLY_SITE:?Set Academy's internal address in Dokploy, e.g. http://<academy-service-name>:3000}
       WORKER_TOKEN: ${WORKER_TOKEN:?Set the same WORKER_TOKEN as the Academy app in Dokploy}
       MONOPOLY_ARTIFACT_DIR: /var/lib/exposure/monopoly-artifacts
-    # MONOPOLY_SITE's hostname sits behind Cloudflare, which challenges
-    # plain HTTP clients (urllib can't solve a JS challenge, so it just gets
-    # "Just a moment..." back as a 403 forever). services/benchmark-node's
-    # worker hits this exact same wall and works around it by resolving the
-    # public hostname straight to the origin, bypassing Cloudflare's edge
-    # entirely while keeping the hostname for TLS/token auth. Reuse whatever
-    # ACADEMY_ORIGIN_IP you already set for that app.
-    extra_hosts:
-      - "${ACADEMY_ORIGIN_HOST:?Set the Academy hostname (matches MONOPOLY_SITE) in Dokploy}:${ACADEMY_ORIGIN_IP:?Set the Academy origin IP in Dokploy}"
+    # Joins Academy's own network so it's reachable by internal service name
+    # over Docker's embedded DNS, instead of round-tripping through the
+    # public internet (and Cloudflare) to reach a service on the same host.
+    networks:
+      - dokploy-network
     volumes:
       # Docker-outside-of-Docker: talks to the HOST's Docker daemon so
       # submitted-agent containers run as siblings, not nested. This is a
@@ -36,3 +38,7 @@ services:
     # size headroom for --host-workers-many concurrent containers separately.
     mem_limit: 4g
     cpus: 2
+
+networks:
+  dokploy-network:
+    external: true
