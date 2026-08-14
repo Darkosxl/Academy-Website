@@ -2,6 +2,7 @@
 // ponytail: string templates, no template engine — 8 pages, full control.
 
 use crate::model::*;
+use crate::monopoly::GAMES_PER_TEAM;
 use benchmark_protocol::{
     BEDROCK_MODEL_IDS, BUILTIN_HARNESSES, CEREBRAS_MODEL_IDS, DEEPINFRA_MODEL_IDS,
     DEFAULT_BEDROCK_MODEL, DEFAULT_CEREBRAS_MODEL, DEFAULT_DEEPINFRA_MODEL, ModelProvider,
@@ -1962,6 +1963,7 @@ pub fn monopoly_live(
     user: &User,
     tournament: Option<&MonopolyTournament>,
     games: &[MonopolyGame],
+    standings: &[MonopolyStanding],
 ) -> String {
     let Some(tournament) = tournament else {
         return tournament_shell(
@@ -1971,12 +1973,26 @@ pub fn monopoly_live(
             r#"<div class="panel arena-idle"><h2>Turnuva bekleniyor</h2><p class="muted">Fikstür dondurulduğunda maçlar burada açılır.</p></div>"#,
         );
     };
-    let active: Vec<&MonopolyGame> = games
+    let lanes: String = standings
         .iter()
-        .filter(|game| matches!(game.status.as_str(), "leased" | "queued"))
+        .map(|s| {
+            format!(
+                r##"<div class="horse-lane" data-entry="{id}">
+  <div class="horse-lane-head"><b>{team}</b><span class="horse-wins">{wins} galibiyet</span></div>
+  <div class="horse-track-line">
+    <video class="horse-video" src="/static/jockey.webm" muted autoplay loop playsinline></video>
+  </div>
+</div>"##,
+                id = s.entry_id,
+                team = esc(&s.team_name),
+                wins = s.wins,
+            )
+        })
         .collect();
-    let rows: String = games
+    let recent: String = games
         .iter()
+        .rev()
+        .take(20)
         .map(|game| {
             let (status, class) = monopoly_game_status_tr(&game.status);
             let names = tournament_seats(game)
@@ -1987,31 +2003,23 @@ pub fn monopoly_live(
             format!(
                 r##"<a class="monopoly-history-row" href="/ai-monopoly/game/{id}">
   <b>Maç {number}</b><span class="history-table"><span>{names}</span></span>
-  <span class="history-round">Tur {round}/200</span><span class="substatus {class}">{status}</span>
+  <span class="substatus {class}">{status}</span>
 </a>"##,
                 id = game.id,
                 number = game.game_no,
-                round = game.round,
             )
         })
         .collect();
-    let arena = active
-        .iter()
-        .find(|game| game.status == "leased")
-        .or_else(|| active.first())
-        .map(|game| format!(
-            r#"<div id="monopoly-arena" class="monopoly-arena" data-poll="true" data-game-id="{}"><div class="arena-idle">Maç hazırlanıyor…</div></div>"#,
-            game.id
-        ))
-        .unwrap_or_else(|| r#"<div class="panel arena-idle"><h2>Bütün maçlar bitti</h2><a class="btn-outline" href="/ai-monopoly?tab=standings">Son tabloyu aç →</a></div>"#.into());
     tournament_shell(
         user,
         "live",
-        "Bir masayı aç; tam tahta ve batched hamle akışı iki saniyede bir yenilenir.",
+        "Her takımın atı, o takımın galibiyet sayısı kadar ilerler — sonuçlar iki saniyede bir yenilenir.",
         &format!(
-            r##"{summary}<div class="active-match-layout"><div>{arena}</div><aside class="active-match-list"><h2>Fikstür</h2>{rows}</aside></div>
-<script src="/static/monopoly.js?v=5" defer></script>"##,
+            r##"{summary}<div id="horse-race" class="horse-race" data-poll="true" data-total="{total}">{lanes}</div>
+<aside class="active-match-list"><h2>Son maçlar</h2>{recent}</aside>
+<script src="/static/race.js?v=1" defer></script>"##,
             summary = tournament_summary(tournament),
+            total = GAMES_PER_TEAM,
         ),
     )
 }
@@ -2037,11 +2045,12 @@ pub fn monopoly_history(
             .enumerate()
             .map(|(index, row)| {
                 format!(
-                    r##"<tr><td>{rank}</td><td><b>{team}</b><small>{games}/6 maç</small></td>
+                    r##"<tr><td>{rank}</td><td><b>{team}</b><small>{games}/{total} maç</small></td>
 <td>{wins}</td><td>{worth:.0}</td><td>{strikes}</td><td>{timing}</td></tr>"##,
                     rank = index + 1,
                     team = esc(&row.team_name),
                     games = row.games,
+                    total = GAMES_PER_TEAM,
                     wins = row.wins,
                     worth = row.average_net_worth,
                     strikes = row.strikes,
@@ -2150,7 +2159,8 @@ pub fn monopoly_instructions(user: &User) -> String {
         user,
         "instructions",
         "Gönderim sözleşmesi, doğrulama ve turnuva kuralları.",
-        r##"<div class="rulewrap monopoly-rules">
+        &format!(
+            r##"<div class="rulewrap monopoly-rules">
 <section class="panel"><p class="eyebrow">GÖNDERİM</p><h2>Public GitHub repo + ajan yolu</h2>
 <p>Varsayılan dalın commit'i doğrulama sırasında bir kez sabitlenir. <code>agent.py</code>
 varsayılandır; repo içindeki başka bir göreli Python dosyasını seçebilirsin. Git LFS dâhil
@@ -2167,7 +2177,7 @@ varsayılandır; repo içindeki başka bir göreli Python dosyasını seçebilir
 <p><code>requirements.txt</code> en fazla 32 wheel-only PyPI girdisi alır. Doğrulama bunları
 çözer ve lock dosyasını artifact'e koyar; maç sırasında internetten paket indirilmez.
 Server ajanları Docker'da, Colab ajanları 2 GiB sınırlandırılmış ayrı venv süreçlerinde çalışır.</p></section>
-<section class="panel"><h2>Altı maç, sert iki saniye</h2><p>Her takım tam altı kez oynar.
+<section class="panel"><h2>{total} maç, sert iki saniye</h2><p>Her takım tam {total} kez oynar.
 Tek legal aksiyon engine tarafından otomatik uygulanır. Gerçek karar iki saniyeyi aşar, çöker
 veya illegal değer döndürürse strike ve deterministik fallback gelir; üçüncü strike o maçta
 ajanı sabit botla değiştirir.</p></section>
@@ -2176,6 +2186,8 @@ Engine-play süresi on dakikaya ulaşırsa ortalama kararı en yavaş uygun tak�
 Botlar kazanamaz; kazanan her zaman uygun gönderimler arasındaki en yüksek final servetidir.
 Puan durumu galibiyet, ortalama final serveti ve daha az strike ile sıralanır.</p></section>
 </div>"##,
+            total = GAMES_PER_TEAM
+        ),
     )
 }
 
@@ -2619,15 +2631,15 @@ pub fn beginner_track(user: &User, projects_done: usize, chatbot_level: i16) -> 
 /// eight cards hides which ones are this week's.
 pub fn beginner_projects(user: &User, subs: &[BeginnerSubmission]) -> String {
     let card = |(key, title, summary, handouts, wants_live, _week, badge): &BeginnerProject| {
-            // A project's own handouts sit on its card, not up with the track-wide cheat
-            // sheet — they are only useful once you're on this project. A group project
-            // puts a brief per student here, which is why this is a list and not one
-            // download with an extra hanging off it. An open-ended project hands out
-            // nothing, and then the actions row is dropped rather than left empty.
-            let handout_links = if handouts.is_empty() {
-                String::new()
-            } else {
-                let links: String = handouts
+        // A project's own handouts sit on its card, not up with the track-wide cheat
+        // sheet — they are only useful once you're on this project. A group project
+        // puts a brief per student here, which is why this is a list and not one
+        // download with an extra hanging off it. An open-ended project hands out
+        // nothing, and then the actions row is dropped rather than left empty.
+        let handout_links = if handouts.is_empty() {
+            String::new()
+        } else {
+            let links: String = handouts
                     .iter()
                     .map(|(label, file)| format!(
                         r#"<a class="btn-outline small" href="/static/beginner-projects/{file}" target="_blank" rel="noopener">{label}</a>"#,
@@ -2670,16 +2682,16 @@ pub fn beginner_projects(user: &User, subs: &[BeginnerSubmission]) -> String {
     <button class="btn-dark">Kaydet →</button>
   </form>
 </div>"##,
-                title = esc(title),
-                summary = esc(summary),
-                repo_val = esc(&repo_val),
-                // Same .badge the board cards use, so a flagged project reads as flagged
-                // in the one place students already look for it — next to the title.
-                badge = badge
-                    .map(|b| format!(r#"<span class="badge">{}</span>"#, esc(b)))
-                    .unwrap_or_default(),
-            )
-        };
+            title = esc(title),
+            summary = esc(summary),
+            repo_val = esc(&repo_val),
+            // Same .badge the board cards use, so a flagged project reads as flagged
+            // in the one place students already look for it — next to the title.
+            badge = badge
+                .map(|b| format!(r#"<span class="badge">{}</span>"#, esc(b)))
+                .unwrap_or_default(),
+        )
+    };
     // One heading + grid per week, in BEGINNER_WEEKS order. A week with no projects on it
     // yet renders nothing rather than a heading over an empty grid.
     let sections: String = BEGINNER_WEEKS
@@ -6318,7 +6330,10 @@ mod tests {
         assert!(receipt.contains("cardactions") && !receipt.contains("badge"));
         assert_eq!(
             html.matches(r#"<span class="badge">"#).count(),
-            BEGINNER_PROJECTS.iter().filter(|(.., b)| b.is_some()).count(),
+            BEGINNER_PROJECTS
+                .iter()
+                .filter(|(.., b)| b.is_some())
+                .count(),
             "a badge renders for exactly the projects that carry one"
         );
     }

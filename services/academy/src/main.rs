@@ -305,6 +305,7 @@ async fn main() {
         .route("/ai-monopoly", get(ai_monopoly))
         .route("/ai-monopoly/submit", post(monopoly_submit))
         .route("/ai-monopoly/live", get(monopoly_live_json))
+        .route("/ai-monopoly/race.json", get(monopoly_race_json))
         .route("/ai-monopoly/game/{id}", get(monopoly_game_page))
         .route(
             "/ai-monopoly/tournament/{id}/export.json",

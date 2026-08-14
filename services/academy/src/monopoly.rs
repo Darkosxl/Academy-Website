@@ -34,6 +34,7 @@ const MAX_ACTIONS: i32 = 50_000;
 const MAX_ACTION_INDEX: i32 = 2_957;
 const MAX_ROUNDS: i32 = 200;
 const PLAY_LIMIT_US: i64 = 600_000_000;
+pub const GAMES_PER_TEAM: u64 = 1000;
 static ARTIFACT_UPLOADS: Semaphore = Semaphore::const_new(1);
 const BUILTIN_BOTS: [&str; 6] = [
     "hoarder",
@@ -221,6 +222,7 @@ pub async fn ai_monopoly(
             &user,
             tournament.as_ref(),
             &games,
+            &standings,
         )));
     }
     if tab == "history" || tab == "standings" {
@@ -396,6 +398,33 @@ pub async fn monopoly_live_json(
     }
     .map_err(|error| db_error("live event lookup", error))?;
     Ok(Json(game_json(&game, &events)))
+}
+
+/// Polled every couple seconds by the horse-race view on the live tab — just the wins
+/// standings, not full game/event state, so it stays cheap under a 1000-game tournament.
+pub async fn monopoly_race_json(
+    State(app): State<App>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, Response> {
+    require_onboarded(current_user(&app, &headers).await)?;
+    let Some(tournament) = latest_tournament(&app).await else {
+        return Ok(Json(serde_json::json!({"tournament": null, "teams": []})));
+    };
+    let standings = standings_for_tournament(&app, tournament.id).await;
+    Ok(Json(serde_json::json!({
+        "tournament": {
+            "status": tournament.status,
+            "total_games": tournament.total_games,
+            "completed_games": tournament.completed_games,
+        },
+        "games_per_team": GAMES_PER_TEAM,
+        "teams": standings.iter().map(|s| serde_json::json!({
+            "entry_id": s.entry_id,
+            "team_name": s.team_name,
+            "wins": s.wins,
+            "games": s.games,
+        })).collect::<Vec<_>>(),
+    })))
 }
 
 pub async fn monopoly_game_page(
@@ -673,11 +702,12 @@ fn record_pairs(group: &[usize], pairs: &mut HashMap<(usize, usize), u16>) {
 /// boundary completes the previous partial table first; the next permutation is chosen so
 /// that no team can meet itself. Candidate scoring minimizes the incremental repeated-pair
 /// cost while the flattening proves the appearance and bot-fill properties directly.
-fn schedule_groups(team_count: usize, seed: i64) -> Vec<Vec<usize>> {
-    let mut groups = Vec::with_capacity((team_count * 6).div_ceil(4));
+fn schedule_groups(team_count: usize, seed: i64, games_per_team: u64) -> Vec<Vec<usize>> {
+    let mut groups =
+        Vec::with_capacity(((team_count as u64 * games_per_team) as usize).div_ceil(4));
     let mut remainder = Vec::new();
     let mut pair_counts = HashMap::new();
-    for round in 0..6u64 {
+    for round in 0..games_per_team {
         let mut rng = StdRng::seed_from_u64(splitmix64(seed as u64 ^ round));
         let needed = if remainder.is_empty() {
             0
@@ -764,22 +794,33 @@ fn seat_candidates(group: &[usize]) -> Vec<Vec<(usize, usize)>> {
     output
 }
 
+/// Every team plays `games_per_team` games across exactly 4 seats; a balanced fixture
+/// keeps each team's per-seat appearance count within one of `games_per_team / 4`, so
+/// nobody gets stuck disproportionately in (say) seat 0. `low`/`high` below generalize
+/// the old hardcoded 1/2 bounds (which only happened to work because the constant used
+/// to be a fixed 6) to any `games_per_team`.
 fn assign_balanced_seats(
     groups: &[Vec<usize>],
     team_count: usize,
     seed: i64,
+    games_per_team: u64,
 ) -> Option<Vec<[Option<usize>; 4]>> {
+    let low = (games_per_team / 4) as u16;
+    let high = games_per_team.div_ceil(4) as u16;
+
     fn visit(
         game_index: usize,
         groups: &[Vec<usize>],
-        counts: &mut [[u8; 4]],
-        remaining: &mut [u8],
+        counts: &mut [[u16; 4]],
+        remaining: &mut [u16],
         output: &mut [[Option<usize>; 4]],
         seed: i64,
+        low: u16,
+        high: u16,
     ) -> bool {
         if game_index == groups.len() {
             return counts.iter().all(|row| {
-                row.iter().copied().min() == Some(1) && row.iter().copied().max() == Some(2)
+                row.iter().copied().min() == Some(low) && row.iter().copied().max() == Some(high)
             });
         }
         let mut candidates = seat_candidates(&groups[game_index]);
@@ -796,15 +837,18 @@ fn assign_balanced_seats(
         });
         for candidate in candidates {
             let valid = candidate.iter().all(|(team, seat)| {
-                if counts[*team][*seat] >= 2 || remaining[*team] == 0 {
+                if counts[*team][*seat] >= high || remaining[*team] == 0 {
                     return false;
                 }
                 let mut projected = counts[*team];
                 projected[*seat] += 1;
                 let after = remaining[*team] - 1;
-                let seats_still_zero = projected.iter().filter(|count| **count == 0).count() as u8;
-                let capacity: u8 = projected.iter().map(|count| 2 - *count).sum();
-                seats_still_zero <= after && after <= capacity
+                let deficit: u16 = projected
+                    .iter()
+                    .map(|count| low.saturating_sub(*count))
+                    .sum();
+                let capacity: u16 = projected.iter().map(|count| high - *count).sum();
+                deficit <= after && after <= capacity
             });
             if !valid {
                 continue;
@@ -814,7 +858,16 @@ fn assign_balanced_seats(
                 remaining[*team] -= 1;
                 output[game_index][*seat] = Some(*team);
             }
-            if visit(game_index + 1, groups, counts, remaining, output, seed) {
+            if visit(
+                game_index + 1,
+                groups,
+                counts,
+                remaining,
+                output,
+                seed,
+                low,
+                high,
+            ) {
                 return true;
             }
             for (team, seat) in &candidate {
@@ -826,20 +879,36 @@ fn assign_balanced_seats(
         false
     }
 
-    let mut counts = vec![[0u8; 4]; team_count];
-    let mut remaining = vec![6u8; team_count];
+    let mut counts = vec![[0u16; 4]; team_count];
+    let mut remaining = vec![games_per_team as u16; team_count];
     let mut output = vec![[None; 4]; groups.len()];
-    visit(0, groups, &mut counts, &mut remaining, &mut output, seed).then_some(output)
+    visit(
+        0,
+        groups,
+        &mut counts,
+        &mut remaining,
+        &mut output,
+        seed,
+        low,
+        high,
+    )
+    .then_some(output)
 }
 
-fn generate_schedule(team_count: usize, seed: i64) -> Result<Vec<[Option<usize>; 4]>, String> {
+fn generate_schedule(
+    team_count: usize,
+    seed: i64,
+    games_per_team: u64,
+) -> Result<Vec<[Option<usize>; 4]>, String> {
     if team_count < 4 {
         return Err("Turnuva için en az dört takım gerekli.".into());
     }
     for retry in 0..32u64 {
         let retry_seed = splitmix64(seed as u64 ^ retry) as i64;
-        let groups = schedule_groups(team_count, retry_seed);
-        if let Some(schedule) = assign_balanced_seats(&groups, team_count, retry_seed) {
+        let groups = schedule_groups(team_count, retry_seed, games_per_team);
+        if let Some(schedule) =
+            assign_balanced_seats(&groups, team_count, retry_seed, games_per_team)
+        {
             return Ok(schedule);
         }
     }
@@ -881,7 +950,7 @@ pub async fn admin_monopoly_start(
         return Err(bad_request("Turnuva için en az dört onaylı takım gerekli."));
     }
     let seed = rand::thread_rng().r#gen::<i64>();
-    let schedule = generate_schedule(rows.len(), seed).map_err(bad_request)?;
+    let schedule = generate_schedule(rows.len(), seed, GAMES_PER_TEAM).map_err(bad_request)?;
     let tournament_id = Uuid::new_v4();
     sqlx::query(
         "insert into monopoly_tournaments_exposure_academy
@@ -2935,9 +3004,18 @@ mod tests {
         }
     }
 
+    // Scheduler correctness tests run against a small games_per_team (not the real
+    // GAMES_PER_TEAM=1000) since the algorithm's cost is linear in round count and the
+    // invariants being checked don't depend on the constant's value — a dedicated smoke
+    // test below runs the real constant once, cheaply, at team_count=4.
+    const TEST_GAMES_PER_TEAM: u64 = 6;
+
     fn assert_schedule(team_count: usize, seed: i64) {
-        let schedule = generate_schedule(team_count, seed).unwrap();
-        assert_eq!(schedule.len(), (team_count * 6).div_ceil(4));
+        let schedule = generate_schedule(team_count, seed, TEST_GAMES_PER_TEAM).unwrap();
+        assert_eq!(
+            schedule.len(),
+            (team_count as u64 * TEST_GAMES_PER_TEAM).div_ceil(4) as usize
+        );
         let mut appearances = vec![0usize; team_count];
         let mut seats = vec![[0usize; 4]; team_count];
         for game in &schedule {
@@ -2953,19 +3031,26 @@ mod tests {
                 }
             }
         }
-        assert!(appearances.iter().all(|count| *count == 6));
+        assert!(
+            appearances
+                .iter()
+                .all(|count| *count == TEST_GAMES_PER_TEAM as usize)
+        );
         assert_eq!(
             schedule
                 .iter()
                 .flatten()
                 .filter(|seat| seat.is_none())
                 .count(),
-            schedule.len() * 4 - team_count * 6
+            schedule.len() * 4 - team_count * TEST_GAMES_PER_TEAM as usize
         );
         for counts in seats {
             assert!(counts.iter().max().unwrap() - counts.iter().min().unwrap() <= 1);
         }
-        assert_eq!(schedule, generate_schedule(team_count, seed).unwrap());
+        assert_eq!(
+            schedule,
+            generate_schedule(team_count, seed, TEST_GAMES_PER_TEAM).unwrap()
+        );
     }
 
     #[test]
@@ -2978,16 +3063,32 @@ mod tests {
     }
 
     #[test]
+    fn scheduler_runs_the_real_games_per_team_constant() {
+        let schedule = generate_schedule(4, 0, GAMES_PER_TEAM).unwrap();
+        let mut appearances = [0usize; 4];
+        for game in &schedule {
+            for team in game.iter().flatten() {
+                appearances[*team] += 1;
+            }
+        }
+        assert!(
+            appearances
+                .iter()
+                .all(|count| *count == GAMES_PER_TEAM as usize)
+        );
+    }
+
+    #[test]
     fn scheduler_limits_repeated_opponents() {
         for team_count in 5..=24 {
-            let schedule = generate_schedule(team_count, 91).unwrap();
+            let schedule = generate_schedule(team_count, 91, TEST_GAMES_PER_TEAM).unwrap();
             let mut pairs = HashMap::new();
             for game in schedule {
                 let teams: Vec<_> = game.into_iter().flatten().collect();
                 record_pairs(&teams, &mut pairs);
             }
             let max = pairs.values().copied().max().unwrap_or_default();
-            let theoretical_average = 18.0 / (team_count - 1) as f64;
+            let theoretical_average = (TEST_GAMES_PER_TEAM as f64 * 3.0) / (team_count - 1) as f64;
             assert!(f64::from(max) <= theoretical_average.ceil() + 2.0);
         }
     }

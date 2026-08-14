@@ -1308,6 +1308,23 @@ form.inline input, form.inline select { margin-top:0; width:auto; }
   font-size:var(--fs-xs); line-height:1.65;
 }
 
+.horse-race { display:grid; gap:10px; margin-top:18px; }
+.horse-lane {
+  padding:10px 12px; background:var(--bg-card); border:1px solid var(--border-card);
+  border-radius:var(--r-xl);
+}
+.horse-lane-head { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+.horse-lane-head b { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.horse-wins { color:var(--text-muted); font-size:var(--fs-xs); white-space:nowrap; }
+.horse-track-line {
+  position:relative; margin-top:8px; height:48px; border-radius:var(--r-lg);
+  background:repeating-linear-gradient(90deg, var(--bg-raised) 0 28px, var(--border-subtle) 28px 30px);
+  overflow:hidden;
+}
+.horse-video {
+  position:absolute; top:0; left:0; height:100%; width:64px; object-fit:contain;
+  transition:left 1.8s linear;
+}
 .monopoly-arena { margin-top:18px; --p0:#2563eb; --p1:#e87928; --p2:#168f62; --p3:#b44c86; }
 .monopoly-live-head { margin-bottom:14px; }
 .monopoly-live-head h2 { font-size:1.45rem; letter-spacing:-.03em; }
