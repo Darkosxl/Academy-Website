@@ -8,6 +8,15 @@ services:
       MONOPOLY_SITE: ${MONOPOLY_SITE:?Set the public Academy URL in Dokploy}
       WORKER_TOKEN: ${WORKER_TOKEN:?Set the same WORKER_TOKEN as the Academy app in Dokploy}
       MONOPOLY_ARTIFACT_DIR: /var/lib/exposure/monopoly-artifacts
+    # MONOPOLY_SITE's hostname sits behind Cloudflare, which challenges
+    # plain HTTP clients (urllib can't solve a JS challenge, so it just gets
+    # "Just a moment..." back as a 403 forever). services/benchmark-node's
+    # worker hits this exact same wall and works around it by resolving the
+    # public hostname straight to the origin, bypassing Cloudflare's edge
+    # entirely while keeping the hostname for TLS/token auth. Reuse whatever
+    # ACADEMY_ORIGIN_IP you already set for that app.
+    extra_hosts:
+      - "${ACADEMY_ORIGIN_HOST:?Set the Academy hostname (matches MONOPOLY_SITE) in Dokploy}:${ACADEMY_ORIGIN_IP:?Set the Academy origin IP in Dokploy}"
     volumes:
       # Docker-outside-of-Docker: talks to the HOST's Docker daemon so
       # submitted-agent containers run as siblings, not nested. This is a

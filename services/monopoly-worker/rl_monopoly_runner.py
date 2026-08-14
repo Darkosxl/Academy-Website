@@ -120,6 +120,7 @@ class ApiClient:
                 "X-Worker-Token": self.token,
                 "Content-Type": "application/json",
                 "Accept": "application/json",
+                "User-Agent": "exposure-monopoly-worker/1",
             },
             method="GET" if body is None else "POST",
         )
@@ -136,7 +137,10 @@ class ApiClient:
     def download(self, path: str, destination: Path) -> None:
         request = urllib.request.Request(
             self.site + path,
-            headers={"X-Worker-Token": self.token},
+            headers={
+                "X-Worker-Token": self.token,
+                "User-Agent": "exposure-monopoly-worker/1",
+            },
         )
         try:
             with (

@@ -138,7 +138,11 @@ def api(path: str, body: dict | None = None, *, timeout: float = 60) -> dict | N
     request = urllib.request.Request(
         SITE + path,
         data=None if body is None else json.dumps(body, separators=(",", ":")).encode(),
-        headers={"X-Worker-Token": WORKER_TOKEN, "Content-Type": "application/json"},
+        headers={
+            "X-Worker-Token": WORKER_TOKEN,
+            "Content-Type": "application/json",
+            "User-Agent": "exposure-monopoly-controller/1",
+        },
         method="GET" if body is None else "POST",
     )
     try:
