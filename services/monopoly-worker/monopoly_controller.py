@@ -83,7 +83,6 @@ MIN_HOST_RAM_BYTES = int(
 MIN_HOST_VCPUS = float(os.environ.get("MONOPOLY_MIN_VCPUS", "1"))
 
 REPO_MAX_BYTES = 250 * 1024**2
-ARTIFACT_MAX_BYTES = 2 * 1024**3
 REPO_RE = re.compile(r"https://github\.com/[A-Za-z0-9_.-]{1,39}/[A-Za-z0-9_.-]{1,100}")
 REQUIREMENT_RE = re.compile(
     r"[A-Za-z0-9][A-Za-z0-9._-]*(?:\[[A-Za-z0-9._,-]+\])?"
@@ -288,8 +287,10 @@ def run_logged(
     timeout: float = 300,
     text: bool = False,
 ):
-    log_file.write(("$ " + " ".join(command) + "\n").encode())
+    rendered = " ".join(command)
+    log_file.write(("$ " + rendered + "\n").encode())
     log_file.flush()
+    log(f"validation command started: {rendered}")
     try:
         result = tracked_run(
             command,
@@ -312,6 +313,7 @@ def run_logged(
         raise ValidationFailed(
             f"command failed ({result.returncode}): {' '.join(command[:3])}"
         )
+    log(f"validation command finished: {rendered}")
     return result.stdout if text else None
 
 
@@ -726,6 +728,10 @@ def validate_submission(job: dict) -> dict:
             )
             auto_added_packages: list[str] = []
             for attempt in range(MAX_AUTO_DEPENDENCIES + 1):
+                log(
+                    f"validation dependency pass {attempt + 1}/"
+                    f"{MAX_AUTO_DEPENDENCIES + 1}"
+                )
                 dependency_lock = prepare_dependencies(checkout, staging, output)
                 metadata = {
                     "artifact_schema": 1,
@@ -742,11 +748,11 @@ def validate_submission(job: dict) -> dict:
                 temporary_archive = (
                     ARTIFACT_DIR / f".validation-{os.getpid()}-{job['id']}.tar.gz"
                 )
+                log("validation packing artifact")
                 normalized_archive(staging, temporary_archive)
                 artifact_sha = sha256_file(temporary_archive)
                 artifact_size = temporary_archive.stat().st_size
-                if artifact_size > ARTIFACT_MAX_BYTES:
-                    raise ValidationFailed("artifact exceeds 2 GiB")
+                log(f"validation artifact packed: {artifact_size / 1024**2:.1f} MiB")
                 artifact = ARTIFACT_DIR / f"{artifact_sha}.tar.gz"
 
                 context = temporary / "docker-context"
@@ -793,6 +799,10 @@ def validate_submission(job: dict) -> dict:
                     built_image = tag
                 process = None
                 try:
+                    log(
+                        f"validation smoke test attempt {attempt + 1}/"
+                        f"{MAX_AUTO_DEPENDENCIES + 1}"
+                    )
                     process = docker_agent(artifact_sha, agent_path)
                     env = MonopolyEnv(max_rounds=1)
                     player_id = env.whose_turn()
@@ -824,12 +834,14 @@ def validate_submission(job: dict) -> dict:
                         raise
                     auto_added_packages.append(package)
                     append_requirement(checkout / "requirements.txt", package)
-                    output.write(
+                    message = (
                         f"[auto-heal] agent import failed on {package!r}; added it "
                         f"to requirements.txt and retrying "
-                        f"({len(auto_added_packages)}/{MAX_AUTO_DEPENDENCIES})\n".encode()
+                        f"({len(auto_added_packages)}/{MAX_AUTO_DEPENDENCIES})"
                     )
+                    output.write((message + "\n").encode())
                     output.flush()
+                    log(message)
                     if built_image is not None:
                         subprocess.run(
                             ["docker", "image", "rm", "--force", built_image],
@@ -846,11 +858,13 @@ def validate_submission(job: dict) -> dict:
                         process.close()
                 break
             if auto_added_packages:
-                output.write(
+                message = (
                     f"[auto-heal] added to requirements.txt: "
-                    f"{', '.join(auto_added_packages)}\n".encode()
+                    f"{', '.join(auto_added_packages)}"
                 )
+                output.write((message + "\n").encode())
                 output.flush()
+                log(message)
             if artifact.exists():
                 if (
                     artifact.stat().st_size != artifact_size

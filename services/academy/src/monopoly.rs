@@ -34,7 +34,6 @@ const MAX_ACTIONS: i32 = 50_000;
 const MAX_ACTION_INDEX: i32 = 2_957;
 const MAX_ROUNDS: i32 = 200;
 const PLAY_LIMIT_US: i64 = 600_000_000;
-const ARTIFACT_MAX_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 static ARTIFACT_UPLOADS: Semaphore = Semaphore::const_new(1);
 const BUILTIN_BOTS: [&str; 6] = [
     "hoarder",
@@ -1276,7 +1275,7 @@ pub async fn worker_rl_monopoly_validation_result(
         if !valid_sha(commit, 40)
             || !valid_sha(artifact, 64)
             || !(0..=MONOPOLY_SUBMISSION_REPO_MAX_BYTES).contains(&repo_size)
-            || !(1..=ARTIFACT_MAX_BYTES as i64).contains(&artifact_size)
+            || artifact_size < 1
             || lock.len() > 100_000
         {
             return Err(StatusCode::BAD_REQUEST.into_response());
@@ -1391,7 +1390,7 @@ async fn store_uploaded_artifact(
     declared_size: u64,
     request: Request,
 ) -> Result<StatusCode, Response> {
-    if !(1..=ARTIFACT_MAX_BYTES).contains(&declared_size) {
+    if declared_size == 0 || declared_size > i64::MAX as u64 {
         return Err(StatusCode::PAYLOAD_TOO_LARGE.into_response());
     }
     let destination = app.monopoly_artifact_dir.join(format!("{sha256}.tar.gz"));
@@ -1420,7 +1419,7 @@ async fn store_uploaded_artifact(
             size = size
                 .checked_add(chunk.len() as u64)
                 .ok_or_else(|| StatusCode::PAYLOAD_TOO_LARGE.into_response())?;
-            if size > ARTIFACT_MAX_BYTES {
+            if size > declared_size {
                 return Err(StatusCode::PAYLOAD_TOO_LARGE.into_response());
             }
             digest.update(&chunk);
@@ -1461,7 +1460,7 @@ pub async fn worker_rl_monopoly_artifact_upload(
     let declared_size = required_header(&headers, "content-length")?
         .parse::<u64>()
         .map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
-    if !(1..=ARTIFACT_MAX_BYTES).contains(&declared_size) {
+    if declared_size == 0 || declared_size > i64::MAX as u64 {
         return Err(StatusCode::PAYLOAD_TOO_LARGE.into_response());
     }
     let submission_id = required_header(&headers, "x-validation-submission")?
@@ -2800,15 +2799,25 @@ mod tests {
             payload
         );
 
-        let oversized = Request::builder()
-            .header(header::CONTENT_LENGTH, ARTIFACT_MAX_BYTES + 1)
-            .body(Body::empty())
+        let over_declared = Request::builder()
+            .header(header::CONTENT_LENGTH, 2)
+            .body(Body::from("xx"))
             .unwrap();
-        let response =
-            store_uploaded_artifact(&app, &"b".repeat(64), ARTIFACT_MAX_BYTES + 1, oversized)
-                .await
-                .unwrap_err();
+        let response = store_uploaded_artifact(&app, &"b".repeat(64), 1, over_declared)
+            .await
+            .unwrap_err();
         assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+
+        let formerly_oversized = Request::builder().body(Body::empty()).unwrap();
+        let response = store_uploaded_artifact(
+            &app,
+            &"c".repeat(64),
+            2_u64 * 1024 * 1024 * 1024 + 1,
+            formerly_oversized,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         tokio::fs::remove_dir_all(directory).await.unwrap();
     }
 
@@ -3024,6 +3033,12 @@ mod tests {
             .execute(&pool)
             .await
             .unwrap();
+        sqlx::raw_sql(include_str!(
+            "../migrations/019_unbounded_monopoly_artifacts.sql"
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
         for worker in ["lease-worker-a", "lease-worker-b"] {
             sqlx::query(
                 "insert into monopoly_workers_exposure_academy

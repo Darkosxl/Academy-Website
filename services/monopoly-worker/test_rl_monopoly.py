@@ -492,6 +492,22 @@ class MatchRuleTests(unittest.TestCase):
 
 
 class ValidationTests(unittest.TestCase):
+    def test_run_logged_mirrors_progress_to_live_log(self):
+        result = mock.Mock(returncode=0, stdout=None)
+        with (
+            tempfile.TemporaryFile() as output,
+            mock.patch.object(controller, "tracked_run", return_value=result),
+            mock.patch.object(controller, "log") as live_log,
+        ):
+            controller.run_logged(["git", "status"], output)
+
+        live_log.assert_has_calls(
+            [
+                mock.call("validation command started: git status"),
+                mock.call("validation command finished: git status"),
+            ]
+        )
+
     def test_default_branch_commit_is_pinned(self):
         branch, sha = controller.parse_default_head(
             "ref: refs/heads/main\tHEAD\n" + "a" * 40 + "\tHEAD\n"
@@ -657,6 +673,7 @@ class ValidationTests(unittest.TestCase):
             docker_result = mock.Mock(returncode=1, stdout="")
             with (
                 mock.patch.object(controller, "ARTIFACT_DIR", artifacts),
+                mock.patch.object(controller, "log") as live_log,
                 mock.patch.object(controller, "run_logged", side_effect=run_logged),
                 mock.patch.object(controller, "inspect_git_tree"),
                 mock.patch.object(
@@ -694,6 +711,12 @@ class ValidationTests(unittest.TestCase):
             self.assertEqual(docker_agent.call_count, 2)
             self.assertIn(
                 "[auto-heal] agent import failed on 'numpy'", result["validation_log"]
+            )
+            self.assertTrue(
+                any(
+                    "[auto-heal] agent import failed on 'numpy'" in call.args[0]
+                    for call in live_log.call_args_list
+                )
             )
             process.close.assert_called_once()
 

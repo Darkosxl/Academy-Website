@@ -458,8 +458,6 @@ def cache_artifact(client: ApiClient, sha256: str) -> Path:
         members = bundle.getmembers()
         if not members or any(not _safe_archive_member(member) for member in members):
             raise RuntimeError("artifact contains an unsafe member")
-        if sum(member.size for member in members) > 2 * 1024**3:
-            raise RuntimeError("artifact expands beyond 2 GiB")
         bundle.extractall(temporary_root, members=members, filter="data")
     metadata = json.loads((temporary_root / "metadata.json").read_text())
     if metadata.get("artifact_schema") != 1:

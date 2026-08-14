@@ -168,6 +168,12 @@ async fn main() {
         .execute(&pool)
         .await
         .expect("RL Monopoly migration failed");
+    sqlx::raw_sql(include_str!(
+        "../migrations/019_unbounded_monopoly_artifacts.sql"
+    ))
+    .execute(&pool)
+    .await
+    .expect("Monopoly artifact size migration failed");
     seed_admin(&pool).await;
     seed_invite_code(&pool).await;
     seed_videos(&pool).await;
