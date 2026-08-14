@@ -1,0 +1,29 @@
+services:
+  monopoly-controller:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      MONOPOLY_SITE: ${MONOPOLY_SITE:?Set the public Academy URL in Dokploy}
+      WORKER_TOKEN: ${WORKER_TOKEN:?Set the same WORKER_TOKEN as the Academy app in Dokploy}
+      MONOPOLY_ARTIFACT_DIR: /var/lib/exposure/monopoly-artifacts
+    volumes:
+      # Docker-outside-of-Docker: talks to the HOST's Docker daemon so
+      # submitted-agent containers run as siblings, not nested. This is a
+      # root-equivalent grant on the host — see the Dockerfile comment.
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Must be the SAME host path the Academy app itself has bind-mounted
+      # for MONOPOLY_ARTIFACT_DIR — these are two separate Dokploy apps, so
+      # this only works if both point at one shared directory on the host,
+      # not two independent volumes. Configure the matching bind mount on
+      # the Academy app in Dokploy's own Mounts tab; nothing in that app's
+      # Dockerfile declares one today.
+      - /var/lib/exposure/monopoly-artifacts:/var/lib/exposure/monopoly-artifacts
+    # Bounds the Python controller/worker processes themselves. Each
+    # submitted agent's own Docker container is capped independently (2
+    # GiB/1 CPU each, docker_agent in rl_monopoly_runner.py) under the
+    # host's own Docker daemon, NOT nested inside this container's limits —
+    # size headroom for --host-workers-many concurrent containers separately.
+    mem_limit: 4g
+    cpus: 2

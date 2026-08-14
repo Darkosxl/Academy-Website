@@ -75,7 +75,34 @@ only checks it isn't obviously starved (`MONOPOLY_MIN_RAM_BYTES`/`MONOPOLY_MIN_V
 - `Restart=on-failure` — systemd restarts the whole controller (and therefore its host workers)
   if it dies, no separate watchdog process needed.
 
-On the Academy host, from inside this checkout, run:
+### Deploy on Dokploy (recommended — same pattern as `benchmark-node`)
+
+`Dockerfile` + `compose.dokploy.yml` in this directory let Dokploy build and run the controller
+the same way it already runs the Academy app and the benchmark worker: add a new Compose
+application in Dokploy pointing at `services/monopoly-worker/compose.dokploy.yml`, set
+`MONOPOLY_SITE` and `WORKER_TOKEN` (same value as the Academy app's own `WORKER_TOKEN`) in
+Dokploy's env vars, and deploy. No SSH, no systemd, no manual venv — pushing to `main` and
+redeploying in Dokploy is the whole update flow.
+
+One thing Dokploy won't do for you: the controller and the Academy app are two separate Dokploy
+apps, so `MONOPOLY_ARTIFACT_DIR` only actually works if both containers have the **same host
+directory** bind-mounted at that path — the compose file already mounts
+`/var/lib/exposure/monopoly-artifacts` on the host into itself; add the identical bind mount to
+the Academy app in Dokploy's Mounts tab (its own `Dockerfile` doesn't declare one today), pointing
+at `/app/var/monopoly-artifacts` with `MONOPOLY_ARTIFACT_DIR=/app/var/monopoly-artifacts` set in
+its env vars. Without that, validation will build and smoke-test fine but approval will fail the
+artifact-existence check on the Academy side.
+
+The compose file also mounts `/var/run/docker.sock` — Docker-outside-of-Docker, so games run as
+sibling containers on the host's real Docker daemon instead of needing Docker-in-Docker. That
+socket grant is root-equivalent on the host; it's the same trust boundary the `benchmark-worker`
+Dokploy app already runs under (`privileged: true` there), just narrower here (no privileged
+flag, only the socket).
+
+### Alternative: bare host, no Dokploy
+
+If you're running this directly on a host instead of through Dokploy, install it as a systemd
+unit:
 
 ```sh
 services/monopoly-worker/systemd/install.sh
@@ -91,6 +118,8 @@ sudo systemctl enable --now ai-monopoly-controller.service
 ```
 
 The script is safe to re-run (e.g. after `git pull`, to pick up a requirements.txt or unit change).
+On this path the Academy and controller share one filesystem, so `MONOPOLY_ARTIFACT_DIR` just
+needs to be the same path in both — no bind-mount juggling needed, unlike the Dokploy path above.
 
 The Academy HTTP service must not invoke this command or share its process. A normal systemd stop
 sends `SIGTERM`; the controller's signal/finally cleanup terminates every host worker (and, if
@@ -123,8 +152,11 @@ python3 services/monopoly-worker/monopoly_controller.py --max-colab 5 --host-wor
 
 Qualified Colab sessions use a per-artifact isolated virtual environment assembled from the
 validated wheelhouse (not Docker — Colab sessions don't reliably offer a usable Docker daemon).
-Update `ExecStart=` in `systemd/ai-monopoly-controller.service` to add `--max-colab 5` once
-credentials are in place; nothing else about the unit needs to change.
+To enable it: on Dokploy, change the `CMD` args in `Dockerfile` (or override the container command
+in Dokploy) to include `--max-colab 5`; on the bare-host path, update `ExecStart=` in
+`systemd/ai-monopoly-controller.service`. Either way the `colab` CLI and its credentials need to be
+present wherever the controller actually runs — inside the container on Dokploy, meaning the image
+would need the CLI added to the `Dockerfile` too.
 
 `monopoly_ctl.py` and `monopoly_runner.py` are compatibility entry points for the new controller
 and leased worker respectively; neither contains the retired singleton/GPU protocol.
