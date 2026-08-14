@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import platform
 import re
 import shutil
 import signal
@@ -68,6 +69,13 @@ VALIDATION_WORKER_ID = os.environ.get(
     "MONOPOLY_VALIDATION_WORKER_ID", "academy-validation"
 )
 COLAB_SESSIONS = tuple(f"ai-monopoly-{index}" for index in range(1, 6))
+# Workers run on both the aarch64 Academy host and x86_64 boxes (Colab, laptops).
+# Whichever architecture validates, the artifact must carry the other one's wheels.
+FOREIGN_PLATFORM_TAGS = (
+    ("manylinux_2_28_x86_64", "manylinux2014_x86_64")
+    if platform.machine() == "aarch64"
+    else ("manylinux_2_28_aarch64", "manylinux2014_aarch64")
+)
 REMOTE_BUNDLE = "/content/exposure-monopoly-worker.tar.gz"
 REMOTE_CONFIG = "/content/exposure-monopoly-config.json"
 ACTIVE_PROCESSES: set[subprocess.Popen] = set()
@@ -288,6 +296,7 @@ def run_logged(
     env: dict | None = None,
     timeout: float = 300,
     text: bool = False,
+    check: bool = True,
 ):
     rendered = " ".join(command)
     log_file.write(("$ " + rendered + "\n").encode())
@@ -309,7 +318,7 @@ def run_logged(
         raise ValidationFailed(
             f"timed out after {timeout:.0f}s: {command[0]}"
         ) from error
-    if result.returncode:
+    if result.returncode and check:
         if text and result.stdout:
             log_file.write(result.stdout.encode(errors="replace"))
         raise ValidationFailed(
@@ -571,6 +580,40 @@ def prepare_dependencies(checkout: Path, staging: Path, log_file) -> str:
     if not downloads or any(path.suffix != ".whl" for path in downloads):
         raise ValidationFailed(
             "every direct and transitive dependency must publish a compatible wheel"
+        )
+    # The agent image is built with --network=none --no-index, so a wheelhouse
+    # holding only the validator's own architecture makes the artifact
+    # unrunnable on every worker of the other one. Fetch the resolved pins for
+    # the foreign platform too.
+    pinned = [
+        f"{path.name.split('-')[0]}=={path.name.split('-')[1]}" for path in downloads
+    ]
+    for platform_tag in FOREIGN_PLATFORM_TAGS:
+        run_logged(
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "download",
+                "--only-binary=:all:",
+                "--no-deps",
+                "--python-version",
+                "3.12",
+                "--implementation",
+                "cp",
+                "--abi",
+                "cp312",
+                "--platform",
+                platform_tag,
+                "--dest",
+                str(wheelhouse),
+                *pinned,
+            ],
+            log_file,
+            timeout=600,
+            # ponytail: a pure-python pin resolves once and 404s for the rest of
+            # the tags; the native wheels are what matter and they land here.
+            check=False,
         )
     venv = staging / "smoke-venv"
     shutil.rmtree(venv, ignore_errors=True)

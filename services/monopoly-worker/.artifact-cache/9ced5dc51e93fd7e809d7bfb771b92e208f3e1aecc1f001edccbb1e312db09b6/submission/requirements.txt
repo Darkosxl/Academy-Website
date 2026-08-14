@@ -1,0 +1,15 @@
+# Match-time dependencies for the submitted agent: none.
+#
+# `agent.py` is self-contained. It imports `json`, `os` and `typing` from the
+# standard library and nothing else -- no numpy, no torch, no engine package,
+# and no `ASU_FROZEN_TEACHER`. `exposure_monopoly/testler/test_golge.py`
+# asserts the agent module loads with none of those in `sys.modules`.
+#
+# Keeping this file empty is deliberate. The platform resolves it into the
+# match venv with no network access at play time, so every entry here is a way
+# for the submission to fail before it ever chooses an action, and the agent
+# needs none of them.
+#
+# Local research tooling -- data collection, the value network, the rival
+# tournament -- does need numpy/torch/pytest. Those live in
+# `requirements-dev.txt` and are never installed by the match runner.
