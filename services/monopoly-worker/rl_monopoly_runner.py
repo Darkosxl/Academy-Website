@@ -492,7 +492,12 @@ def cache_artifact(client: ApiClient, sha256: str) -> Path:
     return root
 
 
+def normalize_agent_path(path: str) -> str:
+    return "/".join(part.strip() for part in path.strip().split("/"))
+
+
 def docker_agent(sha256: str, agent_path: str) -> AgentProcess:
+    agent_path = normalize_agent_path(agent_path)
     name = f"exposure-monopoly-{os.getpid()}-{uuid.uuid4().hex[:8]}"
     tag = f"exposure-monopoly-agent:{sha256}"
     command = [
@@ -573,6 +578,7 @@ def ensure_docker_image(client: ApiClient, sha256: str) -> None:
 
 
 def venv_agent(root: Path, agent_path: str) -> AgentProcess:
+    agent_path = normalize_agent_path(agent_path)
     home = root / "agent-home"
     temporary = root / "agent-tmp"
     home.mkdir(exist_ok=True)

@@ -111,12 +111,12 @@ class AgentProtocolTests(unittest.TestCase):
                 ),
                 mock.patch.object(runner, "AgentProcess", return_value=object()) as process,
             ):
-                runner.venv_agent(root, "agent.py")
+                runner.venv_agent(root, "nested /agent.py")
             environment = process.call_args.kwargs["environment"]
             self.assertNotIn("WORKER_TOKEN", environment)
             self.assertNotIn("MONOPOLY_SITE", environment)
             self.assertEqual(environment["HOME"], str(root / "agent-home"))
-            self.assertEqual(environment["EXPOSURE_AGENT_PATH"], "agent.py")
+            self.assertEqual(environment["EXPOSURE_AGENT_PATH"], "nested/agent.py")
 
     def test_startup_timeout_is_bounded_and_process_is_reaped(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -654,9 +654,15 @@ class ValidationTests(unittest.TestCase):
                 if command[:3] == ["git", "init", "--quiet"]:
                     checkout = Path(command[-1])
                     checkout.mkdir()
-                    (checkout / "agent.py").write_text(
-                        "def choose_action(*args): return 0\n"
+                    entry = (
+                        checkout
+                        / "DeepRL_Monopoly"
+                        / "submission"
+                        / "template"
+                        / "agent.py"
                     )
+                    entry.parent.mkdir(parents=True)
+                    entry.write_text("def choose_action(*args): return 0\n")
                 return None
 
             requirements_seen = []
@@ -703,12 +709,19 @@ class ValidationTests(unittest.TestCase):
                     {
                         "id": "submission-id",
                         "repo_url": "https://github.com/example/repo",
-                        "agent_path": "agent.py",
+                        "agent_path": "DeepRL_Monopoly/submission/template /agent.py",
                     }
                 )
 
             self.assertEqual(requirements_seen, ["", "numpy\n"])
             self.assertEqual(docker_agent.call_count, 2)
+            self.assertTrue(
+                all(
+                    call.args[1]
+                    == "DeepRL_Monopoly/submission/template/agent.py"
+                    for call in docker_agent.call_args_list
+                )
+            )
             self.assertIn(
                 "[auto-heal] agent import failed on 'numpy'", result["validation_log"]
             )

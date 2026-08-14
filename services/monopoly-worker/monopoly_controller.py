@@ -29,6 +29,7 @@ from rl_monopoly_runner import (
     docker_agent,
     effective_vcpus,
     machine_shape,
+    normalize_agent_path,
     system_ram_bytes,
 )
 
@@ -597,7 +598,10 @@ def prepare_dependencies(checkout: Path, staging: Path, log_file) -> str:
 
 def validate_submission(job: dict) -> dict:
     repo_url = str(job.get("repo_url", ""))
-    agent_path = str(job.get("agent_path", ""))
+    claimed_agent_path = str(job.get("agent_path", ""))
+    agent_path = normalize_agent_path(claimed_agent_path)
+    if agent_path != claimed_agent_path:
+        log(f"normalized agent path {claimed_agent_path!r} -> {agent_path!r}")
     if not REPO_RE.fullmatch(repo_url):
         raise ValidationFailed("claim contains an invalid public GitHub repository URL")
     if (
