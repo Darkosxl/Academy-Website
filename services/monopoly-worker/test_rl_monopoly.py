@@ -622,7 +622,7 @@ class FleetTests(unittest.TestCase):
         process.poll.return_value = 1
         process.returncode = 1
         fleet.processes = {"ai-monopoly-1": process}
-        fleet.host = None
+        fleet.hosts = {}
         fleet.allocated = {"ai-monopoly-1"}
         fleet.attempted = True
         with (

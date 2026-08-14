@@ -71,6 +71,16 @@ REMOTE_CONFIG = "/content/exposure-monopoly-config.json"
 ACTIVE_PROCESSES: set[subprocess.Popen] = set()
 ACTIVE_PROCESSES_LOCK = threading.Lock()
 
+# Colab sessions get their own remote hardware floor via colab_preflight.py.
+# This is the floor for the *local* host worker(s) started by Fleet.start();
+# it's low by default because Docker's own per-container caps (see
+# docker_agent) and the systemd unit's cgroup limits are the real backstop,
+# not a self-reported RAM/CPU heuristic.
+MIN_HOST_RAM_BYTES = int(
+    os.environ.get("MONOPOLY_MIN_RAM_BYTES", str(2 * 1024**3))
+)
+MIN_HOST_VCPUS = float(os.environ.get("MONOPOLY_MIN_VCPUS", "1"))
+
 REPO_MAX_BYTES = 250 * 1024**2
 ARTIFACT_MAX_BYTES = 2 * 1024**3
 REPO_RE = re.compile(r"https://github\.com/[A-Za-z0-9_.-]{1,39}/[A-Za-z0-9_.-]{1,100}")
@@ -170,14 +180,16 @@ def report_fleet(
         log(f"could not report {name} {status} preflight to Academy: {error}")
 
 
-def report_host(status: str, ram: int, cpus: float, reason: str | None = None) -> None:
+def report_host(
+    name: str, status: str, ram: int, cpus: float, reason: str | None = None
+) -> None:
     try:
         api(
             "/api/worker/rl-monopoly/resource",
             {
-                "worker_id": "academy-host-6",
+                "worker_id": name,
                 "kind": "host",
-                "session_name": "academy-host-6",
+                "session_name": name,
                 "status": status,
                 "ram_bytes": ram,
                 "effective_vcpus": cpus,
@@ -967,10 +979,11 @@ def launch_colab_worker(name: str, bundle: Path, config: Path) -> subprocess.Pop
 
 
 class Fleet:
-    def __init__(self, max_colab: int):
+    def __init__(self, max_colab: int, host_workers: int = 1):
         self.max_colab = max_colab
+        self.host_workers = host_workers
         self.processes: dict[str, subprocess.Popen] = {}
-        self.host: subprocess.Popen | None = None
+        self.hosts: dict[str, subprocess.Popen] = {}
         self.allocated: set[str] = set()
         self.attempted = False
         self.closed = False
@@ -984,42 +997,51 @@ class Fleet:
         if self.attempted:
             return
         self.attempted = True
-        leftovers = stop_all_named_sessions()
-        if leftovers:
-            raise RuntimeError(
-                f"could not clear stale named Colab sessions: {leftovers}"
-            )
-        for name in COLAB_SESSIONS[: self.max_colab]:
-            hardware = allocate_qualified(
-                name
-            )  # exactly one allocation attempt per slot
-            if hardware is None:
-                continue
-            self.allocated.add(name)
-            self.processes[name] = launch_colab_worker(name, self.bundle, self.config)
+        if self.max_colab and shutil.which("colab") is not None:
+            leftovers = stop_all_named_sessions()
+            if leftovers:
+                raise RuntimeError(
+                    f"could not clear stale named Colab sessions: {leftovers}"
+                )
+            for name in COLAB_SESSIONS[: self.max_colab]:
+                hardware = allocate_qualified(
+                    name
+                )  # exactly one allocation attempt per slot
+                if hardware is None:
+                    continue
+                self.allocated.add(name)
+                self.processes[name] = launch_colab_worker(
+                    name, self.bundle, self.config
+                )
         ram, cpus = system_ram_bytes(), effective_vcpus()
-        if ram >= 32 * 1024**3 and cpus >= 8:
-            environment = os.environ.copy()
-            environment.update(
-                {
-                    "MONOPOLY_SITE": SITE,
-                    "WORKER_TOKEN": WORKER_TOKEN,
-                    "MONOPOLY_WORKER_ID": "academy-host-6",
-                    "MONOPOLY_WORKER_KIND": "host",
-                    "MONOPOLY_SESSION_NAME": "academy-host-6",
-                    "MONOPOLY_AGENT_BACKEND": "docker",
-                }
-            )
-            self.host = subprocess.Popen(
-                [sys.executable, str(ROOT / "rl_monopoly_runner.py")], env=environment
-            )
+        if ram >= MIN_HOST_RAM_BYTES and cpus >= MIN_HOST_VCPUS:
+            for index in range(1, self.host_workers + 1):
+                name = f"academy-host-{index}"
+                if name in self.hosts:
+                    continue
+                environment = os.environ.copy()
+                environment.update(
+                    {
+                        "MONOPOLY_SITE": SITE,
+                        "WORKER_TOKEN": WORKER_TOKEN,
+                        "MONOPOLY_WORKER_ID": name,
+                        "MONOPOLY_WORKER_KIND": "host",
+                        "MONOPOLY_SESSION_NAME": name,
+                        "MONOPOLY_AGENT_BACKEND": "docker",
+                    }
+                )
+                self.hosts[name] = subprocess.Popen(
+                    [sys.executable, str(ROOT / "rl_monopoly_runner.py")],
+                    env=environment,
+                )
         else:
             reason = (
-                f"requires 32 GiB/8 vCPU; found {ram / 1024**3:.1f} GiB/{cpus:.1f} vCPU"
+                f"requires {MIN_HOST_RAM_BYTES / 1024**3:.1f} GiB/"
+                f"{MIN_HOST_VCPUS:.1f} vCPU; found {ram / 1024**3:.1f} GiB/{cpus:.1f} vCPU"
             )
-            report_host("rejected", ram, cpus, reason)
+            report_host("academy-host-1", "rejected", ram, cpus, reason)
             log(f"Academy host excluded: {ram / 1024**3:.1f} GiB/{cpus:.1f} vCPU")
-        if not self.processes and self.host is None:
+        if not self.processes and not self.hosts:
             log(
                 "no qualified game worker; games remain queued and preflight reasons are recorded"
             )
@@ -1038,33 +1060,37 @@ class Fleet:
                 del self.processes[name]
                 self.allocated.discard(name)
                 lost_last_worker = True
-        if self.host is not None and self.host.poll() is not None:
-            log(f"host worker exited with {self.host.returncode}")
-            report_host(
-                "error",
-                system_ram_bytes(),
-                effective_vcpus(),
-                f"worker process exited with {self.host.returncode}",
-            )
-            self.host = None
-            lost_last_worker = True
-        if lost_last_worker and not self.processes and self.host is None:
+        for name, process in list(self.hosts.items()):
+            if process.poll() is not None:
+                log(f"host worker {name} exited with {process.returncode}")
+                report_host(
+                    name,
+                    "error",
+                    system_ram_bytes(),
+                    effective_vcpus(),
+                    f"worker process exited with {process.returncode}",
+                )
+                del self.hosts[name]
+                lost_last_worker = True
+        if lost_last_worker and not self.processes and not self.hosts:
             # Re-arm only after an actually running worker dies. An initial
             # hardware rejection remains one allocation attempt per slot.
             self.attempted = False
 
     def stop_workers(self) -> None:
-        if not self.attempted and not self.processes and self.host is None:
+        if not self.attempted and not self.processes and not self.hosts:
             return
         for process in self.processes.values():
             terminate_process(process)
-        if self.host is not None:
-            terminate_process(self.host)
-        leftovers = stop_all_named_sessions()
+        for process in self.hosts.values():
+            terminate_process(process)
+        leftovers: list[str] = []
+        if shutil.which("colab") is not None:
+            leftovers = stop_all_named_sessions()
         for name in self.allocated:
             report_fleet(name, "stopped")
         self.processes.clear()
-        self.host = None
+        self.hosts.clear()
         self.allocated.clear()
         self.attempted = False
         if leftovers:
@@ -1220,6 +1246,12 @@ def main() -> None:
         help="qualify and self-test up to five CPU sessions",
     )
     parser.add_argument("--max-colab", type=int, default=5, choices=range(0, 6))
+    parser.add_argument(
+        "--host-workers",
+        type=int,
+        default=1,
+        help="concurrent rl_monopoly_runner.py processes to run on this host",
+    )
     args = parser.parse_args()
     if args.dry_run:
         dry_run(args.max_colab)
@@ -1242,7 +1274,7 @@ def main() -> None:
         return
     if shutil.which("colab") is None and args.max_colab:
         raise SystemExit("Google Colab CLI is not installed")
-    fleet = Fleet(args.max_colab)
+    fleet = Fleet(args.max_colab, args.host_workers)
     stopping = False
 
     def request_stop(_signum=None, _frame=None):

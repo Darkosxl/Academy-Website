@@ -17,13 +17,27 @@ Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=MONOPOLY_CACHE_DIR=/run/exposure-monopoly/artifact-cache
 RuntimeDirectory=exposure-monopoly
 RuntimeDirectoryMode=0700
-ExecStart=/opt/exposure-academy/.venv-monopoly/bin/python /opt/exposure-academy/services/monopoly-worker/monopoly_controller.py --max-colab 5
+# --max-colab 5 re-enables the Colab fleet once colab CLI + credentials are
+# configured on this host; 0 runs host-only (Docker), which needs neither.
+# --host-workers controls how many games run concurrently on this host.
+ExecStart=/opt/exposure-academy/.venv-monopoly/bin/python /opt/exposure-academy/services/monopoly-worker/monopoly_controller.py --max-colab 0 --host-workers 2
 Restart=on-failure
 RestartSec=5s
 TimeoutStopSec=15min
 KillSignal=SIGTERM
 KillMode=control-group
 UMask=0077
+
+# Kernel-enforced backstop on the Python controller/worker processes
+# themselves (validation, game orchestration, event bookkeeping) so a bug
+# here can't take the rest of this shared box down. Each submitted agent's
+# own Docker container is capped independently under dockerd's own cgroup
+# (2 GiB/1 CPU each, see docker_agent in rl_monopoly_runner.py) and is NOT
+# bounded by this unit's limits — size docker.service's own memory headroom
+# separately for --host-workers-many concurrent containers.
+MemoryHigh=4G
+MemoryMax=6G
+CPUQuota=300%
 
 NoNewPrivileges=yes
 PrivateTmp=yes

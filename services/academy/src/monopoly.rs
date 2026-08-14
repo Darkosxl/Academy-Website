@@ -1477,11 +1477,17 @@ async fn recover_expired_leases(tx: &mut Transaction<'_, Postgres>) -> Result<()
     Ok(())
 }
 
+// Colab sessions are already hardware-gated remotely before they ever report
+// "ready" (see colab_preflight.py / monopoly_controller.py's
+// allocate_qualified). This floor just guards against an obviously-broken
+// resource report (e.g. zero/missing values); real overload protection is
+// each game's Docker container caps plus the host process's own cgroup
+// limits, not a RAM/CPU size sized for provisioning a Colab VM.
 fn worker_qualifies(row: &(String, String, Option<i64>, Option<f64>)) -> bool {
     matches!(row.0.as_str(), "colab" | "host")
         && row.1 == "ready"
-        && row.2.is_some_and(|ram| ram >= 32 * 1024 * 1024 * 1024_i64)
-        && row.3.is_some_and(|cpus| cpus >= 8.0)
+        && row.2.is_some_and(|ram| ram >= 2 * 1024 * 1024 * 1024_i64)
+        && row.3.is_some_and(|cpus| cpus >= 1.0)
 }
 
 pub async fn worker_rl_monopoly_claim(
@@ -1515,7 +1521,7 @@ pub async fn worker_rl_monopoly_claim(
     {
         return Err((
             StatusCode::PRECONDITION_FAILED,
-            "Worker en az 32 GiB RAM ve 8 etkin vCPU bildirmeli.",
+            "Worker en az 2 GiB RAM ve 1 etkin vCPU bildirmeli ve 'ready' durumunda olmalı.",
         )
             .into_response());
     }

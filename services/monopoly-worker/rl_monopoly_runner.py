@@ -60,6 +60,15 @@ AGENT_MEMORY_BYTES = 2 * 1024**3
 EVENT_BATCH_SIZE = 25
 POLL_SECONDS = 5
 
+# Colab sessions are hardware-gated remotely (colab_preflight.py) before this
+# script ever runs there. This is the floor for a locally-run worker (Academy
+# host or any other machine started directly); it's low by default because
+# Docker's own per-container caps (see docker_agent) and the host process's
+# own cgroup limits are the real backstop against overload, not a
+# self-reported RAM/CPU heuristic sized for provisioning a Colab VM.
+MIN_RAM_BYTES = int(os.environ.get("MONOPOLY_MIN_RAM_BYTES", str(2 * 1024**3)))
+MIN_VCPUS = float(os.environ.get("MONOPOLY_MIN_VCPUS", "1"))
+
 FIXED_AGENTS = {
     "hoarder": TheHoarder,
     "dealmaker": TheDealMaker,
@@ -1101,9 +1110,10 @@ def main() -> None:
         raise SystemExit("MONOPOLY_AGENT_BACKEND must be docker or venv")
     client = ApiClient()
     ram, cpus = system_ram_bytes(), effective_vcpus()
-    if ram < 32 * 1024**3 or cpus < 8:
+    if ram < MIN_RAM_BYTES or cpus < MIN_VCPUS:
         reason = (
-            f"requires 32 GiB/8 vCPU; found {ram / 1024**3:.1f} GiB/{cpus:.1f} vCPU"
+            f"requires {MIN_RAM_BYTES / 1024**3:.1f} GiB/{MIN_VCPUS:.1f} vCPU; "
+            f"found {ram / 1024**3:.1f} GiB/{cpus:.1f} vCPU"
         )
         report_resource(client, "rejected", reason=reason)
         raise SystemExit(reason)
