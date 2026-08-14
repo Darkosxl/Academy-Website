@@ -5635,8 +5635,30 @@ fn admin_monopoly_panel(members: &[MemberRow], monopoly: &MonopolyAdmin) -> Stri
             let previous = latest.as_ref().map(tournament_summary).unwrap_or_default();
             format!(
                 r##"{previous}<p class="fieldnote">{approved} doğrulanmış ajan. Başlatma anında repo, commit, ajan yolu, artifact ve dependency lock dondurulur.</p>
-<form method="post" action="/admin/monopoly/start" onsubmit="return confirm('Her takım altı maç oynayacak; fikstür ve gönderimler dondurulacak. Emin misin?')">
-<button class="btn-dark" {disabled}>Turnuvayı başlat</button></form>"##,
+<form method="post" action="/admin/monopoly/start" id="monopoly-start-form">
+<button class="btn-dark" {disabled}>Turnuvayı başlat</button></form>
+<script>
+(() => {{
+  const form = document.getElementById('monopoly-start-form');
+  if (!form) return;
+  form.addEventListener('submit', async event => {{
+    event.preventDefault();
+    if (!confirm('Her takım 1.000 maç oynayacak; fikstür ve gönderimler dondurulacak. Emin misin?')) return;
+    const button = form.querySelector('button');
+    button.disabled = true;
+    button.textContent = 'Turnuva hazırlanıyor…';
+    try {{
+      const response = await fetch(form.action, {{ method: 'POST', credentials: 'same-origin' }});
+      if (!response.ok) throw new Error((await response.text()) || `HTTP ${{response.status}}`);
+      location.assign('/admin/monopoly');
+    }} catch (error) {{
+      button.disabled = false;
+      button.textContent = 'Turnuvayı başlat';
+      alert(`Turnuva başlatılamadı: ${{error.message}}`);
+    }}
+  }});
+}})();
+</script>"##,
                 disabled = if approved < 4 { "disabled" } else { "" }
             )
         }

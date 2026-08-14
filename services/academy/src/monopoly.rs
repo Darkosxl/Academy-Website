@@ -990,51 +990,80 @@ pub async fn admin_monopoly_start(
         entries.push(entry_id);
     }
 
+    let mut game_ids = Vec::with_capacity(schedule.len());
+    let mut game_nos = Vec::with_capacity(schedule.len());
+    let mut game_seeds = Vec::with_capacity(schedule.len());
+    let mut submitted_game_ids = Vec::with_capacity(schedule.len() * 4);
+    let mut submitted_seats = Vec::with_capacity(schedule.len() * 4);
+    let mut submitted_entries = Vec::with_capacity(schedule.len() * 4);
+    let mut submitted_labels = Vec::with_capacity(schedule.len() * 4);
+    let mut bot_game_ids = Vec::new();
+    let mut bot_seats = Vec::new();
+    let mut bot_keys = Vec::new();
+    let mut bot_labels = Vec::new();
     for (index, seats) in schedule.iter().enumerate() {
         let game_id = Uuid::new_v4();
         let game_seed = splitmix64(seed as u64 ^ (index as u64 + 1)) as i64;
-        sqlx::query(
-            "insert into monopoly_games_exposure_academy
-               (id, tournament_id, game_no, seed) values ($1,$2,$3,$4)",
-        )
-        .bind(game_id)
-        .bind(tournament_id)
-        .bind(index as i32 + 1)
-        .bind(game_seed)
-        .execute(&mut *tx)
-        .await
-        .map_err(|error| db_error("game insert", error))?;
+        game_ids.push(game_id);
+        game_nos.push(index as i32 + 1);
+        game_seeds.push(game_seed);
         for (seat, team_index) in seats.iter().enumerate() {
             match team_index {
                 Some(team_index) => {
-                    sqlx::query(
-                        "insert into monopoly_game_seats_exposure_academy
-                           (game_id, seat, entry_id, label) values ($1,$2,$3,$4)",
-                    )
-                    .bind(game_id)
-                    .bind(seat as i16)
-                    .bind(entries[*team_index])
-                    .bind(&rows[*team_index].team_name)
-                    .execute(&mut *tx)
-                    .await
-                    .map_err(|error| db_error("submitted seat insert", error))?;
+                    submitted_game_ids.push(game_id);
+                    submitted_seats.push(seat as i16);
+                    submitted_entries.push(entries[*team_index]);
+                    submitted_labels.push(rows[*team_index].team_name.clone());
                 }
                 None => {
                     let bot = BUILTIN_BOTS[(index + seat) % BUILTIN_BOTS.len()];
-                    sqlx::query(
-                        "insert into monopoly_game_seats_exposure_academy
-                           (game_id, seat, bot_key, label) values ($1,$2,$3,$4)",
-                    )
-                    .bind(game_id)
-                    .bind(seat as i16)
-                    .bind(bot)
-                    .bind(format!("Bot · {bot}"))
-                    .execute(&mut *tx)
-                    .await
-                    .map_err(|error| db_error("bot seat insert", error))?;
+                    bot_game_ids.push(game_id);
+                    bot_seats.push(seat as i16);
+                    bot_keys.push(bot);
+                    bot_labels.push(format!("Bot · {bot}"));
                 }
             }
         }
+    }
+    sqlx::query(
+        "insert into monopoly_games_exposure_academy (id, tournament_id, game_no, seed)
+         select game_id, $1, game_no, seed
+         from unnest($2::uuid[], $3::int4[], $4::int8[]) as batch(game_id, game_no, seed)",
+    )
+    .bind(tournament_id)
+    .bind(&game_ids)
+    .bind(&game_nos)
+    .bind(&game_seeds)
+    .execute(&mut *tx)
+    .await
+    .map_err(|error| db_error("game insert", error))?;
+    sqlx::query(
+        "insert into monopoly_game_seats_exposure_academy (game_id, seat, entry_id, label)
+         select game_id, seat, entry_id, label
+         from unnest($1::uuid[], $2::int2[], $3::uuid[], $4::text[])
+           as batch(game_id, seat, entry_id, label)",
+    )
+    .bind(&submitted_game_ids)
+    .bind(&submitted_seats)
+    .bind(&submitted_entries)
+    .bind(&submitted_labels)
+    .execute(&mut *tx)
+    .await
+    .map_err(|error| db_error("submitted seat insert", error))?;
+    if !bot_game_ids.is_empty() {
+        sqlx::query(
+            "insert into monopoly_game_seats_exposure_academy (game_id, seat, bot_key, label)
+             select game_id, seat, bot_key, label
+             from unnest($1::uuid[], $2::int2[], $3::text[], $4::text[])
+               as batch(game_id, seat, bot_key, label)",
+        )
+        .bind(&bot_game_ids)
+        .bind(&bot_seats)
+        .bind(&bot_keys)
+        .bind(&bot_labels)
+        .execute(&mut *tx)
+        .await
+        .map_err(|error| db_error("bot seat insert", error))?;
     }
     sqlx::query(
         "update monopoly_artifacts_exposure_academy set last_used_at = now()
