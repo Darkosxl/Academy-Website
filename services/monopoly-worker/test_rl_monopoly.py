@@ -614,6 +614,32 @@ class ValidationTests(unittest.TestCase):
                 len(invalid) == 64 and all(c in "0123456789abcdef" for c in invalid)
             )
 
+    def test_missing_module_is_parsed_and_known_mismatches_are_mapped(self):
+        self.assertEqual(
+            controller.missing_module_from_error(
+                "ModuleNotFoundError: No module named 'numpy'"
+            ),
+            "numpy",
+        )
+        self.assertEqual(
+            controller.missing_module_from_error("No module named 'PIL.Image'"),
+            "Pillow",
+        )
+        self.assertIsNone(controller.missing_module_from_error("boom, unrelated"))
+
+    def test_append_requirement_adds_a_trailing_newline_once(self):
+        with tempfile.TemporaryDirectory() as name:
+            path = Path(name) / "requirements.txt"
+            path.write_text("requests")
+            controller.append_requirement(path, "numpy")
+            self.assertEqual(path.read_text(), "requests\nnumpy\n")
+
+    def test_append_requirement_creates_a_missing_file(self):
+        with tempfile.TemporaryDirectory() as name:
+            path = Path(name) / "requirements.txt"
+            controller.append_requirement(path, "numpy")
+            self.assertEqual(path.read_text(), "numpy\n")
+
 
 class FleetTests(unittest.TestCase):
     def test_last_crashed_worker_rearms_fleet(self):

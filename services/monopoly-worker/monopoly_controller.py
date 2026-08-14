@@ -23,6 +23,7 @@ import urllib.request
 
 from monopoly_game_engine import MonopolyEnv, action_to_description, build_state_vector
 from rl_monopoly_runner import (
+    AgentCallError,
     agent_image_fingerprint,
     build_snapshot,
     docker_agent,
@@ -465,10 +466,52 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+# Self-healing dependencies: if the submitted agent crashes on import with
+# ModuleNotFoundError during the validation smoke test, add the missing
+# package to requirements.txt and retry, instead of failing a submission
+# over a one-line requirements.txt omission. Bounded and logged, not silent:
+# capped at MAX_AUTO_DEPENDENCIES extra packages, each one recorded in the
+# validation log, and still resolved through the same wheel-only-PyPI
+# pipeline as everything else in requirements.txt (prepare_dependencies) —
+# this doesn't loosen what's allowed to run, just what has to be typed out.
+MAX_AUTO_DEPENDENCIES = 5
+# Ceiling: only these known import-name/package-name mismatches are covered;
+# anything else falls back to using the import name as the PyPI name, which
+# is right most of the time (numpy, requests, ...) and produces a normal
+# "no wheel available" ValidationFailed when it's wrong.
+IMPORT_TO_PYPI = {
+    "cv2": "opencv-python-headless",
+    "PIL": "Pillow",
+    "yaml": "PyYAML",
+    "sklearn": "scikit-learn",
+    "bs4": "beautifulsoup4",
+}
+_MODULE_NOT_FOUND_RE = re.compile(r"No module named '([A-Za-z_][A-Za-z0-9_]*)")
+
+
+def missing_module_from_error(message: str) -> str | None:
+    match = _MODULE_NOT_FOUND_RE.search(message)
+    if not match:
+        return None
+    top_level = match.group(1).split(".", 1)[0]
+    return IMPORT_TO_PYPI.get(top_level, top_level)
+
+
+def append_requirement(requirements_path: Path, package: str) -> None:
+    existing = requirements_path.read_text() if requirements_path.exists() else ""
+    if existing and not existing.endswith("\n"):
+        existing += "\n"
+    requirements_path.write_text(existing + package + "\n")
+
+
 def prepare_dependencies(checkout: Path, staging: Path, log_file) -> str:
     requirements = checkout / "requirements.txt"
     direct = validate_requirements(requirements)
     wheelhouse = staging / "wheelhouse"
+    # Idempotent: the auto-heal retry loop in validate_submission calls this
+    # again after appending a missing package, so a stale wheelhouse from a
+    # previous attempt must not linger (mkdir() would just fail on it).
+    shutil.rmtree(wheelhouse, ignore_errors=True)
     wheelhouse.mkdir()
     lock = staging / "requirements.lock"
     if not direct:
@@ -495,6 +538,7 @@ def prepare_dependencies(checkout: Path, staging: Path, log_file) -> str:
             "every direct and transitive dependency must publish a compatible wheel"
         )
     venv = staging / "smoke-venv"
+    shutil.rmtree(venv, ignore_errors=True)
     run_logged([sys.executable, "-m", "venv", str(venv)], log_file, timeout=120)
     python = venv / "bin" / "python"
     run_logged(
@@ -651,88 +695,131 @@ def validate_submission(job: dict) -> dict:
             shutil.copyfile(
                 ROOT / "agent_image" / "runner.py", staging / "agent_runner.py"
             )
-            dependency_lock = prepare_dependencies(checkout, staging, output)
-            metadata = {
-                "artifact_schema": 1,
-                "ruleset_version": "ppo-plus-v2",
-                "schema_version": "exposure-agent-v1",
-                "repo_url": repo_url,
-                "commit_sha": commit,
-                "agent_path": agent_path,
-            }
-            (staging / "metadata.json").write_text(
-                json.dumps(metadata, sort_keys=True, separators=(",", ":")) + "\n"
-            )
+            auto_added_packages: list[str] = []
+            for attempt in range(MAX_AUTO_DEPENDENCIES + 1):
+                dependency_lock = prepare_dependencies(checkout, staging, output)
+                metadata = {
+                    "artifact_schema": 1,
+                    "ruleset_version": "ppo-plus-v2",
+                    "schema_version": "exposure-agent-v1",
+                    "repo_url": repo_url,
+                    "commit_sha": commit,
+                    "agent_path": agent_path,
+                }
+                (staging / "metadata.json").write_text(
+                    json.dumps(metadata, sort_keys=True, separators=(",", ":")) + "\n"
+                )
 
-            temporary_archive = (
-                ARTIFACT_DIR / f".validation-{os.getpid()}-{job['id']}.tar.gz"
-            )
-            normalized_archive(staging, temporary_archive)
-            artifact_sha = sha256_file(temporary_archive)
-            artifact_size = temporary_archive.stat().st_size
-            if artifact_size > ARTIFACT_MAX_BYTES:
-                raise ValidationFailed("artifact exceeds 2 GiB")
-            artifact = ARTIFACT_DIR / f"{artifact_sha}.tar.gz"
+                temporary_archive = (
+                    ARTIFACT_DIR / f".validation-{os.getpid()}-{job['id']}.tar.gz"
+                )
+                normalized_archive(staging, temporary_archive)
+                artifact_sha = sha256_file(temporary_archive)
+                artifact_size = temporary_archive.stat().st_size
+                if artifact_size > ARTIFACT_MAX_BYTES:
+                    raise ValidationFailed("artifact exceeds 2 GiB")
+                artifact = ARTIFACT_DIR / f"{artifact_sha}.tar.gz"
 
-            context = temporary / "docker-context"
-            shutil.copytree(staging, context)
-            shutil.copyfile(ROOT / "agent_image" / "Dockerfile", context / "Dockerfile")
-            tag = f"exposure-monopoly-agent:{artifact_sha}"
-            runtime = agent_image_fingerprint()
-            inspected = subprocess.run(
-                [
-                    "docker",
-                    "image",
-                    "inspect",
-                    "--format",
-                    '{{ index .Config.Labels "exposure.runtime" }}',
-                    tag,
-                ],
-                capture_output=True,
-                text=True,
-            )
-            image_exists = (
-                inspected.returncode == 0 and inspected.stdout.strip() == runtime
-            )
-            if not image_exists:
-                run_logged(
+                context = temporary / "docker-context"
+                shutil.rmtree(context, ignore_errors=True)
+                shutil.copytree(staging, context)
+                shutil.copyfile(
+                    ROOT / "agent_image" / "Dockerfile", context / "Dockerfile"
+                )
+                tag = f"exposure-monopoly-agent:{artifact_sha}"
+                runtime = agent_image_fingerprint()
+                inspected = subprocess.run(
                     [
                         "docker",
-                        "build",
-                        "--pull=false",
-                        "--network=none",
-                        "--tag",
+                        "image",
+                        "inspect",
+                        "--format",
+                        '{{ index .Config.Labels "exposure.runtime" }}',
                         tag,
-                        "--label",
-                        f"exposure.artifact={artifact_sha}",
-                        "--label",
-                        f"exposure.runtime={runtime}",
-                        str(context),
                     ],
-                    output,
-                    timeout=1200,
+                    capture_output=True,
+                    text=True,
                 )
-                built_image = tag
-            process = docker_agent(artifact_sha, agent_path)
-            try:
-                env = MonopolyEnv(max_rounds=1)
-                player_id = env.whose_turn()
-                allowed = [int(action) for action in env.get_allowed_actions(player_id)]
-                state = {
-                    "schema_version": "exposure-agent-v1",
-                    "ruleset_version": "ppo-plus-v2",
-                    "vector": build_state_vector(
-                        env.players, env.properties, agent_id=player_id, env=env
-                    ).tolist(),
-                    "board": build_snapshot(env),
-                    "actions": {
-                        str(action): action_to_description(action) for action in allowed
-                    },
-                    "decision_seed": 0,
-                }
-                process.choose_action(state, player_id, allowed)
-            finally:
-                process.close()
+                image_exists = (
+                    inspected.returncode == 0 and inspected.stdout.strip() == runtime
+                )
+                if not image_exists:
+                    run_logged(
+                        [
+                            "docker",
+                            "build",
+                            "--pull=false",
+                            "--network=none",
+                            "--tag",
+                            tag,
+                            "--label",
+                            f"exposure.artifact={artifact_sha}",
+                            "--label",
+                            f"exposure.runtime={runtime}",
+                            str(context),
+                        ],
+                        output,
+                        timeout=1200,
+                    )
+                    built_image = tag
+                process = docker_agent(artifact_sha, agent_path)
+                try:
+                    env = MonopolyEnv(max_rounds=1)
+                    player_id = env.whose_turn()
+                    allowed = [
+                        int(action) for action in env.get_allowed_actions(player_id)
+                    ]
+                    state = {
+                        "schema_version": "exposure-agent-v1",
+                        "ruleset_version": "ppo-plus-v2",
+                        "vector": build_state_vector(
+                            env.players, env.properties, agent_id=player_id, env=env
+                        ).tolist(),
+                        "board": build_snapshot(env),
+                        "actions": {
+                            str(action): action_to_description(action)
+                            for action in allowed
+                        },
+                        "decision_seed": 0,
+                    }
+                    process.choose_action(state, player_id, allowed)
+                except AgentCallError as error:
+                    package = missing_module_from_error(str(error))
+                    retryable = (
+                        package is not None
+                        and package not in auto_added_packages
+                        and attempt < MAX_AUTO_DEPENDENCIES
+                    )
+                    if not retryable:
+                        raise
+                    auto_added_packages.append(package)
+                    append_requirement(checkout / "requirements.txt", package)
+                    output.write(
+                        f"[auto-heal] agent import failed on {package!r}; added it "
+                        f"to requirements.txt and retrying "
+                        f"({len(auto_added_packages)}/{MAX_AUTO_DEPENDENCIES})\n".encode()
+                    )
+                    output.flush()
+                    if built_image is not None:
+                        subprocess.run(
+                            ["docker", "image", "rm", "--force", built_image],
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                            check=False,
+                        )
+                        built_image = None
+                    temporary_archive.unlink(missing_ok=True)
+                    temporary_archive = None
+                    continue
+                finally:
+                    process.close()
+                break
+            if auto_added_packages:
+                output.write(
+                    f"[auto-heal] added to requirements.txt: "
+                    f"{', '.join(auto_added_packages)}\n".encode()
+                )
+                output.flush()
             if artifact.exists():
                 if (
                     artifact.stat().st_size != artifact_size
