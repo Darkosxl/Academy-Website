@@ -1323,6 +1323,7 @@ form.inline input, form.inline select { margin-top:0; width:auto; }
 }
 .horse-video {
   position:absolute; top:0; left:0; height:100%; width:64px; object-fit:contain;
+  transform:scaleX(-1);
   transition:left 1.8s linear;
 }
 .monopoly-arena { margin-top:18px; --p0:#2563eb; --p1:#e87928; --p2:#168f62; --p3:#b44c86; }

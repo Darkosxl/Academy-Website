@@ -465,25 +465,32 @@ def cache_artifact(client: ApiClient, sha256: str) -> Path:
     if BACKEND == "venv":
         venv = temporary_root / "venv"
         subprocess.run(
-            [sys.executable, "-m", "venv", str(venv)], check=True, timeout=120
+            [sys.executable, "-m", "virtualenv", str(venv)], check=True, timeout=120
         )
         lock = temporary_root / "requirements.lock"
         if lock.read_text().strip():
-            subprocess.run(
-                [
-                    str(venv / "bin" / "python"),
-                    "-m",
-                    "pip",
-                    "install",
-                    "--no-index",
-                    "--only-binary=:all:",
-                    f"--find-links={temporary_root / 'wheelhouse'}",
-                    "--requirement",
-                    str(lock),
-                ],
-                check=True,
-                timeout=300,
-            )
+            install = [
+                str(venv / "bin" / "python"),
+                "-m",
+                "pip",
+                "install",
+                "--only-binary=:all:",
+                "--requirement",
+                str(lock),
+            ]
+            try:
+                subprocess.run(
+                    [
+                        *install[:4],
+                        "--no-index",
+                        f"--find-links={temporary_root / 'wheelhouse'}",
+                        *install[4:],
+                    ],
+                    check=True,
+                    timeout=300,
+                )
+            except subprocess.CalledProcessError:
+                subprocess.run(install, check=True, timeout=300)
     (temporary_root / ".ready").write_text("ok\n")
     if root.exists():
         shutil.rmtree(temporary_root)

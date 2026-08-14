@@ -5,9 +5,16 @@ import os
 from pathlib import Path
 import runpy
 import shutil
+import subprocess
 import sys
 import tarfile
 
+
+subprocess.run(
+    [sys.executable, "-m", "pip", "install", "-q", "virtualenv"],
+    check=True,
+    timeout=180,
+)
 
 root = Path("/content/exposure-monopoly-worker")
 shutil.rmtree(root, ignore_errors=True)

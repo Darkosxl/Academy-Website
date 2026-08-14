@@ -21,3 +21,6 @@ __pycache__/
 
 # macOS Finder droppings — one got committed with a folder of PDFs once already
 .DS_Store
+
+# monopoly artifact cache + validation scratch — 100M+ of runtime state
+/var/

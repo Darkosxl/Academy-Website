@@ -91,6 +91,7 @@ REQUIREMENT_RE = re.compile(
     r"(?:\s*,\s*(?:===|==|~=|!=|<=|>=|<|>)\s*[A-Za-z0-9][A-Za-z0-9.*+!_-]*)*"
     r"(?:\s*;\s*[A-Za-z0-9_.-]+\s*(?:==|!=|<=|>=|<|>)\s*['\"][^'\"]+['\"])?"
 )
+PYTORCH_CPU_EXTRA_INDEX = "--extra-index-url https://download.pytorch.org/whl/cpu"
 
 
 def log(message: str) -> None:
@@ -436,6 +437,8 @@ def validate_requirements(path: Path) -> list[str]:
             "requirements.txt may contain at most 32 direct requirements"
         )
     for line in requirements:
+        if line == PYTORCH_CPU_EXTRA_INDEX:
+            continue
         if (
             len(line) > 300
             or "@" in line
@@ -937,6 +940,12 @@ def validation_once() -> bool:
                 api("/api/worker/rl-monopoly/submissions/result", approval)
         log(f"approved submission {job['id']} at {result['commit_sha'][:12]}")
     except Exception as error:
+        # ponytail: a transient Academy outage is not the team's fault. Leave the
+        # lease to expire so the submission is re-claimed instead of being burned
+        # as a permanent validation failure.
+        if isinstance(error, ApiError) and (error.status is None or error.status >= 500):
+            log(f"transient Academy error, leaving submission queued: {error}")
+            return True
         message = f"{type(error).__name__}: {error}"[-12_000:]
         try:
             api(
@@ -1029,7 +1038,12 @@ def parse_preflight(text: str) -> dict:
 
 def allocate_qualified(name: str) -> dict | None:
     try:
-        result = colab(["new", "-s", name], capture=True, check=False, timeout=300)
+        result = colab(
+            ["new", "-s", name],
+            capture=True,
+            check=False,
+            timeout=300,
+        )
     except Exception as error:
         reason = f"Colab allocation failed: {error}"[-1000:]
         log(f"{name} allocation rejected: {reason}")
@@ -1054,8 +1068,8 @@ def allocate_qualified(name: str) -> dict | None:
         ram = int(hardware["ram_bytes"])
         cpus = float(hardware["effective_vcpus"])
         shape = str(hardware["machine_shape"])
-        if ram < 32 * 1024**3 or cpus < 8:
-            reason = f"requires 32 GiB/8 vCPU; allocated {ram / 1024**3:.1f} GiB/{cpus:.1f} vCPU"
+        if ram < 12 * 1024**3 or cpus < 2:
+            reason = f"requires 12 GiB/2 vCPU; allocated {ram / 1024**3:.1f} GiB/{cpus:.1f} vCPU"
             report_fleet(
                 name, "rejected", ram=ram, cpus=cpus, shape=shape, reason=reason
             )

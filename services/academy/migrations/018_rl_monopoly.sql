@@ -32,6 +32,7 @@ begin
       and column_name = 'tournament_id'
   ) then
     create schema if not exists exposure_legacy;
+    alter table if exists monopoly_workers_exposure_academy set schema exposure_legacy;
     alter table if exists monopoly_events_exposure_academy set schema exposure_legacy;
     alter table if exists monopoly_game_attempts_exposure_academy set schema exposure_legacy;
     alter table if exists monopoly_game_seats_exposure_academy set schema exposure_legacy;
