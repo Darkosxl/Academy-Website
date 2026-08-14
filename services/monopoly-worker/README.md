@@ -75,21 +75,22 @@ only checks it isn't obviously starved (`MONOPOLY_MIN_RAM_BYTES`/`MONOPOLY_MIN_V
 - `Restart=on-failure` — systemd restarts the whole controller (and therefore its host workers)
   if it dies, no separate watchdog process needed.
 
-For the Academy host, install
-`systemd/ai-monopoly-controller.service` and copy
-`systemd/monopoly-controller.env.example` to
-`/etc/exposure-academy/monopoly-controller.env` with the production secret. The unit expects the
-checkout at `/opt/exposure-academy`, a system user named `exposure-monopoly` with home
-`/var/lib/exposure-monopoly`, membership in the `docker` group, and the shared artifact disk at
-`/var/lib/exposure/monopoly-artifacts`.
+On the Academy host, from inside this checkout, run:
 
 ```sh
-sudo python3 -m venv /opt/exposure-academy/.venv-monopoly
-sudo /opt/exposure-academy/.venv-monopoly/bin/pip install \
-  -r /opt/exposure-academy/services/monopoly-worker/requirements.txt
-sudo systemctl daemon-reload
+services/monopoly-worker/systemd/install.sh
+```
+
+This creates the `exposure-monopoly` system user, symlinks this checkout to `/opt/exposure-academy`
+(the unit's hardcoded path — no need to reclone anywhere), builds the venv, and installs the unit.
+It won't start the service: fill in the real `WORKER_TOKEN` (must match the Academy service's own)
+and `MONOPOLY_SITE` in `/etc/exposure-academy/monopoly-controller.env`, then:
+
+```sh
 sudo systemctl enable --now ai-monopoly-controller.service
 ```
+
+The script is safe to re-run (e.g. after `git pull`, to pick up a requirements.txt or unit change).
 
 The Academy HTTP service must not invoke this command or share its process. A normal systemd stop
 sends `SIGTERM`; the controller's signal/finally cleanup terminates every host worker (and, if
