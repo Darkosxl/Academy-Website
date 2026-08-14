@@ -13,6 +13,33 @@ drop table if exists monopoly_matches_exposure_academy cascade;
 drop table if exists monopoly_players_exposure_academy cascade;
 drop table if exists monopoly_entries_exposure_academy cascade;
 
+-- Preserve the short-lived board-game draft if it reached a database before this
+-- migration. Its `monopoly_games` table has `seats` instead of `tournament_id`, so
+-- `create table if not exists` below cannot upgrade it in place.
+do $$
+begin
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = current_schema()
+      and table_name = 'monopoly_games_exposure_academy'
+      and column_name = 'seats'
+  ) and not exists (
+    select 1
+    from information_schema.columns
+    where table_schema = current_schema()
+      and table_name = 'monopoly_games_exposure_academy'
+      and column_name = 'tournament_id'
+  ) then
+    create schema if not exists exposure_legacy;
+    alter table if exists monopoly_events_exposure_academy set schema exposure_legacy;
+    alter table if exists monopoly_game_attempts_exposure_academy set schema exposure_legacy;
+    alter table if exists monopoly_game_seats_exposure_academy set schema exposure_legacy;
+    alter table monopoly_games_exposure_academy set schema exposure_legacy;
+  end if;
+end
+$$;
+
 do $$
 begin
   if exists (
