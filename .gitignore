@@ -24,3 +24,5 @@ __pycache__/
 
 # monopoly artifact cache + validation scratch — 100M+ of runtime state
 /var/
+# downloaded agent artifacts — GB-scale, recreated by cache_artifact() on demand
+/services/monopoly-worker/.artifact-cache/

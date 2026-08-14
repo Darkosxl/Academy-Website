@@ -57,7 +57,10 @@ PLAY_LIMIT_US = 600_000_000
 DECISION_TIMEOUT_SECONDS = 2.0
 STARTUP_TIMEOUT_SECONDS = 60.0
 AGENT_MEMORY_BYTES = 2 * 1024**3
-EVENT_BATCH_SIZE = 25
+# ponytail: the Academy caps a batch at MAX_EVENT_BATCH=100 (monopoly.rs), and
+# every batch is a synchronous POST the game waits on — at 25 a 6000-action
+# game spent 564s of its 618s wall clock uploading. Sit on the server's ceiling.
+EVENT_BATCH_SIZE = 100
 POLL_SECONDS = 5
 
 # Colab sessions are hardware-gated remotely (colab_preflight.py) before this
