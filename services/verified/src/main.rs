@@ -16,7 +16,7 @@
 
 use axum::{
     Form, Router,
-    extract::{DefaultBodyLimit, Multipart, Path, State},
+    extract::{DefaultBodyLimit, Multipart, Path, Query, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
     middleware,
     middleware::Next,
@@ -1492,11 +1492,18 @@ async fn question_answer(
 // Admin routes
 // ---------------------------------------------------------------------------------
 
+#[derive(Deserialize)]
+struct PreviewParams {
+    preview: Option<String>,
+}
+
 async fn admin_dashboard(
     State(app): State<App>,
     headers: HeaderMap,
+    Query(q): Query<PreviewParams>,
 ) -> Result<Html<String>, Response> {
     let user = require_role_or_admin(current_user(&app, &headers).await, "owner")?;
+    let previewing_owner = user.role == "admin" && q.preview.as_deref() == Some("owner");
     let rows: Vec<(Uuid, String, bool, String)> = sqlx::query_as(
         "select c.id, c.title, c.hidden, u.display_name
          from verified_cases c join verified_users u on u.id = c.submitter_id
@@ -1521,8 +1528,13 @@ async fn admin_dashboard(
     if rows.is_empty() {
         list.push_str(r#"<p class="muted">No cases yet.</p>"#);
     }
-    let admins_link = if user.role == "admin" {
+    let admins_link = if user.role == "admin" && !previewing_owner {
         r#"<a href="/admin/admins">Manage admins</a>"#
+    } else {
+        ""
+    };
+    let banner = if previewing_owner {
+        r#"<p class="notice">Previewing as: Owner — same case tools, but owner never sees or grants who holds admin/owner.</p>"#
     } else {
         ""
     };
@@ -1530,7 +1542,7 @@ async fn admin_dashboard(
         "Admin",
         Some(&user),
         format!(
-            r#"<h1>Cases</h1>
+            r#"{banner}<h1>Cases</h1>
                <div class="toolbar"><a href="/admin/cases/new">+ New case</a> {admins_link}</div>
                <div class="grid">{list}</div>"#
         ),
@@ -2144,7 +2156,7 @@ fn nav(user: Option<&VUser>) -> String {
                 "admin" => {
                     r#"<a href="/admin">Cases</a><a href="/admin/admins">Admins</a>
                        <span class="muted">Preview:</span>
-                       <a href="/cases">Student</a><a href="/submitter">Submitter</a>"#
+                       <a href="/cases">Student</a><a href="/admin?preview=owner">Owner</a><a href="/submitter">Submitter</a>"#
                 }
                 "owner" => r#"<a href="/admin">Cases</a>"#,
                 "submitter" => r#"<a href="/submitter">Your cases</a>"#,
