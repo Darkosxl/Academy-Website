@@ -98,8 +98,8 @@ async fn main() {
         mail_from: std::env::var("MAIL_FROM").expect("MAIL_FROM missing (.env)"),
         base_url: std::env::var("APP_BASE_URL").expect("APP_BASE_URL missing (.env)"),
         supabase_url: std::env::var("SUPABASE_URL").expect("SUPABASE_URL missing (.env)"),
-        supabase_service_key: std::env::var("SUPABASE_SERVICE_ROLE_KEY")
-            .expect("SUPABASE_SERVICE_ROLE_KEY missing (.env)"),
+        supabase_service_key: std::env::var("SUPABASE_SECRET_KEY")
+            .expect("SUPABASE_SECRET_KEY missing (.env)"),
         storage_bucket: std::env::var("VERIFIED_STORAGE_BUCKET")
             .unwrap_or_else(|_| "verified-submissions".to_string()),
         max_file_bytes,

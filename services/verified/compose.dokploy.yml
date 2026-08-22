@@ -11,7 +11,7 @@ services:
       MAIL_FROM: ${MAIL_FROM:?e.g. Exposure Academy Verified <noreply@exposureai.org>}
       APP_BASE_URL: ${APP_BASE_URL:-https://platform.exposureai.org}
       SUPABASE_URL: ${SUPABASE_URL:?https://<project>.supabase.co}
-      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:?Supabase Storage service-role key}
+      SUPABASE_SECRET_KEY: ${SUPABASE_SECRET_KEY:?Supabase secret API key (sb_secret_...), same as the SUPABASE_SECRET_KEY in the repo root .env}
       VERIFIED_STORAGE_BUCKET: ${VERIFIED_STORAGE_BUCKET:-verified-submissions}
       VERIFIED_MAX_FILE_BYTES: ${VERIFIED_MAX_FILE_BYTES:-104857600}
       VERIFIED_MAX_SUBMISSION_BYTES: ${VERIFIED_MAX_SUBMISSION_BYTES:-524288000}
