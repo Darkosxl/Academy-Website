@@ -131,6 +131,13 @@ async fn main() {
             )),
         )
         .route("/submitter", get(submitter_dashboard))
+        .route("/submitter/cases/new", get(owner_case_new))
+        .route(
+            "/submitter/cases",
+            post(owner_case_create).layer(DefaultBodyLimit::max(
+                (max_submission_bytes + 2 * 1024 * 1024) as usize,
+            )),
+        )
         .route("/submitter/cases/{id}", get(submitter_case_view))
         .route("/questions/{id}/answer", post(question_answer))
         .route("/admin", get(admin_dashboard))
@@ -1337,13 +1344,136 @@ async fn submitter_dashboard(
         ));
     }
     if cases.is_empty() {
-        rows.push_str(r#"<p class="muted">No cases assigned to you yet.</p>"#);
+        rows.push_str(r#"<p class="muted">No cases yet.</p>"#);
     }
     Ok(Html(page(
         "Your cases",
         Some(&user),
-        format!(r#"<h1>Your cases</h1><div class="grid">{rows}</div>"#),
+        format!(
+            r#"<h1>Your cases</h1>
+               <div class="toolbar"><a href="/submitter/cases/new">+ New case</a></div>
+               <div class="grid">{rows}</div>"#
+        ),
     )))
+}
+
+async fn owner_case_new(
+    State(app): State<App>,
+    headers: HeaderMap,
+) -> Result<Html<String>, Response> {
+    let user = require_case_owner_or_admin(current_user(&app, &headers).await)?;
+    Ok(Html(page("New case", Some(&user), owner_case_form(None))))
+}
+
+fn owner_case_form(error: Option<&str>) -> String {
+    let err = error
+        .map(|e| format!(r#"<p class="error">{}</p>"#, esc(e)))
+        .unwrap_or_default();
+    format!(
+        r#"<h1>New case</h1>
+           {err}
+           <form method="post" action="/submitter/cases" enctype="multipart/form-data" class="stack">
+             <label>Title<input type="text" name="title" required></label>
+             <label>Description<textarea name="description" required></textarea></label>
+             <h2>Attachments (optional — downloadable by every student on this case)</h2>
+             <label>Files<input type="file" name="file" multiple></label>
+             <button type="submit">Post case</button>
+           </form>"#
+    )
+}
+
+async fn owner_case_create(
+    State(app): State<App>,
+    headers: HeaderMap,
+    mut mp: Multipart,
+) -> Result<Response, Response> {
+    let user = require_case_owner_or_admin(current_user(&app, &headers).await)?;
+    let bad = |msg: String| (StatusCode::BAD_REQUEST, msg).into_response();
+
+    let mut title = String::new();
+    let mut description = String::new();
+    let mut files: Vec<(String, String, Vec<u8>)> = Vec::new();
+
+    while let Some(field) = mp
+        .next_field()
+        .await
+        .map_err(|_| bad("Could not read form.".into()))?
+    {
+        match field.name() {
+            Some("title") => title = field.text().await.unwrap_or_default(),
+            Some("description") => description = field.text().await.unwrap_or_default(),
+            Some("file") => {
+                let filename = field.file_name().unwrap_or("file").to_string();
+                let content_type = field
+                    .content_type()
+                    .unwrap_or("application/octet-stream")
+                    .to_string();
+                let bytes = field
+                    .bytes()
+                    .await
+                    .map_err(|_| bad("Could not read an attached file.".into()))?;
+                if !bytes.is_empty() {
+                    if bytes.len() as u64 > app.max_file_bytes {
+                        return Err(bad(format!(
+                            "Each attachment can't exceed {} MB.",
+                            app.max_file_bytes / 1024 / 1024
+                        )));
+                    }
+                    files.push((safe_filename(&filename), content_type, bytes.to_vec()));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let title = title.trim().to_string();
+    let description = description.trim().to_string();
+    if title.is_empty() || description.is_empty() {
+        return Ok(Html(page(
+            "New case",
+            Some(&user),
+            owner_case_form(Some("Fill in both the title and description.")),
+        ))
+        .into_response());
+    }
+
+    let case_id: (Uuid,) = sqlx::query_as(
+        "insert into verified_cases (title, description, submitter_id, created_by) values ($1,$2,$3,$3) returning id",
+    )
+    .bind(&title)
+    .bind(&description)
+    .bind(user.id)
+    .fetch_one(&app.pool)
+    .await
+    .unwrap();
+
+    let mut failed_files = Vec::new();
+    for (filename, content_type, bytes) in files {
+        if store_case_document(&app, case_id.0, user.id, filename.clone(), content_type, bytes)
+            .await
+            .is_err()
+        {
+            failed_files.push(filename);
+        }
+    }
+
+    let case_url = format!("/submitter/cases/{}", case_id.0);
+    if failed_files.is_empty() {
+        Ok(Redirect::to(&case_url).into_response())
+    } else {
+        let list: String = failed_files.iter().map(|f| format!("<li>{}</li>", esc(f))).collect();
+        Ok(Html(page(
+            "New case",
+            Some(&user),
+            format!(
+                r#"<h1>Case posted</h1>
+                   <p class="error">These attachments failed to upload — retry them from the case page.</p>
+                   <ul>{list}</ul>
+                   <p><a href="{case_url}">Go to case →</a></p>"#
+            ),
+        ))
+        .into_response())
+    }
 }
 
 async fn submitter_case_view(
