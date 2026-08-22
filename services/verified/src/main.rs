@@ -67,6 +67,10 @@ async fn main() {
         .execute(&pool)
         .await
         .expect("avatars/documents migration failed");
+    sqlx::raw_sql(include_str!("../migrations/003_owner_role.sql"))
+        .execute(&pool)
+        .await
+        .expect("owner role migration failed");
 
     seed_admin(&pool).await;
 
@@ -148,6 +152,7 @@ async fn main() {
             "/admin/admins",
             get(admin_admins_page).post(admin_admins_post),
         )
+        .route("/admin/owners", post(admin_owners_post))
         .route("/files/{id}", get(file_download))
         .route("/case-files/{id}", get(case_file_download))
         .layer(middleware::from_fn_with_state(app.clone(), rolling_session))
@@ -223,7 +228,7 @@ impl VUser {
 
 fn role_home(role: &str) -> &'static str {
     match role {
-        "admin" => "/admin",
+        "admin" | "owner" => "/admin",
         "submitter" => "/submitter",
         _ => "/cases",
     }
@@ -367,6 +372,24 @@ fn require_role(user: Option<VUser>, role: &str) -> Result<VUser, Response> {
         Some(_) => Err(StatusCode::FORBIDDEN.into_response()),
         None => Err(Redirect::to("/login").into_response()),
     }
+}
+
+// Admin can do (and preview) everything everyone else can — used for routes that also
+// have a more specific owner. The exception is anything that touches the admin/owner
+// roster itself (admin_admins_page/post), which stays a plain require_role(_, "admin")
+// so owners never see or grant who holds admin.
+fn require_role_or_admin(user: Option<VUser>, role: &str) -> Result<VUser, Response> {
+    match user {
+        Some(u) if u.role == role || u.role == "admin" => Ok(u),
+        Some(_) => Err(StatusCode::FORBIDDEN.into_response()),
+        None => Err(Redirect::to("/login").into_response()),
+    }
+}
+
+// Owners get the same case-management powers as admin (create/edit/hide cases, answer
+// questions, manage documents/photos) — just not the admin roster itself.
+fn is_admin_like(role: &str) -> bool {
+    role == "admin" || role == "owner"
 }
 
 async fn logout(State(app): State<App>, headers: HeaderMap) -> Response {
@@ -730,7 +753,7 @@ async fn magic_consume(State(app): State<App>, Path(token): Path<String>) -> Res
 // ---------------------------------------------------------------------------------
 
 async fn cases_list(State(app): State<App>, headers: HeaderMap) -> Result<Html<String>, Response> {
-    let user = require_role(current_user(&app, &headers).await, "student")?;
+    let user = require_role_or_admin(current_user(&app, &headers).await, "student")?;
     let cases: Vec<VCase> = sqlx::query_as(
         "select id, title, description, submitter_id, hidden, created_at
          from verified_cases where hidden = false order by created_at desc",
@@ -788,7 +811,7 @@ async fn case_detail(
     headers: HeaderMap,
     Path(id): Path<Uuid>,
 ) -> Result<Html<String>, Response> {
-    let user = require_role(current_user(&app, &headers).await, "student")?;
+    let user = require_role_or_admin(current_user(&app, &headers).await, "student")?;
     let case: Option<VCase> = sqlx::query_as(
         "select id, title, description, submitter_id, hidden, created_at
          from verified_cases where id = $1 and hidden = false",
@@ -1273,7 +1296,7 @@ async fn submitter_dashboard(
     State(app): State<App>,
     headers: HeaderMap,
 ) -> Result<Html<String>, Response> {
-    let user = require_role(current_user(&app, &headers).await, "submitter")?;
+    let user = require_role_or_admin(current_user(&app, &headers).await, "submitter")?;
     let cases: Vec<VCase> = sqlx::query_as(
         "select id, title, description, submitter_id, hidden, created_at
          from verified_cases where submitter_id = $1 order by created_at desc",
@@ -1320,8 +1343,8 @@ async fn submitter_case_view(
     headers: HeaderMap,
     Path(id): Path<Uuid>,
 ) -> Result<Html<String>, Response> {
-    let user = require_role(current_user(&app, &headers).await, "submitter")?;
-    let case = load_case_owned_by(&app, id, user.id).await?;
+    let user = require_role_or_admin(current_user(&app, &headers).await, "submitter")?;
+    let case = load_case_owned_by(&app, id, user.id, &user.role).await?;
     Ok(Html(page(
         &case.title,
         Some(&user),
@@ -1329,7 +1352,12 @@ async fn submitter_case_view(
     )))
 }
 
-async fn load_case_owned_by(app: &App, id: Uuid, submitter_id: Uuid) -> Result<VCase, Response> {
+async fn load_case_owned_by(
+    app: &App,
+    id: Uuid,
+    submitter_id: Uuid,
+    role: &str,
+) -> Result<VCase, Response> {
     let case: Option<VCase> = sqlx::query_as(
         "select id, title, description, submitter_id, hidden, created_at from verified_cases where id = $1",
     )
@@ -1338,7 +1366,7 @@ async fn load_case_owned_by(app: &App, id: Uuid, submitter_id: Uuid) -> Result<V
     .await
     .unwrap();
     match case {
-        Some(c) if c.submitter_id == submitter_id => Ok(c),
+        Some(c) if c.submitter_id == submitter_id || role == "admin" => Ok(c),
         Some(_) => Err(StatusCode::FORBIDDEN.into_response()),
         None => Err(StatusCode::NOT_FOUND.into_response()),
     }
@@ -1439,7 +1467,7 @@ async fn question_answer(
     let Some((case_id, submitter_id)) = row else {
         return Err(StatusCode::NOT_FOUND.into_response());
     };
-    let authorized = user.role == "admin" || user.id == submitter_id;
+    let authorized = is_admin_like(&user.role) || user.id == submitter_id;
     if !authorized {
         return Err(StatusCode::FORBIDDEN.into_response());
     }
@@ -1452,9 +1480,10 @@ async fn question_answer(
     .execute(&app.pool)
     .await
     .unwrap();
-    let dest = match user.role.as_str() {
-        "admin" => format!("/admin/cases/{case_id}"),
-        _ => format!("/submitter/cases/{case_id}"),
+    let dest = if is_admin_like(&user.role) {
+        format!("/admin/cases/{case_id}")
+    } else {
+        format!("/submitter/cases/{case_id}")
     };
     Ok(Redirect::to(&dest))
 }
@@ -1467,7 +1496,7 @@ async fn admin_dashboard(
     State(app): State<App>,
     headers: HeaderMap,
 ) -> Result<Html<String>, Response> {
-    let user = require_role(current_user(&app, &headers).await, "admin")?;
+    let user = require_role_or_admin(current_user(&app, &headers).await, "owner")?;
     let rows: Vec<(Uuid, String, bool, String)> = sqlx::query_as(
         "select c.id, c.title, c.hidden, u.display_name
          from verified_cases c join verified_users u on u.id = c.submitter_id
@@ -1492,12 +1521,17 @@ async fn admin_dashboard(
     if rows.is_empty() {
         list.push_str(r#"<p class="muted">No cases yet.</p>"#);
     }
+    let admins_link = if user.role == "admin" {
+        r#"<a href="/admin/admins">Manage admins</a>"#
+    } else {
+        ""
+    };
     Ok(Html(page(
         "Admin",
         Some(&user),
         format!(
             r#"<h1>Cases</h1>
-               <div class="toolbar"><a href="/admin/cases/new">+ New case</a> <a href="/admin/admins">Manage admins</a></div>
+               <div class="toolbar"><a href="/admin/cases/new">+ New case</a> {admins_link}</div>
                <div class="grid">{list}</div>"#
         ),
     )))
@@ -1507,7 +1541,7 @@ async fn admin_case_new(
     State(app): State<App>,
     headers: HeaderMap,
 ) -> Result<Html<String>, Response> {
-    let user = require_role(current_user(&app, &headers).await, "admin")?;
+    let user = require_role_or_admin(current_user(&app, &headers).await, "owner")?;
     Ok(Html(page("New case", Some(&user), case_form(None))))
 }
 
@@ -1545,7 +1579,7 @@ async fn admin_case_create(
     headers: HeaderMap,
     Form(f): Form<CaseForm>,
 ) -> Result<Response, Response> {
-    let user = require_role(current_user(&app, &headers).await, "admin")?;
+    let user = require_role_or_admin(current_user(&app, &headers).await, "owner")?;
     let title = f.title.trim();
     let description = f.description.trim();
     let submitter_email = f.submitter_email.trim().to_lowercase();
@@ -1612,7 +1646,7 @@ async fn admin_case_manage(
     headers: HeaderMap,
     Path(id): Path<Uuid>,
 ) -> Result<Html<String>, Response> {
-    let user = require_role(current_user(&app, &headers).await, "admin")?;
+    let user = require_role_or_admin(current_user(&app, &headers).await, "owner")?;
     let case: Option<VCase> = sqlx::query_as(
         "select id, title, description, submitter_id, hidden, created_at from verified_cases where id = $1",
     )
@@ -1635,7 +1669,7 @@ async fn admin_case_edit_page(
     headers: HeaderMap,
     Path(id): Path<Uuid>,
 ) -> Result<Html<String>, Response> {
-    let user = require_role(current_user(&app, &headers).await, "admin")?;
+    let user = require_role_or_admin(current_user(&app, &headers).await, "owner")?;
     let case: Option<VCase> = sqlx::query_as(
         "select id, title, description, submitter_id, hidden, created_at from verified_cases where id = $1",
     )
@@ -1682,7 +1716,7 @@ async fn admin_case_edit_post(
     Path(id): Path<Uuid>,
     Form(f): Form<EditCaseForm>,
 ) -> Result<Redirect, Response> {
-    let _user = require_role(current_user(&app, &headers).await, "admin")?;
+    let _user = require_role_or_admin(current_user(&app, &headers).await, "owner")?;
     let title = f.title.trim();
     let description = f.description.trim();
     if title.is_empty() || description.is_empty() {
@@ -1703,7 +1737,7 @@ async fn admin_case_hide_toggle(
     headers: HeaderMap,
     Path(id): Path<Uuid>,
 ) -> Result<Redirect, Response> {
-    let _user = require_role(current_user(&app, &headers).await, "admin")?;
+    let _user = require_role_or_admin(current_user(&app, &headers).await, "owner")?;
     sqlx::query("update verified_cases set hidden = not hidden where id = $1")
         .bind(id)
         .execute(&app.pool)
@@ -1722,7 +1756,16 @@ async fn admin_admins_page(
             .fetch_all(&app.pool)
             .await
             .unwrap();
-    let rows: String = admins
+    let owners: Vec<(String, String)> =
+        sqlx::query_as("select email, display_name from verified_users where role = 'owner' order by created_at")
+            .fetch_all(&app.pool)
+            .await
+            .unwrap();
+    let admin_rows: String = admins
+        .iter()
+        .map(|(email, name)| format!("<li>{} &lt;{}&gt;</li>", esc(name), esc(email)))
+        .collect();
+    let owner_rows: String = owners
         .iter()
         .map(|(email, name)| format!("<li>{} &lt;{}&gt;</li>", esc(name), esc(email)))
         .collect();
@@ -1731,10 +1774,17 @@ async fn admin_admins_page(
         Some(&user),
         format!(
             r#"<h1>Admins</h1>
-               <ul>{rows}</ul>
+               <ul>{admin_rows}</ul>
                <form method="post" action="/admin/admins" class="stack">
                  <label>Email<input type="email" name="email" required></label>
                  <button type="submit">Grant admin</button>
+               </form>
+               <h1>Owners</h1>
+               <p class="caption">Owners get full case-management access but never see this page.</p>
+               <ul>{owner_rows}</ul>
+               <form method="post" action="/admin/owners" class="stack">
+                 <label>Email<input type="email" name="email" required></label>
+                 <button type="submit">Grant owner</button>
                </form>"#
         ),
     )))
@@ -1779,6 +1829,45 @@ async fn admin_admins_post(
     Ok(Redirect::to("/admin/admins").into_response())
 }
 
+#[derive(Deserialize)]
+struct AddOwnerForm {
+    email: String,
+}
+
+async fn admin_owners_post(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Form(f): Form<AddOwnerForm>,
+) -> Result<Response, Response> {
+    let _user = require_role(current_user(&app, &headers).await, "admin")?;
+    let email = f.email.trim().to_lowercase();
+    if !email.contains('@') {
+        return Err(StatusCode::BAD_REQUEST.into_response());
+    }
+    let existing: Option<(Uuid, String)> =
+        sqlx::query_as("select id, role from verified_users where email = $1")
+            .bind(&email)
+            .fetch_optional(&app.pool)
+            .await
+            .unwrap();
+    match existing {
+        None => {
+            sqlx::query("insert into verified_users (email, display_name, role) values ($1,$2,'owner')")
+                .bind(&email)
+                .bind(&email)
+                .execute(&app.pool)
+                .await
+                .unwrap();
+            send_login_link(&app, &email).await;
+        }
+        Some((_, role)) if role == "owner" => {}
+        Some((_, role)) => {
+            eprintln!("refused to promote {email} (already {role}) to owner without explicit DB change");
+        }
+    }
+    Ok(Redirect::to("/admin/admins").into_response())
+}
+
 // ---------------------------------------------------------------------------------
 // File download
 // ---------------------------------------------------------------------------------
@@ -1802,7 +1891,7 @@ async fn file_download(
     let Some((_submission_id, case_id, student_id, filename, content_type, storage_key)) = row else {
         return Err(StatusCode::NOT_FOUND.into_response());
     };
-    let authorized = user.role == "admin" || user.id == student_id || {
+    let authorized = is_admin_like(&user.role) || user.id == student_id || {
         let submitter: Option<(Uuid,)> =
             sqlx::query_as("select submitter_id from verified_cases where id = $1")
                 .bind(case_id)
@@ -1883,7 +1972,7 @@ async fn case_document_upload(
     let Some((submitter_id,)) = submitter_id else {
         return Err(StatusCode::NOT_FOUND.into_response());
     };
-    if !(user.role == "admin" || user.id == submitter_id) {
+    if !(is_admin_like(&user.role) || user.id == submitter_id) {
         return Err(StatusCode::FORBIDDEN.into_response());
     }
 
@@ -1940,9 +2029,10 @@ async fn case_document_upload(
     .await
     .unwrap();
 
-    let dest = match user.role.as_str() {
-        "admin" => format!("/admin/cases/{id}"),
-        _ => format!("/submitter/cases/{id}"),
+    let dest = if is_admin_like(&user.role) {
+        format!("/admin/cases/{id}")
+    } else {
+        format!("/submitter/cases/{id}")
     };
     Ok(Redirect::to(&dest))
 }
@@ -1955,7 +2045,7 @@ async fn admin_submitter_photo(
     Path(id): Path<Uuid>,
     mut mp: Multipart,
 ) -> Result<Redirect, Response> {
-    require_role(current_user(&app, &headers).await, "admin")?;
+    require_role_or_admin(current_user(&app, &headers).await, "owner")?;
     let bad = |msg: &str| (StatusCode::BAD_REQUEST, msg.to_string()).into_response();
 
     let case: Option<(Uuid,)> = sqlx::query_as("select submitter_id from verified_cases where id = $1")
@@ -2051,7 +2141,12 @@ fn nav(user: Option<&VUser>) -> String {
         None => String::new(),
         Some(u) => {
             let links = match u.role.as_str() {
-                "admin" => r#"<a href="/admin">Cases</a><a href="/admin/admins">Admins</a>"#,
+                "admin" => {
+                    r#"<a href="/admin">Cases</a><a href="/admin/admins">Admins</a>
+                       <span class="muted">Preview:</span>
+                       <a href="/cases">Student</a><a href="/submitter">Submitter</a>"#
+                }
+                "owner" => r#"<a href="/admin">Cases</a>"#,
                 "submitter" => r#"<a href="/submitter">Your cases</a>"#,
                 _ => r#"<a href="/cases">Cases</a>"#,
             };
@@ -2155,11 +2250,15 @@ body {
 }
 main { max-width: 720px; margin: 0 auto; padding: 32px 20px 72px; }
 
-nav { display:flex; align-items:center; gap:20px; padding:16px 24px; border-bottom:1px solid var(--rule); background: var(--surface); }
+nav { display:flex; flex-wrap:wrap; align-items:center; gap:8px 20px; padding:16px 20px; border-bottom:1px solid var(--rule); background: var(--surface); }
 nav a { color: var(--ink-2); text-decoration:none; font-weight:500; font-size:14px; }
 nav a:hover { color: var(--ink); }
 nav .brand { font-weight:800; color: var(--accent-ink); letter-spacing: -0.02em; }
-nav .spacer { flex: 1; }
+nav .spacer { flex: 1 0 auto; min-width: 0; }
+@media (max-width: 520px) {
+  nav { gap:6px 14px; padding:14px 16px; }
+  nav .spacer { flex-basis: 100%; height: 0; }
+}
 
 h1 { font-size: clamp(1.5rem, 3vw, 1.9rem); line-height:1.15; letter-spacing:-0.03em; font-weight:800; color: var(--ink); margin: 8px 0 18px; text-wrap: balance; }
 h2 {
@@ -2208,7 +2307,7 @@ button:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 3px
 }
 .badge.warn { background: var(--bad-wash); border-color: var(--bad); color: var(--bad); }
 
-.toolbar { display:flex; gap:18px; margin: 12px 0 20px; }
+.toolbar { display:flex; flex-wrap:wrap; gap:10px 18px; margin: 12px 0 20px; }
 .toolbar a { color: var(--accent-ink); font-weight:600; text-decoration:none; font-size:14px; }
 .toolbar a:hover { text-decoration: underline; }
 
