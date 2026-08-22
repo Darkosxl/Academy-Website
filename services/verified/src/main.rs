@@ -16,7 +16,7 @@
 
 use axum::{
     Form, Router,
-    extract::{DefaultBodyLimit, Multipart, Path, Query, State},
+    extract::{DefaultBodyLimit, Multipart, Path, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
     middleware,
     middleware::Next,
@@ -135,7 +135,12 @@ async fn main() {
         .route("/questions/{id}/answer", post(question_answer))
         .route("/admin", get(admin_dashboard))
         .route("/admin/cases/new", get(admin_case_new))
-        .route("/admin/cases", post(admin_case_create))
+        .route(
+            "/admin/cases",
+            post(admin_case_create).layer(DefaultBodyLimit::max(
+                (max_submission_bytes + 2 * 1024 * 1024) as usize,
+            )),
+        )
         .route("/admin/cases/{id}", get(admin_case_manage))
         .route(
             "/admin/cases/{id}/edit",
@@ -228,8 +233,8 @@ impl VUser {
 
 fn role_home(role: &str) -> &'static str {
     match role {
-        "admin" | "owner" => "/admin",
-        "submitter" => "/submitter",
+        "admin" => "/admin",
+        "submitter" | "owner" => "/submitter",
         _ => "/cases",
     }
 }
@@ -374,10 +379,8 @@ fn require_role(user: Option<VUser>, role: &str) -> Result<VUser, Response> {
     }
 }
 
-// Admin can do (and preview) everything everyone else can — used for routes that also
-// have a more specific owner. The exception is anything that touches the admin/owner
-// roster itself (admin_admins_page/post), which stays a plain require_role(_, "admin")
-// so owners never see or grant who holds admin.
+// Admin can preview any role's GET-only views — used for cases_list/case_detail
+// (student preview) and submitter_dashboard/submitter_case_view (owner preview).
 fn require_role_or_admin(user: Option<VUser>, role: &str) -> Result<VUser, Response> {
     match user {
         Some(u) if u.role == role || u.role == "admin" => Ok(u),
@@ -386,10 +389,15 @@ fn require_role_or_admin(user: Option<VUser>, role: &str) -> Result<VUser, Respo
     }
 }
 
-// Owners get the same case-management powers as admin (create/edit/hide cases, answer
-// questions, manage documents/photos) — just not the admin roster itself.
-fn is_admin_like(role: &str) -> bool {
-    role == "admin" || role == "owner"
+// 'owner' is just the client/mentor a case is posted for — same thing 'submitter' already
+// was, just admin can invite one by email ahead of any case. Both role strings get the
+// exact same access: their own case(s) only, via submitter_id, never the admin roster.
+fn require_case_owner_or_admin(user: Option<VUser>) -> Result<VUser, Response> {
+    match user {
+        Some(u) if u.role == "submitter" || u.role == "owner" || u.role == "admin" => Ok(u),
+        Some(_) => Err(StatusCode::FORBIDDEN.into_response()),
+        None => Err(Redirect::to("/login").into_response()),
+    }
 }
 
 async fn logout(State(app): State<App>, headers: HeaderMap) -> Response {
@@ -1296,7 +1304,7 @@ async fn submitter_dashboard(
     State(app): State<App>,
     headers: HeaderMap,
 ) -> Result<Html<String>, Response> {
-    let user = require_role_or_admin(current_user(&app, &headers).await, "submitter")?;
+    let user = require_case_owner_or_admin(current_user(&app, &headers).await)?;
     let cases: Vec<VCase> = sqlx::query_as(
         "select id, title, description, submitter_id, hidden, created_at
          from verified_cases where submitter_id = $1 order by created_at desc",
@@ -1343,7 +1351,7 @@ async fn submitter_case_view(
     headers: HeaderMap,
     Path(id): Path<Uuid>,
 ) -> Result<Html<String>, Response> {
-    let user = require_role_or_admin(current_user(&app, &headers).await, "submitter")?;
+    let user = require_case_owner_or_admin(current_user(&app, &headers).await)?;
     let case = load_case_owned_by(&app, id, user.id, &user.role).await?;
     Ok(Html(page(
         &case.title,
@@ -1467,7 +1475,7 @@ async fn question_answer(
     let Some((case_id, submitter_id)) = row else {
         return Err(StatusCode::NOT_FOUND.into_response());
     };
-    let authorized = is_admin_like(&user.role) || user.id == submitter_id;
+    let authorized = user.role == "admin" || user.id == submitter_id;
     if !authorized {
         return Err(StatusCode::FORBIDDEN.into_response());
     }
@@ -1480,7 +1488,7 @@ async fn question_answer(
     .execute(&app.pool)
     .await
     .unwrap();
-    let dest = if is_admin_like(&user.role) {
+    let dest = if user.role == "admin" {
         format!("/admin/cases/{case_id}")
     } else {
         format!("/submitter/cases/{case_id}")
@@ -1492,18 +1500,11 @@ async fn question_answer(
 // Admin routes
 // ---------------------------------------------------------------------------------
 
-#[derive(Deserialize)]
-struct PreviewParams {
-    preview: Option<String>,
-}
-
 async fn admin_dashboard(
     State(app): State<App>,
     headers: HeaderMap,
-    Query(q): Query<PreviewParams>,
 ) -> Result<Html<String>, Response> {
-    let user = require_role_or_admin(current_user(&app, &headers).await, "owner")?;
-    let previewing_owner = user.role == "admin" && q.preview.as_deref() == Some("owner");
+    let user = require_role(current_user(&app, &headers).await, "admin")?;
     let rows: Vec<(Uuid, String, bool, String)> = sqlx::query_as(
         "select c.id, c.title, c.hidden, u.display_name
          from verified_cases c join verified_users u on u.id = c.submitter_id
@@ -1528,81 +1529,153 @@ async fn admin_dashboard(
     if rows.is_empty() {
         list.push_str(r#"<p class="muted">No cases yet.</p>"#);
     }
-    let admins_link = if user.role == "admin" && !previewing_owner {
-        r#"<a href="/admin/admins">Manage admins</a>"#
-    } else {
-        ""
-    };
-    let banner = if previewing_owner {
-        r#"<p class="notice">Previewing as: Owner — same case tools, but owner never sees or grants who holds admin/owner.</p>"#
-    } else {
-        ""
-    };
     Ok(Html(page(
         "Admin",
         Some(&user),
         format!(
-            r#"{banner}<h1>Cases</h1>
-               <div class="toolbar"><a href="/admin/cases/new">+ New case</a> {admins_link}</div>
+            r#"<h1>Cases</h1>
+               <div class="toolbar"><a href="/admin/cases/new">+ New case</a> <a href="/admin/admins">Manage admins</a></div>
                <div class="grid">{list}</div>"#
         ),
     )))
+}
+
+async fn load_owners(app: &App) -> Vec<(String, String, Option<String>)> {
+    sqlx::query_as(
+        "select email, display_name, linkedin_url from verified_users
+         where role in ('owner','submitter') order by display_name",
+    )
+    .fetch_all(&app.pool)
+    .await
+    .unwrap()
 }
 
 async fn admin_case_new(
     State(app): State<App>,
     headers: HeaderMap,
 ) -> Result<Html<String>, Response> {
-    let user = require_role_or_admin(current_user(&app, &headers).await, "owner")?;
-    Ok(Html(page("New case", Some(&user), case_form(None))))
+    let user = require_role(current_user(&app, &headers).await, "admin")?;
+    let owners = load_owners(&app).await;
+    Ok(Html(page("New case", Some(&user), case_form(None, &owners))))
 }
 
-fn case_form(error: Option<&str>) -> String {
+fn case_form(error: Option<&str>, owners: &[(String, String, Option<String>)]) -> String {
     let err = error
         .map(|e| format!(r#"<p class="error">{}</p>"#, esc(e)))
         .unwrap_or_default();
+    let datalist_options: String = owners
+        .iter()
+        .map(|(email, name, _)| format!(r#"<option value="{}">{}</option>"#, esc(email), esc(name)))
+        .collect();
+    let owners_map: std::collections::BTreeMap<&str, serde_json::Value> = owners
+        .iter()
+        .map(|(email, name, linkedin)| {
+            (
+                email.as_str(),
+                serde_json::json!({ "name": name, "linkedin": linkedin.clone().unwrap_or_default() }),
+            )
+        })
+        .collect();
+    let owners_js = serde_json::to_string(&owners_map)
+        .unwrap_or_else(|_| "{}".to_string())
+        .replace("</", "<\\/");
     format!(
         r#"<h1>New case</h1>
            {err}
-           <form method="post" action="/admin/cases" class="stack">
+           <form method="post" action="/admin/cases" enctype="multipart/form-data" class="stack">
              <label>Title<input type="text" name="title" required></label>
              <label>Description<textarea name="description" required></textarea></label>
-             <h2>Submitter (the client/mentor this case is posted for)</h2>
-             <label>Name<input type="text" name="submitter_name" required></label>
-             <label>Email<input type="email" name="submitter_email" required></label>
-             <label>LinkedIn URL (optional)<input type="url" name="submitter_linkedin" placeholder="https://linkedin.com/in/…"></label>
+             <h2>Owner (the client/mentor this case is posted for)</h2>
+             <label>Name<input type="text" id="owner_name" name="submitter_name" required></label>
+             <label>Email<input type="email" id="owner_email" name="submitter_email" list="known-owners" required></label>
+             <datalist id="known-owners">{datalist_options}</datalist>
+             <label>LinkedIn URL (optional)<input type="url" id="owner_linkedin" name="submitter_linkedin" placeholder="https://linkedin.com/in/…"></label>
+             <h2>Attachments (optional — downloadable by every student on this case)</h2>
+             <label>Files<input type="file" name="file" multiple></label>
              <button type="submit">Create case</button>
-           </form>"#
+           </form>
+           <script>
+             (function () {{
+               var owners = {owners_js};
+               document.getElementById('owner_email').addEventListener('input', function () {{
+                 var o = owners[this.value.trim().toLowerCase()];
+                 if (o) {{
+                   document.getElementById('owner_name').value = o.name;
+                   document.getElementById('owner_linkedin').value = o.linkedin;
+                 }}
+               }});
+             }})();
+           </script>"#
     )
-}
-
-#[derive(Deserialize)]
-struct CaseForm {
-    title: String,
-    description: String,
-    submitter_name: String,
-    submitter_email: String,
-    #[serde(default)]
-    submitter_linkedin: String,
 }
 
 async fn admin_case_create(
     State(app): State<App>,
     headers: HeaderMap,
-    Form(f): Form<CaseForm>,
+    mut mp: Multipart,
 ) -> Result<Response, Response> {
-    let user = require_role_or_admin(current_user(&app, &headers).await, "owner")?;
-    let title = f.title.trim();
-    let description = f.description.trim();
-    let submitter_email = f.submitter_email.trim().to_lowercase();
-    let submitter_name = f.submitter_name.trim();
-    if title.is_empty() || description.is_empty() || submitter_name.is_empty() || !submitter_email.contains('@') {
-        return Ok(Html(page("New case", Some(&user), case_form(Some("Fill in every field with a valid email.")))).into_response());
+    let user = require_role(current_user(&app, &headers).await, "admin")?;
+    let bad = |msg: String| (StatusCode::BAD_REQUEST, msg).into_response();
+
+    let mut title = String::new();
+    let mut description = String::new();
+    let mut submitter_name = String::new();
+    let mut submitter_email = String::new();
+    let mut submitter_linkedin = String::new();
+    let mut files: Vec<(String, String, Vec<u8>)> = Vec::new();
+
+    while let Some(field) = mp
+        .next_field()
+        .await
+        .map_err(|_| bad("Could not read form.".into()))?
+    {
+        match field.name() {
+            Some("title") => title = field.text().await.unwrap_or_default(),
+            Some("description") => description = field.text().await.unwrap_or_default(),
+            Some("submitter_name") => submitter_name = field.text().await.unwrap_or_default(),
+            Some("submitter_email") => submitter_email = field.text().await.unwrap_or_default(),
+            Some("submitter_linkedin") => submitter_linkedin = field.text().await.unwrap_or_default(),
+            Some("file") => {
+                let filename = field.file_name().unwrap_or("file").to_string();
+                let content_type = field
+                    .content_type()
+                    .unwrap_or("application/octet-stream")
+                    .to_string();
+                let bytes = field
+                    .bytes()
+                    .await
+                    .map_err(|_| bad("Could not read an attached file.".into()))?;
+                if !bytes.is_empty() {
+                    if bytes.len() as u64 > app.max_file_bytes {
+                        return Err(bad(format!(
+                            "Each attachment can't exceed {} MB.",
+                            app.max_file_bytes / 1024 / 1024
+                        )));
+                    }
+                    files.push((safe_filename(&filename), content_type, bytes.to_vec()));
+                }
+            }
+            _ => {}
+        }
     }
-    let linkedin = if f.submitter_linkedin.trim().is_empty() {
+
+    let title = title.trim().to_string();
+    let description = description.trim().to_string();
+    let submitter_email = submitter_email.trim().to_lowercase();
+    let submitter_name = submitter_name.trim().to_string();
+    if title.is_empty() || description.is_empty() || submitter_name.is_empty() || !submitter_email.contains('@') {
+        let owners = load_owners(&app).await;
+        return Ok(Html(page(
+            "New case",
+            Some(&user),
+            case_form(Some("Fill in every field with a valid email."), &owners),
+        ))
+        .into_response());
+    }
+    let linkedin = if submitter_linkedin.trim().is_empty() {
         None
     } else {
-        Some(f.submitter_linkedin.trim().to_string())
+        Some(submitter_linkedin.trim().to_string())
     };
 
     let existing: Option<(Uuid, String)> =
@@ -1612,22 +1685,23 @@ async fn admin_case_create(
             .await
             .unwrap();
     let (submitter_id, is_new) = match existing {
-        Some((id, role)) if role == "submitter" => {
+        Some((id, role)) if role == "submitter" || role == "owner" => {
             sqlx::query("update verified_users set display_name = $2, linkedin_url = coalesce($3, linkedin_url) where id = $1")
-                .bind(id).bind(submitter_name).bind(&linkedin)
+                .bind(id).bind(&submitter_name).bind(&linkedin)
                 .execute(&app.pool).await.unwrap();
             (id, false)
         }
         Some((_, role)) => {
             let msg = format!("{submitter_email} is already registered as {role} — use a different email.");
-            return Ok(Html(page("New case", Some(&user), case_form(Some(&msg)))).into_response());
+            let owners = load_owners(&app).await;
+            return Ok(Html(page("New case", Some(&user), case_form(Some(&msg), &owners))).into_response());
         }
         None => {
             let id: (Uuid,) = sqlx::query_as(
-                "insert into verified_users (email, display_name, role, linkedin_url) values ($1,$2,'submitter',$3) returning id",
+                "insert into verified_users (email, display_name, role, linkedin_url) values ($1,$2,'owner',$3) returning id",
             )
             .bind(&submitter_email)
-            .bind(submitter_name)
+            .bind(&submitter_name)
             .bind(&linkedin)
             .fetch_one(&app.pool)
             .await
@@ -1639,18 +1713,44 @@ async fn admin_case_create(
     let case_id: (Uuid,) = sqlx::query_as(
         "insert into verified_cases (title, description, submitter_id, created_by) values ($1,$2,$3,$4) returning id",
     )
-    .bind(title)
-    .bind(description)
+    .bind(&title)
+    .bind(&description)
     .bind(submitter_id)
     .bind(user.id)
     .fetch_one(&app.pool)
     .await
     .unwrap();
 
+    let mut failed_files = Vec::new();
+    for (filename, content_type, bytes) in files {
+        if store_case_document(&app, case_id.0, user.id, filename.clone(), content_type, bytes)
+            .await
+            .is_err()
+        {
+            failed_files.push(filename);
+        }
+    }
+
     if is_new {
         send_login_link(&app, &submitter_email).await;
     }
-    Ok(Redirect::to(&format!("/admin/cases/{}", case_id.0)).into_response())
+    let case_url = format!("/admin/cases/{}", case_id.0);
+    if failed_files.is_empty() {
+        Ok(Redirect::to(&case_url).into_response())
+    } else {
+        let list: String = failed_files.iter().map(|f| format!("<li>{}</li>", esc(f))).collect();
+        Ok(Html(page(
+            "New case",
+            Some(&user),
+            format!(
+                r#"<h1>Case created</h1>
+                   <p class="error">These attachments failed to upload — retry them from the case page.</p>
+                   <ul>{list}</ul>
+                   <p><a href="{case_url}">Go to case →</a></p>"#
+            ),
+        ))
+        .into_response())
+    }
 }
 
 async fn admin_case_manage(
@@ -1658,7 +1758,7 @@ async fn admin_case_manage(
     headers: HeaderMap,
     Path(id): Path<Uuid>,
 ) -> Result<Html<String>, Response> {
-    let user = require_role_or_admin(current_user(&app, &headers).await, "owner")?;
+    let user = require_role(current_user(&app, &headers).await, "admin")?;
     let case: Option<VCase> = sqlx::query_as(
         "select id, title, description, submitter_id, hidden, created_at from verified_cases where id = $1",
     )
@@ -1681,7 +1781,7 @@ async fn admin_case_edit_page(
     headers: HeaderMap,
     Path(id): Path<Uuid>,
 ) -> Result<Html<String>, Response> {
-    let user = require_role_or_admin(current_user(&app, &headers).await, "owner")?;
+    let user = require_role(current_user(&app, &headers).await, "admin")?;
     let case: Option<VCase> = sqlx::query_as(
         "select id, title, description, submitter_id, hidden, created_at from verified_cases where id = $1",
     )
@@ -1728,7 +1828,7 @@ async fn admin_case_edit_post(
     Path(id): Path<Uuid>,
     Form(f): Form<EditCaseForm>,
 ) -> Result<Redirect, Response> {
-    let _user = require_role_or_admin(current_user(&app, &headers).await, "owner")?;
+    let _user = require_role(current_user(&app, &headers).await, "admin")?;
     let title = f.title.trim();
     let description = f.description.trim();
     if title.is_empty() || description.is_empty() {
@@ -1749,7 +1849,7 @@ async fn admin_case_hide_toggle(
     headers: HeaderMap,
     Path(id): Path<Uuid>,
 ) -> Result<Redirect, Response> {
-    let _user = require_role_or_admin(current_user(&app, &headers).await, "owner")?;
+    let _user = require_role(current_user(&app, &headers).await, "admin")?;
     sqlx::query("update verified_cases set hidden = not hidden where id = $1")
         .bind(id)
         .execute(&app.pool)
@@ -1903,7 +2003,7 @@ async fn file_download(
     let Some((_submission_id, case_id, student_id, filename, content_type, storage_key)) = row else {
         return Err(StatusCode::NOT_FOUND.into_response());
     };
-    let authorized = is_admin_like(&user.role) || user.id == student_id || {
+    let authorized = user.role == "admin" || user.id == student_id || {
         let submitter: Option<(Uuid,)> =
             sqlx::query_as("select submitter_id from verified_cases where id = $1")
                 .bind(case_id)
@@ -1984,7 +2084,7 @@ async fn case_document_upload(
     let Some((submitter_id,)) = submitter_id else {
         return Err(StatusCode::NOT_FOUND.into_response());
     };
-    if !(is_admin_like(&user.role) || user.id == submitter_id) {
+    if !(user.role == "admin" || user.id == submitter_id) {
         return Err(StatusCode::FORBIDDEN.into_response());
     }
 
@@ -2012,16 +2112,34 @@ async fn case_document_upload(
         return Err(bad("Choose a file."));
     };
 
-    let doc_id = Uuid::new_v4();
-    let key = format!("case-docs/{id}/{doc_id}-{filename}");
-    let size = bytes.len() as i64;
-    storage_put(&app, &key, bytes, &content_type)
+    store_case_document(&app, id, user.id, filename, content_type, bytes)
         .await
         .map_err(|_| StatusCode::BAD_GATEWAY.into_response())?;
+
+    let dest = if user.role == "admin" {
+        format!("/admin/cases/{id}")
+    } else {
+        format!("/submitter/cases/{id}")
+    };
+    Ok(Redirect::to(&dest))
+}
+
+async fn store_case_document(
+    app: &App,
+    case_id: Uuid,
+    uploaded_by: Uuid,
+    filename: String,
+    content_type: String,
+    bytes: Vec<u8>,
+) -> Result<(), String> {
+    let doc_id = Uuid::new_v4();
+    let key = format!("case-docs/{case_id}/{doc_id}-{filename}");
+    let size = bytes.len() as i64;
+    storage_put(app, &key, bytes, &content_type).await?;
     let position: (i64,) = sqlx::query_as(
         "select coalesce(max(position), -1) + 1 from verified_case_documents where case_id = $1",
     )
-    .bind(id)
+    .bind(case_id)
     .fetch_one(&app.pool)
     .await
     .unwrap();
@@ -2030,23 +2148,17 @@ async fn case_document_upload(
          values ($1,$2,$3,$4,$5,$6,$7,$8)",
     )
     .bind(doc_id)
-    .bind(id)
+    .bind(case_id)
     .bind(&filename)
     .bind(&content_type)
     .bind(&key)
     .bind(size)
-    .bind(user.id)
+    .bind(uploaded_by)
     .bind(position.0 as i32)
     .execute(&app.pool)
     .await
     .unwrap();
-
-    let dest = if is_admin_like(&user.role) {
-        format!("/admin/cases/{id}")
-    } else {
-        format!("/submitter/cases/{id}")
-    };
-    Ok(Redirect::to(&dest))
+    Ok(())
 }
 
 // Admin-only: sets or replaces a submitter's avatar. Not exposed to the submitter
@@ -2057,7 +2169,7 @@ async fn admin_submitter_photo(
     Path(id): Path<Uuid>,
     mut mp: Multipart,
 ) -> Result<Redirect, Response> {
-    require_role_or_admin(current_user(&app, &headers).await, "owner")?;
+    require_role(current_user(&app, &headers).await, "admin")?;
     let bad = |msg: &str| (StatusCode::BAD_REQUEST, msg.to_string()).into_response();
 
     let case: Option<(Uuid,)> = sqlx::query_as("select submitter_id from verified_cases where id = $1")
@@ -2156,10 +2268,9 @@ fn nav(user: Option<&VUser>) -> String {
                 "admin" => {
                     r#"<a href="/admin">Cases</a><a href="/admin/admins">Admins</a>
                        <span class="muted">Preview:</span>
-                       <a href="/cases">Student</a><a href="/admin?preview=owner">Owner</a><a href="/submitter">Submitter</a>"#
+                       <a href="/cases">Student</a><a href="/submitter">Owner</a>"#
                 }
-                "owner" => r#"<a href="/admin">Cases</a>"#,
-                "submitter" => r#"<a href="/submitter">Your cases</a>"#,
+                "owner" | "submitter" => r#"<a href="/submitter">Your cases</a>"#,
                 _ => r#"<a href="/cases">Cases</a>"#,
             };
             format!(
