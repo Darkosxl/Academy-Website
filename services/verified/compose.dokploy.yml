@@ -1,0 +1,19 @@
+services:
+  verified:
+    build:
+      context: ../..
+      dockerfile: services/verified/Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?Same Supabase Postgres connection string as the Academy app}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:?Email seeded as the first admin}
+      RESEND_API_KEY: ${RESEND_API_KEY:?Same Resend key as the Academy app}
+      MAIL_FROM: ${MAIL_FROM:?e.g. Exposure Academy Verified <noreply@exposureai.org>}
+      APP_BASE_URL: ${APP_BASE_URL:-https://platform.exposureai.org}
+      SUPABASE_URL: ${SUPABASE_URL:?https://<project>.supabase.co}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:?Supabase Storage service-role key}
+      VERIFIED_STORAGE_BUCKET: ${VERIFIED_STORAGE_BUCKET:-verified-submissions}
+      VERIFIED_MAX_FILE_BYTES: ${VERIFIED_MAX_FILE_BYTES:-104857600}
+      VERIFIED_MAX_SUBMISSION_BYTES: ${VERIFIED_MAX_SUBMISSION_BYTES:-524288000}
+    # In Dokploy: set the app's domain to platform.exposureai.org, container port 3100 —
+    # Traefik handles routing + SSL once the domain is attached, same as the Academy app.

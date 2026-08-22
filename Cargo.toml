@@ -3,11 +3,13 @@ members = [
     "crates/benchmark-protocol",
     "services/academy",
     "services/benchmark-node",
+    "services/verified",
 ]
 default-members = [
     "crates/benchmark-protocol",
     "services/academy",
     "services/benchmark-node",
+    "services/verified",
 ]
 resolver = "2"
 

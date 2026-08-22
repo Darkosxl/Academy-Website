@@ -1,0 +1,17 @@
+[package]
+name = "verified"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+axum.workspace = true
+chrono.workspace = true
+dotenvy = "0.15"
+rand.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sqlx = { version = "0.8", features = ["postgres", "runtime-tokio-rustls", "uuid", "chrono"] }
+tokio.workspace = true
+tower-http = { version = "0.6", features = ["compression-gzip"] }
+uuid.workspace = true
